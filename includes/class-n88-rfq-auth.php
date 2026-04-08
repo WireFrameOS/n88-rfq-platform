@@ -91,6 +91,7 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_submit_validation_com', array( $this, 'ajax_submit_validation_com' ) );
         add_action( 'init', array( $this, 'maybe_ensure_hot_query_indexes' ), 20 );
         add_action( 'wp_ajax_n88_mark_validation_com_delivered', array( $this, 'ajax_mark_validation_com_delivered' ) );
+        add_action( 'wp_ajax_n88_supplier_mark_validation_com_received', array( $this, 'ajax_supplier_mark_validation_com_received' ) );
         add_action( 'wp_ajax_n88_submit_validation_deposit', array( $this, 'ajax_submit_validation_deposit' ) );
         
         // Commit 28: Operator marks deposit received (production Step 4 can then start)
@@ -340,11 +341,110 @@ class N88_RFQ_Auth {
      */
     private function get_default_wireframe_supplier_id() {
         $wireframe_user = get_user_by( 'email', self::N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL );
-        if ( ! $wireframe_user || ! in_array( 'n88_supplier_admin', (array) $wireframe_user->roles, true ) ) {
+        if ( ! $wireframe_user || ! array_intersect( (array) $wireframe_user->roles, array( 'n88_supplier_admin', 'n88_supplier', 'supplier' ) ) ) {
             return 0;
         }
 
         return (int) $wireframe_user->ID;
+    }
+
+    /**
+     * Resolve invited supplier user IDs saved on the item draft metadata.
+     *
+     * Supports email and username tokens, and always includes the default
+     * WireFrame supplier account when available.
+     *
+     * @param int $item_id Item ID.
+     * @return array<int>
+     */
+    private function get_item_invited_supplier_ids( $item_id ) {
+        global $wpdb;
+
+        $item_id = absint( $item_id );
+        if ( ! $item_id ) {
+            return array();
+        }
+
+        $items_table = $wpdb->prefix . 'n88_items';
+        $meta_json   = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d LIMIT 1",
+                $item_id
+            )
+        );
+
+        $meta_array = ! empty( $meta_json ) ? json_decode( $meta_json, true ) : array();
+        if ( ! is_array( $meta_array ) ) {
+            $meta_array = array();
+        }
+
+        $supplier_ids = array();
+        $invited_raw  = isset( $meta_array['rfq_draft_invited_suppliers'] ) ? $meta_array['rfq_draft_invited_suppliers'] : array();
+
+        if ( is_string( $invited_raw ) ) {
+            $decoded_invites = json_decode( $invited_raw, true );
+            if ( is_array( $decoded_invites ) ) {
+                $invited_raw = $decoded_invites;
+            } else {
+                $invited_raw = array_filter( array_map( 'trim', explode( ',', $invited_raw ) ) );
+            }
+        }
+
+        if ( ! is_array( $invited_raw ) ) {
+            $invited_raw = array();
+        }
+
+        foreach ( $invited_raw as $invite_token ) {
+            if ( is_array( $invite_token ) ) {
+                if ( ! empty( $invite_token['email'] ) ) {
+                    $invite_token = $invite_token['email'];
+                } elseif ( ! empty( $invite_token['value'] ) ) {
+                    $invite_token = $invite_token['value'];
+                } elseif ( ! empty( $invite_token['username'] ) ) {
+                    $invite_token = $invite_token['username'];
+                }
+            }
+
+            $invite_token = is_string( $invite_token ) ? trim( $invite_token ) : '';
+            if ( '' === $invite_token ) {
+                continue;
+            }
+
+            $supplier_user = false;
+            $invite_email  = sanitize_email( $invite_token );
+            if ( $invite_email ) {
+                $supplier_user = get_user_by( 'email', $invite_email );
+            }
+
+            if ( ! $supplier_user ) {
+                $supplier_user = get_user_by( 'login', sanitize_user( $invite_token, true ) );
+            }
+
+            if ( ! $supplier_user ) {
+                continue;
+            }
+
+            $supplier_roles = (array) $supplier_user->roles;
+            $disallowed_roles = array( 'n88_designer', 'designer', 'administrator', 'n88_system_operator' );
+            $allowed_supplier_roles = array( 'n88_supplier_admin', 'n88_supplier', 'supplier' );
+
+            if ( array_intersect( $supplier_roles, $disallowed_roles ) ) {
+                continue;
+            }
+
+            if ( ! array_intersect( $supplier_roles, $allowed_supplier_roles ) && empty( $supplier_roles ) ) {
+                continue;
+            }
+
+            $supplier_ids[] = (int) $supplier_user->ID;
+        }
+
+        $wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
+        if ( $wireframe_supplier_id > 0 ) {
+            $supplier_ids[] = $wireframe_supplier_id;
+        }
+
+        return array_values( array_unique( array_filter( array_map( 'absint', $supplier_ids ) ) ) );
     }
 
     /**
@@ -441,6 +541,11 @@ class N88_RFQ_Auth {
             }
         }
 
+        $invited_supplier_ids = $this->get_item_invited_supplier_ids( $item_id );
+        if ( ! empty( $invited_supplier_ids ) ) {
+            return (int) $invited_supplier_ids[0];
+        }
+
         return 0;
     }
 
@@ -469,7 +574,7 @@ class N88_RFQ_Auth {
         $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
         $messages_table           = $wpdb->prefix . 'n88_item_messages';
 
-        $supplier_ids = array();
+        $supplier_ids = $this->get_item_invited_supplier_ids( $item_id );
 
         $route_supplier_ids = $wpdb->get_col( $wpdb->prepare(
             "SELECT DISTINCT supplier_id
@@ -2478,7 +2583,7 @@ class N88_RFQ_Auth {
                 btn.setAttribute('aria-label', input.type === 'password' ? '<?php echo esc_js( __( 'Show password', 'n88-rfq-platform' ) ); ?>' : '<?php echo esc_js( __( 'Hide password', 'n88-rfq-platform' ) ); ?>');
             });
 
-            const form = document.getElementById('n88-signup-form');
+            var form = document.getElementById('n88-signup-form');
             if (!form) return;
 
             form.addEventListener('submit', function(e) {
@@ -2490,7 +2595,7 @@ class N88_RFQ_Auth {
                     return;
                 }
                 
-                const formData = new FormData(form);
+                var formData = new FormData(form);
                 formData.append('action', 'n88_register_user');
                 
                 // Debug: Check if nonce is included
@@ -2500,8 +2605,8 @@ class N88_RFQ_Auth {
                     return;
                 }
 
-                const submitBtn = form.querySelector('.n88-auth-submit');
-                const originalText = submitBtn.textContent;
+                var submitBtn = form.querySelector('.n88-auth-submit');
+                var originalText = submitBtn.textContent;
                 submitBtn.disabled = true;
                 submitBtn.textContent = 'Signing Up...';
 
@@ -2509,8 +2614,8 @@ class N88_RFQ_Auth {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     if (data.success) {
                         window.location.href = data.data.redirect_url || '<?php echo esc_url( home_url( '/login/?n88_signup_success=1' ) ); ?>';
                     } else {
@@ -2519,7 +2624,7 @@ class N88_RFQ_Auth {
                         submitBtn.textContent = originalText;
                     }
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Error:', error);
                     alert('An error occurred. Please try again.');
                     submitBtn.disabled = false;
@@ -2713,13 +2818,13 @@ class N88_RFQ_Auth {
             });
 
             // Commit 2.6.1: Handle invitation acceptance form
-            const acceptForm = document.getElementById('n88-accept-invitation-form');
+            var acceptForm = document.getElementById('n88-accept-invitation-form');
             if (acceptForm) {
                 acceptForm.addEventListener('submit', function(e) {
                     e.preventDefault();
                     
-                    const password = document.getElementById('n88_invite_password').value;
-                    const passwordConfirm = document.getElementById('n88_invite_password_confirm').value;
+                    var password = document.getElementById('n88_invite_password').value;
+                    var passwordConfirm = document.getElementById('n88_invite_password_confirm').value;
                     
                     if (password !== passwordConfirm) {
                         alert('Passwords do not match. Please try again.');
@@ -2731,11 +2836,11 @@ class N88_RFQ_Auth {
                         return;
                     }
                     
-                    const formData = new FormData(acceptForm);
+                    var formData = new FormData(acceptForm);
                     formData.append('action', 'n88_accept_team_invitation');
                     
-                    const submitBtn = acceptForm.querySelector('.n88-auth-submit');
-                    const originalText = submitBtn.textContent;
+                    var submitBtn = acceptForm.querySelector('.n88-auth-submit');
+                    var originalText = submitBtn.textContent;
                     submitBtn.disabled = true;
                     submitBtn.textContent = 'Creating Account...';
 
@@ -2743,16 +2848,16 @@ class N88_RFQ_Auth {
                         method: 'POST',
                         body: formData
                     })
-                    .then(response => {
+                    .then(function(response) {
                         // Check if response is ok
                         if (!response.ok) {
-                            return response.text().then(text => {
+                            return response.text().then(function(text) {
                                 throw new Error('HTTP error! status: ' + response.status + ', body: ' + text);
                             });
                         }
                         return response.json();
                     })
-                    .then(data => {
+                    .then(function(data) {
                         if (data.success) {
                             window.location.href = data.data.redirect_url || '<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-board-demo' ) ); ?>';
                         } else {
@@ -2761,7 +2866,7 @@ class N88_RFQ_Auth {
                             submitBtn.textContent = originalText;
                         }
                     })
-                    .catch(error => {
+                    .catch(function(error) {
                         console.error('Error:', error);
                         alert('An error occurred. Please try again. ' + (error.message || ''));
                         submitBtn.disabled = false;
@@ -2771,13 +2876,13 @@ class N88_RFQ_Auth {
             }
             
             // Regular login form
-            const form = document.getElementById('n88-login-form');
+            var form = document.getElementById('n88-login-form');
             if (!form) return;
 
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
                 
-                const formData = new FormData(form);
+                var formData = new FormData(form);
                 formData.append('action', 'n88_login_user');
                 
                 // Debug: Check if nonce is included
@@ -2787,8 +2892,8 @@ class N88_RFQ_Auth {
                     return;
                 }
 
-                const submitBtn = form.querySelector('.n88-auth-submit');
-                const originalText = submitBtn.textContent;
+                var submitBtn = form.querySelector('.n88-auth-submit');
+                var originalText = submitBtn.textContent;
                 submitBtn.disabled = true;
                 submitBtn.textContent = 'Logging In...';
 
@@ -2796,8 +2901,8 @@ class N88_RFQ_Auth {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     if (data.success) {
                         window.location.href = data.data.redirect_url || '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
                     } else {
@@ -2806,7 +2911,7 @@ class N88_RFQ_Auth {
                         submitBtn.textContent = originalText;
                     }
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Error:', error);
                     alert('An error occurred. Please try again.');
                     submitBtn.disabled = false;
@@ -3904,6 +4009,7 @@ class N88_RFQ_Auth {
         // Check if rfq_revision_at_submit column exists in bids table
         $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
         $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+        $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
         
         // Get routed items with eligible_after for time calculation
                         $routed_items_base = $wpdb->get_results( $wpdb->prepare(
@@ -4151,20 +4257,9 @@ class N88_RFQ_Auth {
             $has_message_action_required = $has_unread_operator_messages || $has_unread_designer_messages;
             $show_action_required = $has_message_action_required;
             if ( $action_badge === 'awarded' ) {
-                // Commit 3.C.1: Show Action Required when supplier must submit Official Quote PDF
-                $meta_award = array();
-                if ( ! empty( $item_data['meta_json'] ) ) {
-                    $decoded = json_decode( $item_data['meta_json'], true );
-                    if ( is_array( $decoded ) ) {
-                        $meta_award = $decoded;
-                    }
-                }
-                $oq_status = isset( $meta_award['official_quote_status'] ) ? $meta_award['official_quote_status'] : '';
-                if ( $oq_status !== 'submitted' ) {
-                    $show_action_required = true; // Awarded  Quote PDF Required = action required
-                } else {
-                    $show_action_required = $has_message_action_required;
-                }
+                // Supplier queue should treat designer award as a passive queue state.
+                // Any follow-up work happens inside the awarded workflow modal.
+                $show_action_required = false;
             }
             if ( $prototype_status === 'approved' ) {
                 $show_action_required = $has_message_action_required;
@@ -4207,6 +4302,30 @@ class N88_RFQ_Auth {
             $validation_deposit_confirmed = ! empty( $validation_commitment_state['deposit_confirmed_at'] ) || in_array( $validation_deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
             $validation_com_status       = isset( $validation_commitment_state['com_status'] ) ? sanitize_key( (string) $validation_commitment_state['com_status'] ) : '';
             $validation_com_shipped      = ! empty( $validation_commitment_state['com_shipped_at'] ) || in_array( $validation_com_status, array( 'com_in_transit', 'shipped', 'in_transit' ), true );
+            $validation_com_completed    = ! empty( $validation_commitment_state['com_delivered_at'] ) || in_array( $validation_com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
+            $meta_for_status = array();
+            if ( ! empty( $item_data['meta_json'] ) ) {
+                $decoded_meta = json_decode( $item_data['meta_json'], true );
+                if ( is_array( $decoded_meta ) ) {
+                    $meta_for_status = $decoded_meta;
+                }
+            }
+            $deposit_status        = isset( $meta_for_status['deposit_status'] ) ? $meta_for_status['deposit_status'] : '';
+            $award_set             = isset( $meta_for_status['award_set'] ) ? (bool) $meta_for_status['award_set'] : false;
+            $official_quote_status = isset( $meta_for_status['official_quote_status'] ) ? $meta_for_status['official_quote_status'] : '';
+            $award_progress_override = ( $action_badge === 'awarded' ) && (
+                $validation_com_shipped
+                || $validation_deposit_confirmed
+                || $validation_po_uploaded
+                || $official_quote_status === 'submitted'
+                || $deposit_status === 'received'
+                || $award_set
+            );
+            if ( $award_progress_override ) {
+                $has_message_action_required = false;
+                $show_action_required = false;
+                $status_note = '';
+            }
 
             if ( $has_unread_designer_messages ) {
                 $status_note = sprintf(
@@ -4229,18 +4348,10 @@ class N88_RFQ_Auth {
                 $is_action_required = true;
             } elseif ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Commercial gate states for supplier queue
-                $meta_for_status = array();
-                if ( ! empty( $item_data['meta_json'] ) ) {
-                    $decoded_meta = json_decode( $item_data['meta_json'], true );
-                    if ( is_array( $decoded_meta ) ) {
-                        $meta_for_status = $decoded_meta;
-                    }
-                }
-                $deposit_status        = isset( $meta_for_status['deposit_status'] ) ? $meta_for_status['deposit_status'] : '';
-                $award_set             = isset( $meta_for_status['award_set'] ) ? (bool) $meta_for_status['award_set'] : false;
-                $official_quote_status = isset( $meta_for_status['official_quote_status'] ) ? $meta_for_status['official_quote_status'] : '';
-
-                if ( $validation_com_shipped ) {
+                if ( $validation_com_completed ) {
+                    $status_label = __( 'Ready for Production', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $validation_com_shipped ) {
                     $status_label = __( 'COM Shipped', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $validation_deposit_confirmed || $award_set || $deposit_status === 'received' ) {
@@ -4249,28 +4360,27 @@ class N88_RFQ_Auth {
                 } elseif ( $validation_po_uploaded ) {
                     $status_label = __( 'PO Uploaded', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
-                } elseif ( $official_quote_status === 'submitted' ) {
-                    $status_label = __( 'Project Awarded', 'n88-rfq-platform' );
-                    $status_color = '#00ff00';
                 } elseif ( $validation_samples_approved ) {
                     $status_label = __( 'Samples Approved', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $validation_samples_received ) {
-                    $status_label = __( 'Samples Received', 'n88-rfq-platform' );
+                    $status_label = __( 'Sample Received', 'n88-rfq-platform' );
                     $status_color = '#66aaff';
                 } elseif ( $validation_samples_shipped ) {
                     $status_label = __( 'Samples Shipped', 'n88-rfq-platform' );
                     $status_color = '#66aaff';
                 } else {
-                    $status_label = __( 'Project Awarded - Quote PDF Required', 'n88-rfq-platform' );
-                    $status_color = '#ff8800';
-                    $is_action_required = true;
+                    $status_label = __( 'No Action Required', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                    $status_note = __( 'Project Awarded', 'n88-rfq-platform' );
+                    $status_note_color = '#00ff00';
+                    $is_action_required = false;
                 }
             } elseif ( $validation_samples_approved ) {
                 $status_label = __( 'Samples Approved', 'n88-rfq-platform' );
                 $status_color = '#00ff00';
             } elseif ( $validation_samples_received ) {
-                $status_label = __( 'Samples Received', 'n88-rfq-platform' );
+                $status_label = __( 'Sample Received', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
             } elseif ( $validation_samples_shipped ) {
                 $status_label = __( 'Samples Shipped', 'n88-rfq-platform' );
@@ -4565,10 +4675,14 @@ class N88_RFQ_Auth {
                                 
                                 switch ( $item_data['action_badge'] ) {
                                     case 'awarded':
+                                        $action_button_text = __( 'Project Awarded', 'n88-rfq-platform' ) . ' ->';
+                                        break;
                                     case 'cad_video_approved':
                                     case 'changes_received':
-                                    case 'submitted':
                                         $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ->';
+                                        break;
+                                    case 'submitted':
+                                        $action_button_text = __( 'View Proposal', 'n88-rfq-platform' ) . ' ->';
                                         break;
                                     case 'submit_bid':
                                         $action_button_text = __( 'Submit Proposal', 'n88-rfq-platform' ) . ' ->';
@@ -4587,7 +4701,39 @@ class N88_RFQ_Auth {
                                         break;
                                 }
                                 if ( ! empty( $item_data['validation_requires_sample_upload'] ) ) {
-                                    $action_button_text = __( 'Upload Sample', 'n88-rfq-platform' ) . ' ->';
+                                    $action_button_text = __( 'Material Sample Kit Requested', 'n88-rfq-platform' ) . ' ->';
+                                } elseif ( ! empty( $item_data['supplier_status_label'] ) ) {
+                                    $supplier_status_label = trim( (string) $item_data['supplier_status_label'] );
+
+                                    if ( in_array( $supplier_status_label, array( 'Sample Received', 'Samples Received' ), true ) ) {
+                                        $action_button_text = __( 'Sample Received', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Samples Approved' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Samples Approved', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Ready for Production' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Ready for Production', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'COM Shipped' === $supplier_status_label ) {
+                                        $action_button_text = __( 'COM Shipped', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Samples Shipped' === $supplier_status_label ) {
+                                        $action_button_text = __( 'View Material Sample Shipped', 'n88-rfq-platform' ) . ' ->';
+                                    }
+                                }
+                                $queue_open_tab = '';
+                                $queue_open_step = '';
+                                if ( ! empty( $item_data['supplier_status_label'] ) && 'Ready for Production' === trim( (string) $item_data['supplier_status_label'] ) ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '3';
+                                } elseif ( 'submitted' === $item_data['action_badge'] ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '0';
+                                } elseif ( 'awarded' === $item_data['action_badge'] ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '2';
+                                } elseif ( ! empty( $item_data['validation_requires_sample_upload'] ) ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '1';
+                                } elseif ( ! empty( $item_data['supplier_status_label'] ) && 'Samples Approved' === trim( (string) $item_data['supplier_status_label'] ) ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '1';
                                 }
                             ?>
                                 <tr>
@@ -4625,7 +4771,9 @@ class N88_RFQ_Auth {
                                                     data-item-id="<?php echo esc_attr( $item_id ); ?>" 
                                                     data-item-title="<?php echo esc_attr( $item_title ); ?>" 
                                                     data-category="<?php echo esc_attr( $category ); ?>"
-                                                    data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>">
+                                                    data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
+                                                    data-open-tab="<?php echo esc_attr( $queue_open_tab ); ?>"
+                                                    data-open-step="<?php echo esc_attr( $queue_open_step ); ?>">
                                                 [ <?php echo esc_html( preg_replace( '/\s*>\s*$/', '', $action_button_text ) ); ?> ]
                                             </button>
                                         <?php else : ?>
@@ -4643,7 +4791,7 @@ class N88_RFQ_Auth {
                                         $status_note = isset( $item_data['supplier_status_note'] ) ? $item_data['supplier_status_note'] : '';
                                         $status_note_color = isset( $item_data['supplier_status_note_color'] ) ? $item_data['supplier_status_note_color'] : '#ff9800';
                                         ?>
-                                        <div style="margin-top: 4px;"><span style="color: <?php echo esc_attr( $status_color ); ?>; font-size: 11px;"><?php echo esc_html( $status_label ); ?></span></div>
+                                        <div style="margin-top: 4px;"><span class="n88-supplier-queue-status-label" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="color: <?php echo esc_attr( $status_color ); ?>; font-size: 11px;"><?php echo esc_html( $status_label ); ?></span></div>
                                         <?php if ( ! empty( $status_note ) ) : ?>
                                             <div style="margin-top: 3px;"><span style="color: <?php echo esc_attr( $status_note_color ); ?>; font-size: 10px;"><?php echo esc_html( $status_note ); ?></span></div>
                                         <?php endif; ?>
@@ -4809,44 +4957,79 @@ class N88_RFQ_Auth {
                 detailPromises: {},
                 detailCache: {},
                 detailCacheMeta: {},
+                messagePromises: {},
+                messageCache: {},
+                messageCacheMeta: {},
                 formLoaded: {},
                 formLoadPromises: {}
             };
 
+            function getSupplierDetailCacheKey(itemId, section) {
+                return String(itemId) + ':' + String(section || 'summary');
+            }
+
+            function getSupplierMessageCacheKey(itemId, contextType) {
+                return String(itemId) + ':' + String(contextType || 'item_specs');
+            }
+
             function invalidateSupplierItemDetailsCache(itemId) {
                 var state = window.n88SupplierBatchState || {};
                 if (!state) return;
-                if (state.detailPromises && state.detailPromises[itemId]) {
-                    delete state.detailPromises[itemId];
-                }
-                if (state.detailCache && state.detailCache[itemId]) {
-                    delete state.detailCache[itemId];
-                }
-                if (state.detailCacheMeta && state.detailCacheMeta[itemId]) {
-                    delete state.detailCacheMeta[itemId];
-                }
+                Object.keys(state.detailPromises || {}).forEach(function(cacheKey) {
+                    if (cacheKey.indexOf(String(itemId) + ':') === 0) {
+                        delete state.detailPromises[cacheKey];
+                    }
+                });
+                Object.keys(state.detailCache || {}).forEach(function(cacheKey) {
+                    if (cacheKey.indexOf(String(itemId) + ':') === 0) {
+                        delete state.detailCache[cacheKey];
+                    }
+                });
+                Object.keys(state.detailCacheMeta || {}).forEach(function(cacheKey) {
+                    if (cacheKey.indexOf(String(itemId) + ':') === 0) {
+                        delete state.detailCacheMeta[cacheKey];
+                    }
+                });
+                Object.keys(state.messagePromises || {}).forEach(function(cacheKey) {
+                    if (cacheKey.indexOf(String(itemId) + ':') === 0) {
+                        delete state.messagePromises[cacheKey];
+                    }
+                });
+                Object.keys(state.messageCache || {}).forEach(function(cacheKey) {
+                    if (cacheKey.indexOf(String(itemId) + ':') === 0) {
+                        delete state.messageCache[cacheKey];
+                    }
+                });
+                Object.keys(state.messageCacheMeta || {}).forEach(function(cacheKey) {
+                    if (cacheKey.indexOf(String(itemId) + ':') === 0) {
+                        delete state.messageCacheMeta[cacheKey];
+                    }
+                });
             }
 
             function fetchSupplierItemDetails(itemId, options) {
                 var state = window.n88SupplierBatchState;
                 options = options || {};
                 var forceRefresh = !!options.forceRefresh;
+                var section = options.section || 'summary';
                 var cacheTtlMs = typeof options.cacheTtlMs === 'number' ? options.cacheTtlMs : 15000;
-                var cachedAt = state.detailCacheMeta && state.detailCacheMeta[itemId] ? state.detailCacheMeta[itemId] : 0;
-                if (!forceRefresh && state.detailCache && state.detailCache[itemId] && cachedAt && (Date.now() - cachedAt) < cacheTtlMs) {
+                var cacheKey = getSupplierDetailCacheKey(itemId, section);
+                var cachedAt = state.detailCacheMeta && state.detailCacheMeta[cacheKey] ? state.detailCacheMeta[cacheKey] : 0;
+                if (!forceRefresh && state.detailCache && state.detailCache[cacheKey] && cachedAt && (Date.now() - cachedAt) < cacheTtlMs) {
                     return Promise.resolve({
                         success: true,
-                        data: state.detailCache[itemId]
+                        data: state.detailCache[cacheKey]
                     });
                 }
-                if (state.detailPromises && state.detailPromises[itemId]) {
-                    return state.detailPromises[itemId];
+                if (state.detailPromises && state.detailPromises[cacheKey]) {
+                    return state.detailPromises[cacheKey];
                 }
                 var formData = new FormData();
                 formData.append('action', 'n88_get_supplier_item_details');
                 formData.append('item_id', itemId);
+                formData.append('section', section);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
-                state.detailPromises[itemId] = fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                state.detailPromises[cacheKey] = fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData,
                     credentials: 'same-origin'
@@ -4854,14 +5037,14 @@ class N88_RFQ_Auth {
                     return response.json();
                 }).then(function(result) {
                     if (result && result.success && result.data) {
-                        state.detailCache[itemId] = result.data;
-                        state.detailCacheMeta[itemId] = Date.now();
+                        state.detailCache[cacheKey] = result.data;
+                        state.detailCacheMeta[cacheKey] = Date.now();
                     }
                     return result;
                 }).finally(function() {
-                    delete state.detailPromises[itemId];
+                    delete state.detailPromises[cacheKey];
                 });
-                return state.detailPromises[itemId];
+                return state.detailPromises[cacheKey];
             }
 
             function escapeBatchText(value) {
@@ -5505,10 +5688,11 @@ class N88_RFQ_Auth {
                 if (item.delivery_country || item.delivery_postal_code) {
                     deliveryText = (item.delivery_country || '') + (item.delivery_postal_code ? (' ' + item.delivery_postal_code) : '');
                 }
+                var normalizedFabricFlag = String(item.rfq_fabric_supplied_flag || '').toLowerCase();
                 var fabricSuppliedText = 'No';
-                if (item.rfq_fabric_supplied_flag === 'yes') {
+                if (normalizedFabricFlag === 'yes' || normalizedFabricFlag === '1' || normalizedFabricFlag === 'true') {
                     fabricSuppliedText = 'Yes';
-                } else if (item.rfq_fabric_supplied_flag === 'no') {
+                } else if (normalizedFabricFlag === 'no' || normalizedFabricFlag === '0' || normalizedFabricFlag === 'false') {
                     fabricSuppliedText = 'No';
                 } else if (item.rfq_fabric_supplied_flag) {
                     fabricSuppliedText = item.rfq_fabric_supplied_flag;
@@ -5550,13 +5734,6 @@ class N88_RFQ_Auth {
                             '<input type="hidden" name="item_id" value="' + itemId + '">' +
                             '<div id="n88-supplier-clarification-messages-overview-' + itemId + '" style="flex:1 1 auto; min-height:280px; overflow-y:auto; padding:16px; background-color:#0a0a0a; border-radius:10px; margin-bottom:12px; border:1px solid #555; display:flex; flex-direction:column;">' +
                                 '<div style="text-align:center; color:#666; font-size:12px; padding:20px; margin:auto;">Loading conversation...</div>' +
-                            '</div>' +
-                            '<div style="margin-bottom:4px; flex-shrink:0;">' +
-                                '<div style="font-size:9px; color:#888; margin-bottom:3px;">Select all that apply</div>' +
-                                '<div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap;">' +
-                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-clarifying-overview-' + itemId + '" value="clarifying_questions" style="width:11px; height:11px; cursor:pointer;"> <span>Clarifying questions</span></label>' +
-                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-mse-overview-' + itemId + '" value="mse_material" style="width:11px; height:11px; cursor:pointer;"> <span>MSE/Material Suggestions</span></label>' +
-                                '</div>' +
                             '</div>' +
                             '<div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">' +
                                 '<textarea id="n88-clarification-message-overview-' + itemId + '" name="message_text" required rows="2" style="flex:1; padding:10px 12px; background-color:#000; color:#fff; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:12px; resize:none; min-height:40px; max-height:100px;" placeholder="Type your message..."></textarea>' +
@@ -5611,6 +5788,7 @@ class N88_RFQ_Auth {
                                     '<div><strong style="color:#fff;">Category:</strong> ' + escapeBatchText(item.category || '-') + '</div>' +
                                     '<div><strong style="color:#fff;">Dims:</strong> ' + escapeBatchText(dimsText) + '</div>' +
                                     '<div><strong style="color:#fff;">Fabric Supplied:</strong> ' + escapeBatchText(fabricSuppliedText) + '</div>' +
+                                    ((item.bid_data && item.bid_data.fabric_quantity !== null && item.bid_data.fabric_quantity !== undefined && String(item.bid_data.fabric_quantity).trim() !== '') ? '<div><strong style="color:#fff;">Fabric Quantity:</strong> ' + escapeBatchText(item.bid_data.fabric_quantity) + '</div>' : '') +
                                 '</div>' +
                                 '<div style="margin-top:14px; font-size:11px; color:#999; font-family:monospace;">Keywords: ' + escapeBatchText(keywordsText) + '</div>' +
                                 '<div style="margin-top:14px;">' + supportSectionHTML + '</div>' +
@@ -5750,10 +5928,10 @@ class N88_RFQ_Auth {
             // Filter persistence via URL query parameters (M5)
             var searchTimeout;
             function updateSupplierQueueURL() {
-                var status = document.getElementById('n88-supplier-status')?.value || 'needs_action';
-                var timeRemaining = document.getElementById('n88-supplier-time-remaining')?.value || 'all';
-                var category = document.getElementById('n88-supplier-category')?.value || 'all';
-                var search = document.getElementById('n88-supplier-search')?.value || '';
+                var status = (document.getElementById('n88-supplier-status') && document.getElementById('n88-supplier-status').value) || 'needs_action';
+                var timeRemaining = (document.getElementById('n88-supplier-time-remaining') && document.getElementById('n88-supplier-time-remaining').value) || 'all';
+                var category = (document.getElementById('n88-supplier-category') && document.getElementById('n88-supplier-category').value) || 'all';
+                var search = (document.getElementById('n88-supplier-search') && document.getElementById('n88-supplier-search').value) || '';
                 
                 var params = new URLSearchParams(window.location.search);
                 
@@ -5921,7 +6099,41 @@ class N88_RFQ_Auth {
                 var threadConfig = getSupplierMessageDomConfig(itemId, contextType);
                 var messagesContainer = document.getElementById(threadConfig.messagesContainerId);
                 if (!messagesContainer) return;
-                
+                var state = window.n88SupplierBatchState || {};
+                var cacheKey = getSupplierMessageCacheKey(itemId, threadConfig.contextType);
+                var cachedPayload = state.messageCache && state.messageCache[cacheKey] ? state.messageCache[cacheKey] : null;
+                var cachedAt = state.messageCacheMeta && state.messageCacheMeta[cacheKey] ? state.messageCacheMeta[cacheKey] : 0;
+                var cacheTtlMs = 15000;
+
+                if (cachedPayload && cachedAt && (Date.now() - cachedAt) < cacheTtlMs) {
+                    window.n88SupplierDirectThreadContext[String(itemId || '')] = String(cachedPayload && cachedPayload.supplier_id ? cachedPayload.supplier_id : n88CurrentSupplierThreadUserId);
+                    renderSupplierMessagesInline(cachedPayload.messages || [], itemId, {
+                        has_operator_reply: !!(cachedPayload.has_operator_reply),
+                        supplier_confirmed_clarification: !!(cachedPayload.supplier_confirmed_clarification),
+                        has_operator_reply_after_confirmation: !!(cachedPayload.has_operator_reply_after_confirmation),
+                        supplier_has_submitted_bid: !!(cachedPayload.supplier_has_submitted_bid),
+                        bid_id: cachedPayload.bid_id || 0
+                    }, threadConfig.contextType);
+                    return;
+                }
+
+                if (state.messagePromises && state.messagePromises[cacheKey]) {
+                    messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading conversation...</div>';
+                    state.messagePromises[cacheKey].then(function(data) {
+                        if (data && data.success && data.data && data.data.messages) {
+                            window.n88SupplierDirectThreadContext[String(itemId || '')] = String(data.data && data.data.supplier_id ? data.data.supplier_id : n88CurrentSupplierThreadUserId);
+                            renderSupplierMessagesInline(data.data.messages, itemId, {
+                                has_operator_reply: !!(data.data.has_operator_reply),
+                                supplier_confirmed_clarification: !!(data.data.supplier_confirmed_clarification),
+                                has_operator_reply_after_confirmation: !!(data.data.has_operator_reply_after_confirmation),
+                                supplier_has_submitted_bid: !!(data.data.supplier_has_submitted_bid),
+                                bid_id: data.data.bid_id || 0
+                            }, threadConfig.contextType);
+                        }
+                    });
+                    return;
+                }
+
                 messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading conversation...</div>';
                 
                 var formData = new FormData();
@@ -5932,7 +6144,7 @@ class N88_RFQ_Auth {
                 formData.append('context_type', threadConfig.contextType);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_item_messages' ); ?>');
                 
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                state.messagePromises[cacheKey] = fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData
                 })
@@ -5946,6 +6158,12 @@ class N88_RFQ_Auth {
                 })
                 .then(function(data) {
                     if (data.success && data.data && data.data.messages) {
+                        if (state.messageCache) {
+                            state.messageCache[cacheKey] = data.data;
+                        }
+                        if (state.messageCacheMeta) {
+                            state.messageCacheMeta[cacheKey] = Date.now();
+                        }
                         window.n88SupplierDirectThreadContext[String(itemId || '')] = String(data.data && data.data.supplier_id ? data.data.supplier_id : n88CurrentSupplierThreadUserId);
                         var opts = {
                             has_operator_reply: !!(data.data.has_operator_reply),
@@ -5962,6 +6180,11 @@ class N88_RFQ_Auth {
                 .catch(function(error) {
                     console.error('Error loading messages:', error);
                     messagesContainer.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 12px; padding: 20px;">Error loading messages: ' + String((error && error.message) ? error.message : 'Please try again.').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                })
+                .finally(function() {
+                    if (state.messagePromises) {
+                        delete state.messagePromises[cacheKey];
+                    }
                 });
             }
             
@@ -6277,6 +6500,15 @@ class N88_RFQ_Auth {
                         if (fileInput) fileInput.value = '';
                         window.n88SupplierMessageFiles[String(itemId || '') + '::' + String(threadConfig.contextType || 'item_specs')] = [];
                         if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId, threadConfig.contextType);
+                        if (window.n88SupplierBatchState) {
+                            var cacheKey = getSupplierMessageCacheKey(itemId, threadConfig.contextType);
+                            if (window.n88SupplierBatchState.messageCache && window.n88SupplierBatchState.messageCache[cacheKey]) {
+                                delete window.n88SupplierBatchState.messageCache[cacheKey];
+                            }
+                            if (window.n88SupplierBatchState.messageCacheMeta && window.n88SupplierBatchState.messageCacheMeta[cacheKey]) {
+                                delete window.n88SupplierBatchState.messageCacheMeta[cacheKey];
+                            }
+                        }
                         
                         // Reload messages
                         loadSupplierMessagesInline(itemId, threadConfig.contextType);
@@ -6507,7 +6739,7 @@ class N88_RFQ_Auth {
                                     window.location.reload();
                                 }
                             } else {
-                                alert('Error: ' + (data.data?.message || 'Failed to submit prototype video.'));
+                                alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to submit prototype video.'));
                             }
                             if (submitBtn) {
                                 submitBtn.disabled = false;
@@ -6536,7 +6768,7 @@ class N88_RFQ_Auth {
             // Re-initialize after modal content is updated (use MutationObserver or call after modal update)
             window.initPrototypeVideoForms = initPrototypeVideoForms;
             
-            function openBidModal(itemId, preferredTab) {
+            function openBidModal(itemId, preferredTab, preferredStep) {
                 // preferredTab: optional 'overview' or 'workflow'; legacy 'bid' now maps to overview
                 // Ensure lightbox functions are available before creating modal HTML
                 if (typeof window.openSupplierImageLightbox !== 'function') {
@@ -6558,8 +6790,17 @@ class N88_RFQ_Auth {
                 modal.style.setProperty('background-color', 'transparent', 'important');
                 modal.style.setProperty('backdrop-filter', 'blur(0.6px)', 'important');
                 document.body.style.overflow = 'hidden';
-                
-                fetchSupplierItemDetails(itemId)
+
+                var forceFullRender = preferredTab === '__full__';
+                if (forceFullRender) {
+                    preferredTab = 'overview';
+                }
+                var fullCacheKey = getSupplierDetailCacheKey(itemId, 'full');
+                var hasFullCache = !!(window.n88SupplierBatchState && window.n88SupplierBatchState.detailCache && window.n88SupplierBatchState.detailCache[fullCacheKey]);
+                // Supplier modal workflow state depends on full payload (submitted bid, award, prototype, deposit).
+                // Always load the full detail payload so Step 1 / Step 3 never render from incomplete summary data.
+                var detailSection = 'full';
+                fetchSupplierItemDetails(itemId, { section: detailSection, forceRefresh: true })
                 .then(function(data) {
                     if (!data.success) {
                         modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' + 
@@ -6578,6 +6819,9 @@ class N88_RFQ_Auth {
                     }
                     
                     var item = data.data;
+                    if (preferredStep !== null && preferredStep !== undefined && !isNaN(parseInt(preferredStep, 10))) {
+                        item.supplier_workflow_active_step = parseInt(preferredStep, 10);
+                    }
                     
                     // Format dimensions (Commit 2.3.5.4: Format as W x D x H + unit)
                     var dimsText = '-';
@@ -6751,9 +6995,9 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;">' + (item.category || '-') + '</span></div>' +
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '-') + '</span></div>' +
-                        (item.route_label ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Routing:</strong> <span style="color: #FF0065;">' + item.route_label + '</span></div>' : '') +
+                        '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Designer:</strong> <span style="color: #FF0065;">' + (item.designer_name || '-') + '</span></div>' +
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '-') + (item.delivery_postal_code ? ' ' + (item.delivery_postal_code || '') : '') + '</span></div>' +
-                        (item.rfq_fabric_supplied_flag ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Fabric Supplied:</strong> <span style="color: #fff;">' + (item.rfq_fabric_supplied_flag === 'yes' ? 'YES' : 'NO') + '</span></div>' : '') +
+                        (item.rfq_fabric_supplied_flag ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Fabric Supplied:</strong> <span style="color: #fff;">' + (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true')) ? 'YES' : 'NO') + '</span></div>' : '') +
                         (item.rfq_fabric_notes && String(item.rfq_fabric_notes).trim() && String(item.rfq_fabric_notes).trim() !== '-' ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Fabric Notes:</strong> <span style="color: #fff; white-space: pre-wrap;">' + String(item.rfq_fabric_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
                         (hasItemDescription ? ('<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Description:</strong></div>' +
                         '<div style="margin-top: 4px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + itemDescriptionText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>') : '') +
@@ -6780,13 +7024,6 @@ class N88_RFQ_Auth {
                         '<input type="hidden" name="item_id" value="' + itemId + '">' +
                         '<div id="n88-supplier-clarification-messages-overview-' + itemId + '" style="flex: 0 0 350px; min-height: 300px; max-height: 300px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 10px; margin-bottom: 12px; border: 1px solid #555; display: flex; flex-direction: column;">' +
                         '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
-                        '</div>' +
-                        '<div style="margin-bottom: 4px; flex-shrink: 0;">' +
-                        '<div style="font-size: 9px; color: #888; margin-bottom: 3px;">Select all that apply</div>' +
-                        '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">' +
-                        '<label style="display: inline-flex; align-items: center; gap: 3px; color: #ccc; font-size: 9px; cursor: pointer; white-space: nowrap; line-height: 1;"><input type="checkbox" id="n88-supplier-tag-clarifying-overview-' + itemId + '" value="clarifying_questions" style="width: 11px; height: 11px; cursor: pointer;"> <span>Clarifying questions</span></label>' +
-                        '<label style="display: inline-flex; align-items: center; gap: 3px; color: #ccc; font-size: 9px; cursor: pointer; white-space: nowrap; line-height: 1;"><input type="checkbox" id="n88-supplier-tag-mse-overview-' + itemId + '" value="mse_material" style="width: 11px; height: 11px; cursor: pointer;"> <span>MSE/Material Suggestions</span></label>' +
-                        '</div>' +
                         '</div>' +
                         '<div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">' +
                         '<textarea id="n88-clarification-message-overview-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message..."></textarea>' +
@@ -6831,10 +7068,20 @@ class N88_RFQ_Auth {
                         // Commit 2.3.9.2: Prototype block uses item.payment_notification OR bid_data.payment_notification so tab shows whenever CAD/prototype request exists
                         var paymentNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
                         var protoFallback = { full: '', step1Box: '', step2Box: '', step3Box: '' };
+                        var effectiveBidStatus = item.bid_status
+                            || (item.bid_data && (item.bid_data.bid_status || item.bid_data.status))
+                            || (item.latest_stale_bid_data && (item.latest_stale_bid_data.bid_status || item.latest_stale_bid_data.status))
+                            || ((item.route_status === 'bid_submitted') ? 'submitted' : '')
+                            || '';
+                        if (item.is_awarded_supplier === true && effectiveBidStatus !== 'awarded') {
+                            effectiveBidStatus = 'awarded';
+                        }
+                        var hasSubmittedStatus = (effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded');
                         var bidAndPrototype = (function() {
-                            var bid = item.bid_data || {};
+                        var bidForDisplay = item.bid_data || item.latest_stale_bid_data || null;
+                        var bid = bidForDisplay || {};
                             var officialQuoteBlockHTML = '';
-                            var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
+                            var isBidAwarded = effectiveBidStatus === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
                             var prototypeApprovedNotAwarded = paymentNotif && paymentNotif.prototype_status === 'approved' && !isBidAwarded;
                             var protoResult = paymentNotif ? (function() {
                                 var notif = paymentNotif;
@@ -6956,7 +7203,7 @@ class N88_RFQ_Auth {
                                     '<button type="submit" style="padding: 10px 16px; background-color: #666; color: #fff; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;">Submit Prototype Video</button></form></div>';
                                 return { full: baseBlock + submissionHTML, step1Box: step1Box, step2Box: step2Box + submissionHTML, step3Box: '' };
                             })() : protoFallback;
-                            var bidBoxHTML = ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data) ? (function() {
+                            var bidBoxHTML = (hasSubmittedStatus && bidForDisplay) ? (function() {
                             var videoLinksHTML = '';
                             if (bid.video_links && bid.video_links.length > 0) {
                                 bid.video_links.forEach(function(link, index) {
@@ -7130,6 +7377,7 @@ class N88_RFQ_Auth {
                                 (bid.prototype_cost !== null && bid.prototype_cost !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype Cost:</strong> <span style="color: #fff;">$' + parseFloat(bid.prototype_cost).toFixed(2) + '</span></div>' : '') +
                                 (bid.production_lead_time ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Production Lead Time:</strong> <span style="color: #fff;">' + bid.production_lead_time + '</span></div>' : '') +
                                 (bid.material_included ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Material Included:</strong> <span style="color: #fff;">' + String(bid.material_included).replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); }) + '</span></div>' : '') +
+                                (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes' || String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1' || String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true') || (bid.fabric_quantity !== null && bid.fabric_quantity !== undefined && String(bid.fabric_quantity).trim() !== '')) ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Quantity:</strong> <span style="color: #fff;">' + String((bid.fabric_quantity !== null && bid.fabric_quantity !== undefined && String(bid.fabric_quantity).trim() !== '') ? bid.fabric_quantity : 'Not provided').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
                                 (bid.sample_required ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Sample Required:</strong> <span style="color: #fff;">' + (String(bid.sample_required).toLowerCase() === 'yes' ? 'Yes' : 'No') + '</span></div>' : '') +
                                 (bid.unit_price !== null && bid.unit_price !== undefined ? (function() {
                                     var unitPriceHtml = '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Unit Price:</strong> <span style="color: #FF0065; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>';
@@ -7141,42 +7389,65 @@ class N88_RFQ_Auth {
                                 (bid.proposal_notes ? '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Proposal Notes:</strong><div style="margin-top: 6px; color: #fff; white-space: pre-wrap; font-size: 13px; line-height: 1.5;">' + String(bid.proposal_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div></div>' : '') +
                                 smartAltHTML +
                             '</div></div>';
-                            })() : '';
+                            })() : (hasSubmittedStatus ? '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 24px; font-family: monospace;">' +
+                                '<div style="font-size: 16px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Your Submitted Bid</div>' +
+                                '<div style="font-size: 12px; color: #aaa;">Bid details are temporarily unavailable. Please refresh the item detail view.</div>' +
+                                '</div>' : '');
                             var prototypeBlockHTML = (protoResult && protoResult.full) ? protoResult.full : '';
                             return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML, workflowStep1: (protoResult && protoResult.step1Box) ? protoResult.step1Box : '', workflowStep2: (protoResult && protoResult.step2Box) ? protoResult.step2Box : '', workflowStep3: (protoResult && protoResult.step3Box) ? protoResult.step3Box : '', workflowStep4OfficialQuote: officialQuoteBlockHTML };
                         })();
-                    var bidTabHTML = bidAndPrototype.bidBox +
-                        '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
-                        ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && !item.has_revision_mismatch ? 
-                            // Normal submitted/awarded state - check if resubmission; show "Prototype approved" when prototype approved but not awarded
+                    var submittedCtaHTML = '';
+                    if ((effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') && !item.has_revision_mismatch) {
+                        submittedCtaHTML = '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
                             (function() {
                                 var paymentNotifFooter = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
-                                var isAwarded = item.bid_status === 'awarded';
+                                var isAwarded = effectiveBidStatus === 'awarded';
                                 var protoApprovedOnly = !isAwarded && paymentNotifFooter && paymentNotifFooter.prototype_status === 'approved';
                                 var label = isAwarded ? 'Bid Awarded' : (protoApprovedOnly ? 'Prototype Approved' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted'));
                                 return '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
                                 '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;"> ' + label + '</div>' +
-                                (item.bid_status !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
+                                (effectiveBidStatus !== 'awarded' ? '<button onclick="openEditSubmittedBid(' + item.item_id + '); return false;" id="n88-edit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #FF0065; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Edit Proposal ]</button>' : '') +
+                                (effectiveBidStatus !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
                                 '</div>';
-                            })() :
-                            ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.has_revision_mismatch ?
-                                // Specs changed - show resubmit button (opens form inside modal)
-                                '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
-                                (item.bid_status === 'draft' && item.bid_status !== null && item.bid_status !== undefined ?
-                                    // Draft exists - show continue draft button (only when valid draft is saved)
-                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Continue Draft ]</button>' :
-                                    // No bid yet or no valid draft - show submit proposal button (default)
-                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>'
-                                )
+                            })() +
+                            '</div>';
+                    }
+                    var step1CtaHTML = submittedCtaHTML;
+                    if ((!step1CtaHTML || !String(step1CtaHTML).trim()) && (effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded')) {
+                        step1CtaHTML = '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
+                            (function() {
+                                var isAwarded = effectiveBidStatus === 'awarded';
+                                var label = isAwarded ? 'Bid Awarded' : 'Bid Already Submitted';
+                                return '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
+                                '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;"> ' + label + '</div>' +
+                                (effectiveBidStatus !== 'awarded' ? '<button onclick="openEditSubmittedBid(' + item.item_id + '); return false;" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #FF0065; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Edit Proposal ]</button>' : '') +
+                                (effectiveBidStatus !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
+                                '</div>';
+                            })() +
+                            '</div>';
+                    }
+                    var bidTabCTAHTML = ((effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') && !item.has_revision_mismatch ? '' :
+                        ((effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') && item.has_revision_mismatch ?
+                            // Specs changed - show resubmit button (opens form inside modal)
+                            '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
+                            (effectiveBidStatus === 'draft' && effectiveBidStatus !== null && effectiveBidStatus !== undefined ?
+                                // Draft exists - show continue draft button (only when valid draft is saved)
+                                '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Continue Draft ]</button>' :
+                                // No bid yet or no valid draft - show submit proposal button (default)
+                                '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>'
                             )
-                        ) +
-                        '</div>' +  
+                        )
+                    );
+                    var shouldRenderEmbeddedBidForm = effectiveBidStatus !== 'awarded';
+                    var bidTabHTML = (bidTabCTAHTML || shouldRenderEmbeddedBidForm) ? (
+                        (bidTabCTAHTML ? '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' + bidTabCTAHTML + '</div>' : '') +
                         '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #555; overflow: visible;">' +
-                        '<div id="n88-bid-form-content-' + item.item_id + '" style="display: block; width: 100%; overflow: visible;"></div></div>';
+                        '<div id="n88-bid-form-content-' + item.item_id + '" style="display: block; width: 100%; overflow: visible;"></div></div>'
+                    ) : '';
                     overviewTabHTML = '<div style="display: flex; flex-direction: row; flex: 1; min-height: 0; gap: 20px; overflow: hidden;">' +
                         '<div id="n88-supplier-overview-left-' + item.item_id + '" style="width: 60%; flex: 0 0 60%; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 20px;">' +
                             itemBoxHTML +
-                            '<div style="background-color: #000; border: 1px solid #555; border-radius: 10px; overflow: visible; flex-shrink: 0;">' + bidTabHTML + '</div>' +
+                            (bidTabHTML ? '<div style="background-color: #000; border: 1px solid #555; border-radius: 10px; overflow: visible; flex-shrink: 0;">' + bidTabHTML + '</div>' : '') +
                         '</div>' +
                         '<div style="width: 35%; flex: 0 0 35%; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">' + supportSectionHTML + '</div>' +
                         '</div>';
@@ -7198,32 +7469,137 @@ class N88_RFQ_Auth {
                     } else if (m.step3 && m.step3.video_resubmitted_at && String(m.step3.video_resubmitted_at) !== firstSubmittedAt) step3DatesArr.push('Resubmitted video: ' + fmtDate(m.step3.video_resubmitted_at));
                     if (m.step3 && m.step3.video_approved_at) step3DatesArr.push('Video approved: ' + fmtDate(m.step3.video_approved_at));
                     var step3Dates = step3DatesArr.length ? step3DatesArr.map(function(l) { return '<div style="font-size: 11px; color: #888; margin-bottom: 4px;">' + l + '</div>'; }).join('') : '';
-                    var w1 = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 1 Proposal Submitted</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                    var escTxt = function(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+                    var validationStateFull = item.validation_state || {};
+                    var commitmentState = (validationStateFull && validationStateFull.commitment) ? validationStateFull.commitment : {};
+                    var poFile = commitmentState && commitmentState.po_file ? commitmentState.po_file : null;
+                    var poUploadedAt = commitmentState && commitmentState.po_uploaded_at ? commitmentState.po_uploaded_at : '';
+                    var comStatus = commitmentState && commitmentState.com_status ? commitmentState.com_status : '';
+                    var comShippedAt = commitmentState && commitmentState.com_shipped_at ? commitmentState.com_shipped_at : '';
+                    var comDeliveredAt = commitmentState && commitmentState.com_delivered_at ? commitmentState.com_delivered_at : '';
+                    var comTrackingNumber = commitmentState && commitmentState.com_tracking_number ? commitmentState.com_tracking_number : '';
+                    var comDeliveryAddress = commitmentState && commitmentState.com_delivery_address ? commitmentState.com_delivery_address : '';
+                    var awardTimestamp = item.award_timestamp || '';
+                    var depositStatus = (commitmentState && commitmentState.deposit_status) ? commitmentState.deposit_status : (item.deposit_status || '');
+                    var depositAmount = (commitmentState && commitmentState.deposit_amount !== undefined && commitmentState.deposit_amount !== null) ? commitmentState.deposit_amount : item.deposit_amount;
+                    var depositSentAt = (commitmentState && commitmentState.deposit_confirmed_at) ? commitmentState.deposit_confirmed_at : (item.deposit_sent_at || '');
+                    var depositReceivedAt = item.deposit_received_at || '';
+                    var commitmentDepositFiles = (commitmentState && commitmentState.deposit_receipt_files && commitmentState.deposit_receipt_files.length) ? commitmentState.deposit_receipt_files : [];
+                    var depositReceiptUrl = commitmentDepositFiles.length ? (commitmentDepositFiles[0].url || '') : (item.deposit_receipt_url || '');
+                    var depositSentNote = item.deposit_sent_note || '';
+                    var awardDecisionHTML = '';
+                    var awardDecisionVisible = (effectiveBidStatus === 'awarded' || item.is_awarded_supplier === true);
+                    if (awardDecisionVisible) {
+                        var awardLine = awardTimestamp ? ('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">Awarded: ' + fmtDate(awardTimestamp) + '</div>') : '';
+                        var poLine = poFile && poFile.url
+                            ? ('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">PO uploaded: <a href="' + escTxt(poFile.url) + '" target="_blank" rel="noopener noreferrer" style="color: #FF0065; text-decoration: none;">View PO</a>' + (poUploadedAt ? (' <span style="color:#777;">(' + fmtDate(poUploadedAt) + ')</span>') : '') + '</div>')
+                            : '<div style="font-size: 11px; color: #888; margin-bottom: 6px;">PO uploaded: Not yet</div>';
+                        var depositLine = '';
+                        if (depositStatus === 'sent_by_designer') {
+                            depositLine = 'Deposit sent by designer' + (depositSentAt ? (' on ' + fmtDate(depositSentAt)) : '');
+                        } else if (depositStatus === 'confirmed' || depositStatus === 'paid' || depositStatus === 'recorded') {
+                            depositLine = 'Deposit submitted' + (depositSentAt ? (' on ' + fmtDate(depositSentAt)) : '');
+                        } else if (depositStatus === 'received') {
+                            depositLine = 'Deposit received' + (depositReceivedAt ? (' on ' + fmtDate(depositReceivedAt)) : '');
+                        } else if (depositStatus) {
+                            depositLine = 'Deposit status: ' + escTxt(String(depositStatus).replace(/_/g, ' '));
+                        } else {
+                            depositLine = 'Deposit: Pending';
+                        }
+                        awardDecisionHTML = '<div style="margin-bottom: 14px; padding: 14px; border: 1px solid #FF0065; border-radius: 4px; background: rgba(255,0,101,0.08);">' +
+                            '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Congratulations! Your bid is awarded.</div>' +
+                            awardLine +
+                            poLine +
+                            '<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">' + escTxt(depositLine) + '</div>' +
+                            (depositAmount ? ('<div style="font-size: 11px; color: #888; margin-bottom: 6px;">Deposit amount: $' + Number(depositAmount).toFixed(2) + '</div>') : '') +
+                            (depositReceiptUrl ? ('<div style="font-size: 11px; color: #888; margin-bottom: 6px;">Deposit receipt: <a href="' + escTxt(depositReceiptUrl) + '" target="_blank" rel="noopener noreferrer" style="color: #FF0065; text-decoration: none;">View receipt</a></div>') : '') +
+                            (depositSentNote ? ('<div style="font-size: 11px; color: #888; white-space: pre-wrap;">Designer note: ' + escTxt(depositSentNote) + '</div>') : '') +
+                            '</div>';
+                    }
+                    var step3LifecycleParts = [];
+                    if (awardDecisionVisible && awardTimestamp) {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">Bid awarded: ' + fmtDate(awardTimestamp) + '</div>');
+                    }
+                    if (poFile && poFile.url) {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">PO uploaded' + (poUploadedAt ? (': ' + fmtDate(poUploadedAt)) : '') + '</div>');
+                    }
+                    if (depositStatus === 'sent_by_designer') {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">Deposit submitted by designer' + (depositSentAt ? (': ' + fmtDate(depositSentAt)) : '') + '</div>');
+                    } else if (depositStatus === 'confirmed' || depositStatus === 'paid' || depositStatus === 'recorded') {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">Deposit submitted' + (depositSentAt ? (': ' + fmtDate(depositSentAt)) : '') + '</div>');
+                    } else if (depositStatus === 'received') {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">Deposit received' + (depositReceivedAt ? (': ' + fmtDate(depositReceivedAt)) : '') + '</div>');
+                    } else if (awardDecisionVisible) {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #888; margin-bottom: 6px;">Deposit: Pending</div>');
+                    }
+                    if (comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit') {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">COM shipped' + (comShippedAt ? (': ' + fmtDate(comShippedAt)) : '') + '</div>');
+                    } else if (comStatus === 'com_delivered' || comStatus === 'received' || comStatus === 'confirmed') {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #ccc; margin-bottom: 6px;">COM received' + (comDeliveredAt ? (': ' + fmtDate(comDeliveredAt)) : '') + '</div>');
+                    } else if (commitmentState && commitmentState.com_required) {
+                        step3LifecycleParts.push('<div style="font-size: 11px; color: #888; margin-bottom: 6px;">COM: Pending shipment</div>');
+                    }
+                    var step3LifecycleHTML = step3LifecycleParts.length
+                        ? '<div style="margin-bottom: 12px; padding: 12px; border: 1px solid #555; border-radius: 4px; background: #111;">' + step3LifecycleParts.join('') + '</div>'
+                        : '';
+                    var step3CommercialBody = '';
+                    if (awardDecisionVisible) {
+                        step3CommercialBody = '<div style="padding: 14px; border: 1px solid #555; border-radius: 4px; background: #111; color: #ddd; font-size: 12px;">' +
+                            ((comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit' || comStatus === 'com_delivered' || comStatus === 'received' || comStatus === 'confirmed')
+                                ? '<div style="margin-bottom: 12px; padding: 10px; border: 1px solid #444; border-radius: 4px; background: #0b0b0b;">' +
+                                    '<div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Supplier Received COM</div>' +
+                                    (comTrackingNumber ? ('<div style="margin-bottom: 6px;">Tracking number: ' + escTxt(comTrackingNumber) + '</div>') : '<div style="margin-bottom: 6px; color: #888;">Tracking number will appear here after designer ships COM.</div>') +
+                                    ((comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit')
+                                        ? '<button type="button" data-n88-com-received-btn="' + (itemId || item.item_id || 0) + '" onclick="n88SupplierMarkComReceived(' + (itemId || item.item_id || 0) + ')" style="padding:8px 12px; background:#FF0065; color:#000; border:none; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Confirm COM Received ]</button>'
+                                        : '<div style="font-size: 11px; color: #8bc34a;">COM receipt confirmed' + (comDeliveredAt ? (': ' + fmtDate(comDeliveredAt)) : '') + '</div>') +
+                                '</div>'
+                                : '') +
+                            (poFile && poFile.url ? '<div style="margin-bottom: 8px;">PO file: <a href="' + escTxt(poFile.url) + '" target="_blank" rel="noopener noreferrer" style="color: #FF0065; text-decoration: none;">View PO</a></div>' : '<div style="margin-bottom: 8px; color: #888;">PO file not uploaded yet.</div>') +
+                            (depositAmount ? ('<div style="margin-bottom: 8px;">Deposit amount: $' + Number(depositAmount).toFixed(2) + '</div>') : '') +
+                            (depositReceiptUrl ? ('<div style="margin-bottom: 8px;">Deposit proof: <a href="' + escTxt(depositReceiptUrl) + '" target="_blank" rel="noopener noreferrer" style="color: #FF0065; text-decoration: none;">View file</a></div>') : '') +
+                            (comTrackingNumber ? ('<div style="margin-bottom: 8px;">COM tracking: ' + escTxt(comTrackingNumber) + '</div>') : '') +
+                            (comDeliveryAddress ? ('<div style="margin-bottom: 8px; white-space: pre-wrap;">COM delivery address: ' + escTxt(comDeliveryAddress) + '</div>') : '') +
+                            '</div>';
+                    }
+                    var workflowStep1Content = (bidAndPrototype.bidBox || '') + (step1CtaHTML || '') + (bidAndPrototype.workflowStep1 || '');
+                    if ((!workflowStep1Content || !String(workflowStep1Content).trim()) && hasSubmittedStatus) {
+                        workflowStep1Content = '<div style="padding: 14px; border: 1px solid #FF0065; border-radius: 4px; background: rgba(255,0,101,0.08); font-size: 12px; color: #ddd;">' +
+                            '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Your Submitted Bid</div>' +
+                            '<div>Submitted bid details are temporarily unavailable in this view. Please refresh the item detail and reopen Step 01.</div>' +
+                            '</div>';
+                    }
+                    var workflowStep1Visible = !!(workflowStep1Content && String(workflowStep1Content).trim());
+                    var w1 = (workflowStep1Visible ? '<div id="n88-supplier-workflow-step-0" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 1 Proposal Submitted</div>' + step1Dates + workflowStep1Content + '</div>' : '');
                     var w2 = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 2 Design Evaluation</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
-                    var w3Show = paymentNotif && (bidAndPrototype.workflowStep3 || (m.step3 && (m.step3.video_submitted_at || (m.step3.changes_requested_dates && m.step3.changes_requested_dates.length) || m.step3.video_approved_at)));
+                    var step3CommercialVisible = awardDecisionVisible || !!(poFile && poFile.url) || !!depositStatus || !!comStatus;
+                    var w3Show = step3CommercialVisible;
+                    var step3Fallback = (!step3CommercialVisible) ? '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Award, PO, deposit, and COM updates will appear here.</div>' : '';
+                    var step3Body = (awardDecisionHTML || '') + step3LifecycleHTML + (step3CommercialBody || step3Fallback);
                     var w3 = w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 3 Award Decision</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '';
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 3 Award Decision</div>' + step3Body + '</div>' : '';
                     var activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 0;
                     var green = '#FF0065';
                     var darkBorder = '#555';
                     var stepLabels = ['Proposal Submitted', 'Design Evaluation', 'Award Decision', 'Production', 'Quality Review & Packing', 'Delivery'];
-                    var supplierDesc1 = 'Review the item scope and submit your quote. Respond to clarification requests as needed.';
-                    var supplierDesc2 = 'Provide drawings, samples, and technical documentation as requested.';
-                    var supplierDesc3 = 'Submit prototype videos and address revision requests until final approval.';
-                    var supplierDesc4 = 'Manufacture the approved item and upload production progress documentation.';
-                    var supplierDesc5 = 'Upload quality control and packing documentation prior to shipment.';
-                    var supplierDesc6 = 'Upload shipping documents, tracking information, and delivery confirmation.';
-                    var w1WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 1 Proposal Submitted</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc1 + '</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                    var supplierDesc1 = '';
+                    var supplierDesc2 = '';
+                    var supplierDesc3 = '';
+                    var supplierDesc4 = '';
+                    var supplierDesc5 = '';
+                    var supplierDesc6 = '';
+                    var validationCanCommit = !!(item.validation_state && item.validation_state.can_commit);
+                    if (validationCanCommit) supplierDesc4 = 'Production begins.';
+                    var w1WithClass = (workflowStep1Visible ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 1 Proposal Submitted</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc1 + '</div>' + step1Dates + workflowStep1Content + '</div>' : '');
                     var w2WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 2 Design Evaluation</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc2 + '</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 3 Award Decision</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 3 Award Decision</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + step3Body + '</div>' : '');
                     // Step 4: Official Quote PDF  sirf award pe depend kare, payment se taaluq nahi. Award hote hi supplier ko Step 04 mein PDF upload option mile.
                     var step4OfficialQuoteHTML = '';
-                    var isAwardedForStep4 = item.bid_status === 'awarded' || (item.bid_data && (item.bid_data.bid_status === 'awarded' || item.bid_data.is_awarded === true)) || (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id));
+                    var isAwardedForStep4 = effectiveBidStatus === 'awarded' || item.is_awarded_supplier === true || (item.bid_data && (item.bid_data.bid_status === 'awarded' || item.bid_data.is_awarded === true)) || (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id));
                     if (isAwardedForStep4) {
                         var oqStatus = item.official_quote_status || '';
                         if (oqStatus === 'submitted') {
@@ -7247,9 +7623,12 @@ class N88_RFQ_Auth {
                     } else if (bidAndPrototype.workflowStep4OfficialQuote && bidAndPrototype.workflowStep4OfficialQuote.length) {
                         step4OfficialQuoteHTML = bidAndPrototype.workflowStep4OfficialQuote;
                     }
+                    if (validationCanCommit) {
+                        step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production begins.</div>';
+                    }
                     var w4Content = step4OfficialQuoteHTML.length ? step4OfficialQuoteHTML : '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timelineâ€¦</div>';
                     // Workflow tab: show when payment/CAD/prototype hai YA sirf award pe Step 4 (Official Quote PDF)  PDF upload ka payment se taaluq nahi
-                    var showWorkflowSteps = paymentNotif || (step4OfficialQuoteHTML && step4OfficialQuoteHTML.length > 0);
+                    var showWorkflowSteps = workflowStep1Visible || paymentNotif || w3Show || (step4OfficialQuoteHTML && step4OfficialQuoteHTML.length > 0);
                     var w4WithClass = (showWorkflowSteps ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 4 - Production</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc4 + '</div>' + w4Content + '</div>' : '');
                     var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
@@ -7258,7 +7637,7 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 6 Delivery</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc6 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline...</div></div>' : '');
                     var stepRow = '';
                     if (showWorkflowSteps) {
-                        stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
+                        stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="flex: 0 0 auto; position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 0; padding: 0 0 16px 0; border-bottom: 1px solid ' + darkBorder + ';">';
                         for (var si = 0; si < 6; si++) {
                             var isActive = activeStepIdx === si;
                             var circleBg = isActive ? green : '#333';
@@ -7274,8 +7653,8 @@ class N88_RFQ_Auth {
                         stepRow += '</div>';
                     }
                     // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4-6 show video evidence, not "Coming soon"). Show workflow when paymentNotif OR Official Quote block (Step 4) required.
-                    var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
-                        (showWorkflowSteps ? '<div id="n88-supplier-workflow-timeline" style="min-height: 80px;">' + (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div>' : '<div id="n88-supplier-workflow-timeline"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
+                    var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="display: flex; flex-direction: column; flex: 1; min-height: 0; margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
+                        (showWorkflowSteps ? '<div id="n88-supplier-workflow-timeline" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">' + stepRow + '<div id="n88-supplier-workflow-step-content" style="flex: 1; min-height: 0; overflow-y: auto; padding-top: 24px;">' + (w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div></div>' : '<div id="n88-supplier-workflow-timeline" style="flex: 1; min-height: 0;"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
                     var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #C8C8C8;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'workflow' || ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) && preferredTab !== 'overview' && preferredTab !== 'bid')) ? 'workflow' : 'overview';
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
@@ -7298,7 +7677,7 @@ class N88_RFQ_Auth {
                     
                     modalContent.innerHTML = modalHTML;
                     
-                    // Support is in Overview and open by default; load messages for the Support box (including pre-bid clarification with operator). When opening on Workflow tab, scroll to active step.
+                    // Support is in Overview and open by default; load messages lazily so the modal shell paints first.
                     setTimeout(function() {
                         var tabContent = document.getElementById('n88-supplier-tab-content');
                         if (tabContent && defaultTab !== 'workflow') tabContent.scrollTop = 0;
@@ -7308,7 +7687,7 @@ class N88_RFQ_Auth {
                                 var stepEl = document.getElementById('n88-supplier-workflow-step-' + item.supplier_workflow_active_step);
                                 if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }
-                        } else if (paymentNotif) {
+                        } else if (false && paymentNotif) {
                             // Preload timeline so when supplier clicks The WorkFlow tab, Step 4-6 and [ Submit Step Video ] show instead of staying on "Loading timelineâ€¦"
                             setTimeout(function() {
                                 var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
@@ -7320,11 +7699,16 @@ class N88_RFQ_Auth {
                         var workflowThreadBox = document.getElementById('n88-supplier-workflow-thread-box-' + itemId);
                         if (workflowThreadBox) workflowThreadBox.style.display = defaultTab === 'workflow' ? 'flex' : 'none';
                         if (typeof loadSupplierMessagesInline === 'function') {
-                            loadSupplierMessagesInline(itemId, 'item_specs');
                             if (defaultTab === 'workflow') {
                                 var initialWorkflowContext = getSupplierWorkflowMessageContextType(itemId);
                                 updateSupplierWorkflowThreadHeading(itemId, initialWorkflowContext);
-                                loadSupplierMessagesInline(itemId, initialWorkflowContext);
+                                setTimeout(function() {
+                                    loadSupplierMessagesInline(itemId, initialWorkflowContext);
+                                }, 120);
+                            } else {
+                                setTimeout(function() {
+                                    loadSupplierMessagesInline(itemId, 'item_specs');
+                                }, 180);
                             }
                         }
                     }, 100);
@@ -7529,7 +7913,7 @@ class N88_RFQ_Auth {
                                             .then(function(response) { return response.json(); })
                                             .then(function(data) {
                                                 if (data.success) {
-                                                    alert('Video resubmitted successfully! Version ' + (data.data?.version || '?') + ' has been submitted.');
+                                                    alert('Video resubmitted successfully! Version ' + (data && data.data && data.data.version ? data.data.version : '?') + ' has been submitted.');
                                                     // Close modal and reload
                                                     document.getElementById('n88-prototype-feedback-modal').remove();
                                                     document.body.style.overflow = '';
@@ -7549,7 +7933,7 @@ class N88_RFQ_Auth {
                                                         window.location.reload();
                                                     }
                                                 } else {
-                                                    alert('Error: ' + (data.data?.message || 'Failed to resubmit video.'));
+                                                    alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to resubmit video.'));
                                                     if (submitBtn) {
                                                         submitBtn.disabled = false;
                                                         submitBtn.textContent = originalText;
@@ -7581,6 +7965,19 @@ class N88_RFQ_Auth {
                     
                     // Store item data for inline bid form
                     window.currentItemData = item;
+                    window.currentItemId = itemId;
+                    if (detailSection !== 'full') {
+                        setTimeout(function() {
+                            fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(fullResult) {
+                                if (!fullResult || !fullResult.success || !fullResult.data) return;
+                                var openModal = document.getElementById('n88-supplier-bid-modal');
+                                if (!openModal || openModal.style.display !== 'block') return;
+                                if (window.currentItemId !== itemId) return;
+                                if (window.currentItemData && window.currentItemData.requested_section === 'full') return;
+                                openBidModal(itemId, preferredTab === 'workflow' ? 'workflow' : '__full__');
+                            }).catch(function() {});
+                        }, 60);
+                    }
                 })
                 .catch(function(error) {
                     var msg = (error && error.message) ? error.message : 'Error loading item details. Please try again.';
@@ -7616,6 +8013,10 @@ class N88_RFQ_Auth {
                             panel.style.display = 'flex';
                             panel.style.flexDirection = 'column';
                             if (name === 'workflow' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') {
+                                if (window.currentItemData && window.currentItemData.requested_section !== 'full') {
+                                    openBidModal(itemId, 'workflow');
+                                    return;
+                                }
                                 window.n88LoadSupplierWorkflowTimeline();
                                 if (workflowThreadBox) workflowThreadBox.style.display = 'flex';
                                 if (itemId && typeof loadSupplierMessagesInline === 'function') {
@@ -7674,6 +8075,72 @@ class N88_RFQ_Auth {
                 if (typeof window.initPrototypeVideoForms === 'function') window.initPrototypeVideoForms();
             };
 
+            window.n88SupplierMarkComReceived = function(itemId) {
+                if (!itemId) return;
+                var itemKey = String(itemId);
+                var actionButtons = document.querySelectorAll('[data-n88-com-received-btn="' + itemKey.replace(/"/g, '&quot;') + '"]');
+                for (var ab = 0; ab < actionButtons.length; ab++) {
+                    actionButtons[ab].disabled = true;
+                    actionButtons[ab].textContent = '[ Updating... ]';
+                    actionButtons[ab].style.opacity = '0.6';
+                    actionButtons[ab].style.cursor = 'not-allowed';
+                }
+                var fd = new FormData();
+                fd.append('action', 'n88_supplier_mark_validation_com_received');
+                fd.append('item_id', String(itemId));
+                fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd, credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.success) {
+                            for (var failIdx = 0; failIdx < actionButtons.length; failIdx++) {
+                                actionButtons[failIdx].disabled = false;
+                                actionButtons[failIdx].textContent = '[ Confirm COM Received ]';
+                                actionButtons[failIdx].style.opacity = '1';
+                                actionButtons[failIdx].style.cursor = 'pointer';
+                            }
+                            alert((data.data && data.data.message) || data.message || 'Failed to confirm COM received.');
+                            return;
+                        }
+                        if (window.currentItemData) {
+                            window.currentItemData.validation_state = data.data && data.data.validation_state ? data.data.validation_state : window.currentItemData.validation_state;
+                            window.currentItemData.validation_card_status_text = (window.currentItemData.validation_state && window.currentItemData.validation_state.card_status_text) ? window.currentItemData.validation_state.card_status_text : (window.currentItemData.validation_card_status_text || '');
+                            window.currentItemData.supplier_status_label = window.currentItemData.validation_card_status_text || 'Ready for Production';
+                            window.currentItemData.supplier_workflow_active_step = 3;
+                        }
+                        if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) {
+                            var batchItem = window.n88SupplierBatchState.itemData[itemId];
+                            if (data.data && data.data.validation_state) {
+                                batchItem.validation_state = data.data.validation_state;
+                                batchItem.validation_card_status_text = data.data.validation_state.card_status_text || '';
+                            }
+                            batchItem.supplier_status_label = batchItem.validation_card_status_text || (batchItem.validation_state && batchItem.validation_state.card_status_text) || 'Ready for Production';
+                            batchItem.supplier_workflow_active_step = 3;
+                        }
+                        var queueButtons = document.querySelectorAll('.n88-supplier-queue-action-btn[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
+                        for (var qb = 0; qb < queueButtons.length; qb++) {
+                            queueButtons[qb].setAttribute('data-open-tab', 'workflow');
+                            queueButtons[qb].setAttribute('data-open-step', '3');
+                            queueButtons[qb].textContent = '[ Ready for Production ]';
+                        }
+                        var queueStatuses = document.querySelectorAll('.n88-supplier-queue-status-label[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
+                        for (var qs = 0; qs < queueStatuses.length; qs++) {
+                            queueStatuses[qs].textContent = 'Ready for Production';
+                            queueStatuses[qs].style.color = '#00ff00';
+                        }
+                        openBidModal(itemId, 'workflow', 3);
+                    })
+                    .catch(function() {
+                        for (var errIdx = 0; errIdx < actionButtons.length; errIdx++) {
+                            actionButtons[errIdx].disabled = false;
+                            actionButtons[errIdx].textContent = '[ Confirm COM Received ]';
+                            actionButtons[errIdx].style.opacity = '1';
+                            actionButtons[errIdx].style.cursor = 'pointer';
+                        }
+                        alert('Failed to confirm COM received.');
+                    });
+            };
+
             window.n88LoadSupplierWorkflowTimeline = function() {
                 var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
                 var container = document.getElementById('n88-supplier-workflow-timeline');
@@ -7723,6 +8190,23 @@ class N88_RFQ_Auth {
                         }
                         var t = data.data.timeline;
                         var steps = t.steps || [];
+                        var currentItemData = window.currentItemData || {};
+                        var effectiveBidStatus = currentItemData.bid_status
+                            || (currentItemData.bid_data && (currentItemData.bid_data.bid_status || currentItemData.bid_data.status))
+                            || (currentItemData.latest_stale_bid_data && (currentItemData.latest_stale_bid_data.bid_status || currentItemData.latest_stale_bid_data.status))
+                            || ((currentItemData.route_status === 'bid_submitted') ? 'submitted' : '')
+                            || '';
+                        if (currentItemData.is_awarded_supplier === true && effectiveBidStatus !== 'awarded') {
+                            effectiveBidStatus = 'awarded';
+                        }
+                        var isProposalSubmitted = (effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded');
+                        if (isProposalSubmitted && steps[0]) {
+                            steps[0].display_status = 'completed';
+                            steps[0].status = 'completed';
+                            if (!steps[0].completed_at && currentItemData.bid_data && currentItemData.bid_data.created_at) {
+                                steps[0].completed_at = currentItemData.bid_data.created_at;
+                            }
+                        }
                         if (steps.length < 6) {
                             if (hasOriginalPost) {
                                 if (step4ElPost) step4ElPost.innerHTML = errHtml2;
@@ -7756,6 +8240,7 @@ class N88_RFQ_Auth {
                             if (stepNumber !== 2 || !validationState || !validationState.request) return '';
                             var req = validationState.request || {};
                             var supplier = validationState.supplier || {};
+                            var review = validationState.review || {};
                             var files = supplier.files || [];
                             var selectedMaterials = req.selected_materials || [];
                             var flashMessage = window.n88SupplierValidationFlash[itemId] || '';
@@ -7792,6 +8277,28 @@ class N88_RFQ_Auth {
                                 }
                                 block += '</ul>';
                             }
+                            if (review.samples_received_at || review.approved_at) {
+                                block += '<div style="display:grid; gap:8px; padding:12px; border:1px solid ' + green + '; border-radius:4px; background:rgba(255,0,101,0.08); margin-bottom: 10px;">';
+                                if (review.samples_received_at) {
+                                    block += '<div style="font-size:12px; font-weight:600; color:' + green + ';">Samples received</div>';
+                                    block += '<div style="font-size:11px; color:' + darkText + ';">Received at: ' + escHtml(review.samples_received_at) + '</div>';
+                                }
+                                if (review.approved_at) {
+                                    block += '<div style="font-size:12px; font-weight:600; color:' + green + ';">Samples approved</div>';
+                                    block += '<div style="font-size:11px; color:' + darkText + ';">Approved at: ' + escHtml(review.approved_at) + '</div>';
+                                }
+                                if (review.notes) {
+                                    block += '<div style="font-size:11px; color:' + darkText + '; white-space:pre-wrap;">Notes: ' + escHtml(review.notes) + '</div>';
+                                }
+                                if (review.approved_material_codes && review.approved_material_codes.length) {
+                                    block += '<div style="font-size:11px; color:' + darkText + ';">Approved materials: ' + escHtml(review.approved_material_codes.join(', ')) + '</div>';
+                                }
+                                if (review.approved_finish_codes && review.approved_finish_codes.length) {
+                                    block += '<div style="font-size:11px; color:' + darkText + ';">Approved finishes: ' + escHtml(review.approved_finish_codes.join(', ')) + '</div>';
+                                }
+                                block += '</div>';
+                            }
+
                             if (supplier.updated_at) {
                                 block += '<div style="display:grid; gap:8px; padding:12px; border:1px solid ' + green + '; border-radius:4px; background:rgba(255,0,101,0.08);">';
                                 block += '<div style="font-size:12px; font-weight:600; color:' + green + ';">' + escHtml(flashMessage || 'Samples sent') + '</div>';
@@ -7858,6 +8365,274 @@ class N88_RFQ_Auth {
                             block += '<div id="n88-supplier-step-evidence-form-wrap" style="display: none; margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: #0a0a0a;"></div></div>';
                             return block;
                         }
+                        function buildSupplierProposalStepBlock(itemId, sel, statusLabel) {
+                            var currentItemData = window.currentItemData || {};
+                            var bidData = currentItemData.bid_data || currentItemData.latest_stale_bid_data || {};
+                            var effectiveBidStatus = currentItemData.bid_status
+                                || (bidData && (bidData.bid_status || bidData.status))
+                                || ((currentItemData.route_status === 'bid_submitted') ? 'submitted' : '')
+                                || '';
+                            if (currentItemData.is_awarded_supplier === true && effectiveBidStatus !== 'awarded') {
+                                effectiveBidStatus = 'awarded';
+                            }
+                            var stateColor = sel && sel.display_status === 'delayed' ? '#ff6666' : sel && sel.display_status === 'completed' ? '#FF0065' : '#ccc';
+                            var leadTime = (bidData && (bidData.production_lead_time || bidData.production_lead_time_text)) || '';
+                            var submittedAt = bidData && bidData.created_at ? String(bidData.created_at) : '';
+                            var fabricSuppliedFlag = String(
+                                currentItemData.rfq_fabric_supplied_flag
+                                || currentItemData.fabric_supplied_flag
+                                || currentItemData.fabric_supplied
+                                || ''
+                            ).toLowerCase();
+                            var showFabricQuantity = fabricSuppliedFlag === 'yes' || fabricSuppliedFlag === '1' || fabricSuppliedFlag === 'true';
+                            var fabricQuantity = '';
+                            if (bidData && bidData.fabric_quantity !== null && bidData.fabric_quantity !== undefined) {
+                                fabricQuantity = String(bidData.fabric_quantity).trim();
+                            }
+                            var unitPrice = (bidData && bidData.unit_price !== null && bidData.unit_price !== undefined && String(bidData.unit_price) !== '') ? Number(bidData.unit_price) : null;
+                            var totalPrice = (bidData && bidData.total_price !== null && bidData.total_price !== undefined && String(bidData.total_price) !== '') ? Number(bidData.total_price) : null;
+                            var itemQuantity = (bidData && bidData.item_quantity !== null && bidData.item_quantity !== undefined && String(bidData.item_quantity) !== '') ? Number(bidData.item_quantity) : null;
+                            var videoLinks = [];
+                            var bidPhotos = [];
+                            var smartAltData = bidData ? bidData.smart_alternatives_suggestion : null;
+                            function normalizeTextValue(value) {
+                                if (value === null || value === undefined) return '';
+                                return String(value);
+                            }
+                            function formatCurrency(value) {
+                                var parsed = Number(value);
+                                if (!isFinite(parsed)) return '';
+                                return '$' + parsed.toFixed(2);
+                            }
+                            function formatYesNo(value) {
+                                if (value === true) return 'Yes';
+                                if (value === false) return 'No';
+                                var normalized = String(value || '').toLowerCase();
+                                if (normalized === 'yes' || normalized === '1' || normalized === 'true') return 'Yes';
+                                if (normalized === 'no' || normalized === '0' || normalized === 'false') return 'No';
+                                return '';
+                            }
+                            function normalizeFileUrl(entry) {
+                                if (!entry) return '';
+                                if (typeof entry === 'string') return entry;
+                                if (entry.url) return entry.url;
+                                if (entry.file_url) return entry.file_url;
+                                if (entry.src) return entry.src;
+                                return '';
+                            }
+                            function normalizeLabel(value, fallback) {
+                                var text = normalizeTextValue(value).trim();
+                                return text || fallback;
+                            }
+                            if (bidData && Array.isArray(bidData.video_links)) {
+                                bidData.video_links.forEach(function(link, index) {
+                                    var normalizedLink = '';
+                                    if (typeof link === 'string') {
+                                        normalizedLink = link;
+                                    } else if (link && typeof link === 'object') {
+                                        normalizedLink = link.url || link.link || link.value || '';
+                                    }
+                                    if (normalizedLink) {
+                                        videoLinks.push({
+                                            url: normalizedLink,
+                                            label: normalizeLabel((link && link.label) || (link && link.title), 'Video Link ' + (index + 1))
+                                        });
+                                    }
+                                });
+                            }
+                            if (bidData && Array.isArray(bidData.bid_photos)) {
+                                bidData.bid_photos.forEach(function(photo, index) {
+                                    var photoUrl = normalizeFileUrl(photo);
+                                    if (photoUrl) {
+                                        bidPhotos.push({
+                                            url: photoUrl,
+                                            label: normalizeLabel((photo && photo.file_name) || (photo && photo.title), 'Bid Photo ' + (index + 1))
+                                        });
+                                    }
+                                });
+                            }
+                            if (typeof smartAltData === 'string' && smartAltData) {
+                                try {
+                                    smartAltData = JSON.parse(smartAltData);
+                                } catch (e) {
+                                    smartAltData = null;
+                                }
+                            }
+                            var html = '';
+                            html += '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">1. Proposal Submitted</div>';
+                            if (sel && sel.started_at) html += '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + escHtml(sel.started_at) + '</div>';
+                            if (sel && sel.completed_at) html += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + escHtml(sel.completed_at) + '</div>';
+                            if (sel && sel.expected_by) html += '<div style="font-size: 11px; color: #ccc;">Expected by: ' + escHtml(sel.expected_by) + '</div>';
+                            html += '<div style="margin-top: 16px; padding: 14px; border: 1px solid #555; border-radius: 4px; background: #111; color: #ddd;">';
+                            if (effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') {
+                                html += '<div style="font-size: 15px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Your Submitted Bid</div>';
+                                if (submittedAt) {
+                                    html += '<div style="font-size: 11px; color: #888; margin-bottom: 10px;">Submitted at: ' + escHtml(submittedAt) + '</div>';
+                                }
+                                html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:12px;">';
+                                if (unitPrice !== null && isFinite(unitPrice)) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Unit Price</div><div style="font-size:13px; color:#FF0065; font-weight:600;">' + escHtml(formatCurrency(unitPrice)) + '</div></div>';
+                                }
+                                if (totalPrice !== null && isFinite(totalPrice)) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Total Price</div><div style="font-size:13px; color:#FF0065; font-weight:600;">' + escHtml(formatCurrency(totalPrice)) + '</div></div>';
+                                }
+                                if (itemQuantity !== null && isFinite(itemQuantity) && itemQuantity > 0) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Quantity</div><div style="font-size:13px; color:#fff;">' + escHtml(String(itemQuantity)) + '</div></div>';
+                                }
+                                if (leadTime) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Production Lead Time</div><div style="font-size:13px; color:#fff;">' + escHtml(leadTime) + '</div></div>';
+                                }
+                                html += '</div>';
+
+                                html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:12px;">';
+                                if (bidData && (bidData.prototype_timeline || bidData.prototype_timeline_option)) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Prototype Timeline</div><div style="font-size:13px; color:#fff;">' + escHtml(String(bidData.prototype_timeline || bidData.prototype_timeline_option)) + '</div></div>';
+                                }
+                                if (bidData && bidData.prototype_cost !== null && bidData.prototype_cost !== undefined && String(bidData.prototype_cost) !== '') {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Prototype Cost</div><div style="font-size:13px; color:#fff;">' + escHtml(formatCurrency(bidData.prototype_cost)) + '</div></div>';
+                                }
+                                if (bidData && bidData.material_included) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Material Included</div><div style="font-size:13px; color:#fff;">' + escHtml(String(bidData.material_included).replace(/_/g, ' ')) + '</div></div>';
+                                }
+                                if (showFabricQuantity || fabricQuantity) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Fabric Quantity</div><div style="font-size:13px; color:#fff;">' + escHtml(fabricQuantity || 'Not provided') + '</div></div>';
+                                }
+                                if (bidData && bidData.sample_required) {
+                                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:4px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Sample Required</div><div style="font-size:13px; color:#fff;">' + escHtml(formatYesNo(bidData.sample_required) || String(bidData.sample_required)) + '</div></div>';
+                                }
+                                html += '</div>';
+
+                                html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; margin-bottom:12px;">';
+                                html += '<div style="padding:12px; background:#161616; border:1px solid #333; border-radius:4px;">';
+                                html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Video Links</div>';
+                                if (videoLinks.length) {
+                                    html += '<div style="display:flex; flex-direction:column; gap:6px;">';
+                                    videoLinks.forEach(function(link) {
+                                        html += '<a href="' + String(link.url).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065; text-decoration:none; font-size:12px; word-break:break-word;">' + escHtml(link.label) + '</a>';
+                                    });
+                                    html += '</div>';
+                                } else {
+                                    html += '<div style="font-size:12px; color:#888;">None</div>';
+                                }
+                                html += '</div>';
+                                html += '<div style="padding:12px; background:#161616; border:1px solid #333; border-radius:4px;">';
+                                html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Bid Photos</div>';
+                                if (bidPhotos.length) {
+                                    html += '<div style="display:flex; gap:8px; flex-wrap:wrap;">';
+                                    bidPhotos.forEach(function(photo) {
+                                        html += '<a href="' + String(photo.url).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display:block;">';
+                                        html += '<img src="' + String(photo.url).replace(/"/g, '&quot;') + '" alt="' + escHtml(photo.label) + '" style="width:80px; height:80px; object-fit:cover; border-radius:4px; border:1px solid #333;" />';
+                                        html += '</a>';
+                                    });
+                                    html += '</div>';
+                                } else {
+                                    html += '<div style="font-size:12px; color:#888;">None</div>';
+                                }
+                                html += '</div>';
+                                html += '</div>';
+
+                                if (bidData && bidData.proposal_notes) {
+                                    html += '<div style="margin-bottom:12px; padding:12px; background:#161616; border:1px solid #333; border-radius:4px;">';
+                                    html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Proposal Notes</div>';
+                                    html += '<div style="font-size:12px; color:#fff; white-space:pre-wrap; line-height:1.5;">' + escHtml(String(bidData.proposal_notes)) + '</div>';
+                                    html += '</div>';
+                                }
+                                if (smartAltData && typeof smartAltData === 'object') {
+                                    var comparisonPoints = Array.isArray(smartAltData.comparison_points) ? smartAltData.comparison_points.filter(Boolean) : [];
+                                    html += '<div style="margin-bottom:12px; padding:12px; background:#161616; border:1px solid #333; border-radius:4px;">';
+                                    html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Smart Alternative Suggestion</div>';
+                                    if (smartAltData.category) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Category:</strong> ' + escHtml(String(smartAltData.category)) + '</div>';
+                                    if (smartAltData.from || smartAltData.to) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Suggestion:</strong> ' + escHtml(String(smartAltData.from || '')) + (smartAltData.from && smartAltData.to ? ' -> ' : '') + escHtml(String(smartAltData.to || '')) + '</div>';
+                                    if (comparisonPoints.length) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Comparison Points:</strong> ' + escHtml(comparisonPoints.join(', ')) + '</div>';
+                                    if (smartAltData.price_impact) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Price Impact:</strong> ' + escHtml(String(smartAltData.price_impact)) + '</div>';
+                                    if (smartAltData.lead_time_impact) html += '<div style="font-size:12px; color:#fff;"><strong style="color:#C8C8C8;">Lead Time Impact:</strong> ' + escHtml(String(smartAltData.lead_time_impact)) + '</div>';
+                                    html += '</div>';
+                                }
+                                html += '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">';
+                                html += '<div style="padding: 8px 12px; background:#1a1a1a; color:#FF0065; border-radius:4px; font-size:11px; font-weight:600; font-family:monospace;">' + (effectiveBidStatus === 'awarded' ? 'Bid Awarded' : 'Bid Already Submitted') + '</div>';
+                                if (effectiveBidStatus !== 'awarded') {
+                                    html += '<button type="button" onclick="openEditSubmittedBid(' + itemId + '); return false;" style="padding:8px 12px; background:#111; color:#FF0065; border:1px solid #FF0065; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Edit Proposal ]</button>';
+                                    html += '<button type="button" onclick="withdrawBid(' + itemId + ')" style="padding:8px 12px; background:#dc3545; color:#fff; border:none; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">Withdraw Bid</button>';
+                                }
+                                html += '</div>';
+                            } else if (effectiveBidStatus === 'draft') {
+                                html += '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Draft saved</div>';
+                                html += '<div style="font-size: 12px; color: #ccc; margin-bottom: 10px;">Your proposal draft is saved. Continue and submit when ready.</div>';
+                                html += '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding:8px 12px; background:#111; color:#FF0065; border:1px solid #FF0065; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Continue Draft ]</button>';
+                            } else {
+                                html += '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Proposal not submitted yet</div>';
+                                html += '<div style="font-size: 12px; color: #ccc; margin-bottom: 10px;">Submit your proposal to move this item into design evaluation.</div>';
+                                html += '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding:8px 12px; background:#111; color:#FF0065; border:1px solid #FF0065; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Submit Proposal ]</button>';
+                            }
+                            html += '</div>';
+                            return html;
+                        }
+                        function buildSupplierCommitmentStepBlock(itemId, sel, statusLabel) {
+                            var currentItemData = window.currentItemData || {};
+                            var validationState = currentItemData.validation_state || {};
+                            var commitment = validationState.commitment || {};
+                            var awardTimestamp = currentItemData.award_timestamp || '';
+                            var poFile = commitment.po_file || null;
+                            var poUploadedAt = commitment.po_uploaded_at || '';
+                            var depositStatus = commitment.deposit_status || currentItemData.deposit_status || '';
+                            var depositAmount = commitment.deposit_amount != null ? commitment.deposit_amount : currentItemData.deposit_amount;
+                            var depositAt = commitment.deposit_confirmed_at || currentItemData.deposit_sent_at || '';
+                            var comStatus = commitment.com_status || '';
+                            var comShippedAt = commitment.com_shipped_at || '';
+                            var comDeliveredAt = commitment.com_delivered_at || '';
+                            var comTrackingNumber = commitment.com_tracking_number || '';
+                            var comDeliveryAddress = commitment.com_delivery_address || '';
+                            var depositFiles = Array.isArray(commitment.deposit_receipt_files) ? commitment.deposit_receipt_files : [];
+                            var depositFileUrl = depositFiles.length ? (depositFiles[0].url || '') : (currentItemData.deposit_receipt_url || '');
+                            var awardedSupplierId = parseInt(currentItemData.awarded_supplier_id || 0, 10);
+                            var currentSupplierId = parseInt(currentItemData.supplier_id || currentItemData.current_supplier_id || 0, 10);
+                            var isAwarded = !!currentItemData.is_awarded_supplier || (!!awardedSupplierId && !!currentSupplierId && awardedSupplierId === currentSupplierId) || !!awardTimestamp;
+                            var hasPo = !!(poFile && poFile.url);
+                            var hasDepositStage = hasPo || !!depositStatus;
+                            var isDepositSubmitted = depositStatus === 'sent_by_designer' || depositStatus === 'confirmed' || depositStatus === 'paid' || depositStatus === 'recorded';
+                            var isDepositReceived = depositStatus === 'received';
+                            var hasComStage = isDepositSubmitted || isDepositReceived || !!comStatus;
+                            var stateColor = sel && sel.display_status === 'delayed' ? '#ff6666' : sel && sel.display_status === 'completed' ? '#FF0065' : '#ccc';
+                            var html = '';
+                            html += '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">3. Award Decision</div>';
+                            if (sel && sel.started_at) html += '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + escHtml(sel.started_at) + '</div>';
+                            if (sel && sel.completed_at) html += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + escHtml(sel.completed_at) + '</div>';
+                            if (sel && sel.expected_by) html += '<div style="font-size: 11px; color: #ccc;">Expected by: ' + escHtml(sel.expected_by) + '</div>';
+                            html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + '; display: grid; gap: 10px;">';
+                            html += '<div style="font-size: 12px; color: #ccc;"><span style="color: #FF0065;">Bid Awarded:</span> ' + (isAwarded ? 'Congratulations! Your bid is awarded.' : 'Waiting for designer award.') + '</div>';
+                            if (awardTimestamp) html += '<div style="font-size: 11px; color: #aaa;">Awarded at: ' + escHtml(awardTimestamp) + '</div>';
+                            if (hasPo) {
+                                html += '<div style="font-size: 12px; color: #ccc;"><span style="color: #FF0065;">PO:</span> <a href="' + String(poFile.url).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">Open uploaded PO</a></div>';
+                                if (poUploadedAt) html += '<div style="font-size: 11px; color: #aaa;">PO uploaded at: ' + escHtml(poUploadedAt) + '</div>';
+                            } else {
+                                html += '<div style="font-size: 12px; color: #ccc;"><span style="color: #FF0065;">PO:</span> PO not uploaded yet.</div>';
+                            }
+                            if (hasDepositStage) {
+                                var depositLabel = 'pending';
+                                if (depositStatus === 'sent_by_designer') depositLabel = 'submitted by designer';
+                                else if (depositStatus === 'confirmed' || depositStatus === 'paid' || depositStatus === 'recorded') depositLabel = 'submitted';
+                                else if (depositStatus === 'received') depositLabel = 'received';
+                                else if (depositStatus) depositLabel = depositStatus.replace(/_/g, ' ');
+                                html += '<div style="font-size: 12px; color: #ccc;"><span style="color: #FF0065;">Deposit:</span> ' + escHtml(depositLabel) + '</div>';
+                                if ((isDepositSubmitted || isDepositReceived) && depositAmount !== undefined && depositAmount !== null && String(depositAmount) !== '') html += '<div style="font-size: 11px; color: #aaa;">Deposit amount: ' + escHtml(String(depositAmount)) + '</div>';
+                                if ((isDepositSubmitted || isDepositReceived) && depositAt) html += '<div style="font-size: 11px; color: #aaa;">Deposit update at: ' + escHtml(depositAt) + '</div>';
+                                if ((isDepositSubmitted || isDepositReceived) && depositFileUrl) html += '<div style="font-size: 11px; color: #aaa;">Deposit proof: <a href="' + String(depositFileUrl).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">View receipt</a></div>';
+                            }
+                            if (hasComStage) {
+                                var comLabel = comStatus ? comStatus.replace(/_/g, ' ') : 'pending shipment';
+                                if (!comStatus && hasComStage) comLabel = 'pending shipment';
+                                html += '<div style="font-size: 12px; color: #ccc;"><span style="color: #FF0065;">COM:</span> ' + escHtml(comLabel) + '</div>';
+                                if (comTrackingNumber) html += '<div style="font-size: 11px; color: #aaa;">Tracking: ' + escHtml(comTrackingNumber) + '</div>';
+                                if (comDeliveryAddress) html += '<div style="font-size: 11px; color: #aaa;">Delivery address: ' + escHtml(comDeliveryAddress) + '</div>';
+                                if (comShippedAt) html += '<div style="font-size: 11px; color: #aaa;">COM shipped at: ' + escHtml(comShippedAt) + '</div>';
+                                if (comDeliveredAt) html += '<div style="font-size: 11px; color: #aaa;">COM received at: ' + escHtml(comDeliveredAt) + '</div>';
+                                if (comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit') {
+                                    html += '<div style="margin-top: 6px;"><button type="button" data-n88-com-received-btn="' + itemId + '" onclick="n88SupplierMarkComReceived(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Confirm COM Received ]</button></div>';
+                                }
+                            }
+                            html += '</div>';
+                            return html;
+                        }
                         window.n88SupplierTimelineSelectStep = function(idx) {
                             var w = document.getElementById('n88-supplier-workflow-timeline-wrap');
                             if (!w || !w._n88StepsData) return;
@@ -7869,17 +8644,24 @@ class N88_RFQ_Auth {
                             var itemId = w.getAttribute('data-item-id');
                             if (detEl) {
                                 var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
-                                var supplierStepDescriptions = { 1: 'Review the item scope and submit your quote. Respond to clarification requests as needed.', 2: 'Provide drawings, samples, and technical documentation as requested.', 3: 'Submit prototype videos and address revision requests until final approval.', 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
+                                var supplierStepDescriptions = {
+                                    4: 'Production begins.'
+                                };
                                 var stepNum = sel.step_number || (idx + 1);
                                 var desc = supplierStepDescriptions[stepNum] || '';
+                                if (stepNum === 1) {
+                                    detEl.innerHTML = buildSupplierProposalStepBlock(itemId, sel, sl);
+                                } else if (stepNum === 3) {
+                                    detEl.innerHTML = buildSupplierCommitmentStepBlock(itemId, sel, sl);
+                                } else {
                                 detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepNum + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                     (desc ? '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : '') +
-                                    '<div style="font-size: 12px; color: #ccc;">Â· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
                                     buildSupplierValidationBlock(stepNum, itemId) +
                                     buildSupplierStepEvidenceBlock(sel, itemId);
+                                }
                             }
                             var btns = document.querySelectorAll('[data-n88-step-btn]');
                             for (var j = 0; j < btns.length; j++) {
@@ -7889,6 +8671,12 @@ class N88_RFQ_Auth {
                                 b.style.color = bidx === idx ? green : darkText;
                                 var lbl = b.querySelector('.n88-step-label');
                                 if (lbl) lbl.style.color = bidx === idx ? green : darkText;
+                                var circle = b.querySelector('div[style*="border-radius: 50%"]');
+                                if (circle) {
+                                    circle.style.borderColor = bidx === idx ? green : darkBorder;
+                                    circle.style.background = bidx === idx ? green : 'transparent';
+                                    circle.style.color = bidx === idx ? '#0a0a0a' : darkText;
+                                }
                             }
                             w.setAttribute('data-active-step', String(idx));
                             if (itemId && typeof loadSupplierMessagesInline === 'function') {
@@ -7967,15 +8755,16 @@ class N88_RFQ_Auth {
                                 if (idx === 3 && (el.innerHTML.indexOf('official_quote_pdf') !== -1 || el.innerHTML.indexOf('Submit Official Quote PDF') !== -1 || el.innerHTML.indexOf('Quote file submitted') !== -1)) continue;
                                 var s = steps[idx];
                                 var sl = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
-                                var supplierStepDescriptions456 = { 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
+                                var supplierStepDescriptions456 = {
+                                    4: 'Production begins.'
+                                };
                                 var stepN = idx + 1;
                                 var desc456 = supplierStepDescriptions456[stepN] || '';
                                 var content = '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepN + '. ' + step456Labels[idx - 3] + '</div>';
-                                if (desc456) content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc456.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                                content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">Â· State: <span style="color: ' + (s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? green : darkText) + ';">' + sl + '</span></div>';
                                 if (s.started_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Started: ' + s.started_at + '</div>';
                                 if (s.completed_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + s.completed_at + '</div>';
                                 if (s.expected_by) content += '<div style="font-size: 11px; color: #ccc;">Expected by: ' + s.expected_by + '</div>';
+                                if (desc456) content += '<div style="font-size: 12px; color: #ccc; margin-top: 8px; line-height: 1.4;">' + desc456.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                                 content += buildSupplierStepEvidenceBlock(s, itemId);
                                 el.innerHTML = content;
                             }
@@ -7988,7 +8777,7 @@ class N88_RFQ_Auth {
                                 var isCompleted = s.display_status === 'completed';
                                 var isSelected = selectedIdx === i;
                                 row += '<div onclick="if(typeof n88SupplierTimelineSelectStep===\'function\')n88SupplierTimelineSelectStep(' + i + ');" data-n88-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
-                                row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                                row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : isSelected ? green : darkBorder) + '; background: ' + (isCompleted || isSelected ? green : 'transparent') + '; color: ' + (isCompleted || isSelected ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
                                 row += '<div class="n88-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                                 if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
                                 row += '</div>';
@@ -7999,18 +8788,24 @@ class N88_RFQ_Auth {
                             row += '</div>';
                             var sel = steps[0];
                             var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
-                            var supplierStepDescriptionsFull = { 1: 'Review the item scope and submit your quote. Respond to clarification requests as needed.', 2: 'Provide drawings, samples, and technical documentation as requested.', 3: 'Submit prototype videos and address revision requests until final approval.', 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
+                            var supplierStepDescriptionsFull = {
+                                4: 'Production begins.'
+                            };
                             var stepNum0 = sel.step_number || 1;
                             var desc0 = supplierStepDescriptionsFull[stepNum0] || '';
                             var detail = '<div id="n88-supplier-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
+                            if (stepNum0 === 1) {
+                                detail += buildSupplierProposalStepBlock(itemId, sel, statusLabel);
+                            } else if (stepNum0 === 3) {
+                                detail += buildSupplierCommitmentStepBlock(itemId, sel, statusLabel);
+                            } else {
                             detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 4px;">' + stepNum0 + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            if (desc0) detail += '<div style="font-size: 12px; color: ' + darkText + '; margin-bottom: 12px; line-height: 1.4;">' + desc0.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            detail += '<div style="font-size: 12px; color: ' + darkText + ';">Â· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
                             if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
                             if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
                             if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
                             detail += buildSupplierValidationBlock(stepNum0, itemId);
                             detail += buildSupplierStepEvidenceBlock(sel, itemId);
+                            }
                             detail += '</div>';
                             if (t.show_prototype_mini) {
                                 detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
@@ -8166,18 +8961,134 @@ class N88_RFQ_Auth {
             };
 
             // Toggle bid form section inside the modal
-            function toggleBidForm(itemId) {
+            function getBidFormModeLabel(mode) {
+                return mode === 'edit_submitted' ? '[ Update Proposal ]' : '[ Submit Proposal ]';
+            }
+
+            function buildModalProposalEditFormHTML(item) {
+                if (!item) {
+                    return '';
+                }
+
+                return '<form id="n88-bid-form" style="padding: 20px; font-family: monospace;" onsubmit="return submitBid(event);">' +
+                    '<input type="hidden" name="prototype_video_yes" value="1" />' +
+                    '<input type="hidden" name="prototype_timeline_option" value="" />' +
+                    '<input type="hidden" name="prototype_cost" value="" />' +
+                    '<input type="hidden" name="material_included" value="" />' +
+                    '<input type="hidden" name="sample_required" value="" />' +
+                    '<input type="hidden" name="smart_alternatives_suggestion" value="" />' +
+                    '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
+                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">PROPOSAL FORM</h2>' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 18px;">' +
+                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">1- unit price</label>' +
+                    '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
+                    '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">2- production lead time</label>' +
+                    '<select name="production_lead_time_text" required style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
+                    '<option value="">[ Select lead time... ]</option><option value="2-4 weeks">2-4 weeks</option><option value="4-6 weeks">4-6 weeks</option><option value="6-8 weeks">6-8 weeks</option><option value="8-12 weeks">8-12 weeks</option><option value="12-16 weeks">12-16 weeks</option></select>' +
+                    '<div id="n88-lead-time-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true'))
+                        ? '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">3- fabric quantity</label>' +
+                          '<input type="text" name="fabric_quantity" required placeholder="Enter fabric quantity" style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
+                          '<div id="n88-fabric-qty-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>'
+                        : '') +
+                    '</div>' +
+                    '<div style="margin-bottom: 24px; padding: 16px; background-color: #111; border-radius: 4px; border: 1px solid #222;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">5- Media</label>' +
+                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px; font-family: monospace;">Update the same media links and proposal references saved on this proposal.</div>' +
+                    '<div id="n88-video-links-container">' +
+                    '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;"><span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="Paste YouTube, Vimeo, or Loom link" style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLink(this);" oninput="validateBidForm();" />' +
+                    '<button type="button" onclick="removeVideoLink(this)" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; display: none; font-family: monospace; font-size: 11px;">Remove</button></div></div>' +
+                    '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                    '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
+                    '<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;">' +
+                    '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="padding: 8px 14px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">Add Media</button>' +
+                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 14px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">Upload Media Photos</button>' +
+                    '</div><div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                    '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '<div style="margin-bottom: 24px;"><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">6- Notes</label>' +
+                    '<textarea name="proposal_notes" rows="5" placeholder="Add notes..." style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace; resize: vertical;" oninput="validateBidForm();"></textarea></div>' +
+                    '</form>';
+            }
+
+            function setEmbeddedBidFormMode(itemId, mode) {
+                var formSection = document.getElementById('n88-bid-form-section-' + itemId);
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
+                var normalizedMode = mode === 'edit_submitted' ? 'edit_submitted' : '';
+
+                if (formSection) {
+                    formSection.setAttribute('data-bid-form-mode', normalizedMode);
+                }
+                if (form) {
+                    form.setAttribute('data-bid-form-mode', normalizedMode);
+                }
+                if (submitBtn) {
+                    submitBtn.textContent = getBidFormModeLabel(normalizedMode);
+                }
+            }
+
+            function getEmbeddedBidFormMode(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (form && form.getAttribute('data-bid-form-mode')) {
+                    return form.getAttribute('data-bid-form-mode');
+                }
+                var formSection = document.getElementById('n88-bid-form-section-' + itemId);
+                return formSection ? (formSection.getAttribute('data-bid-form-mode') || '') : '';
+            }
+
+            function setModalBidFormMode(mode) {
+                var modal = document.getElementById('n88-supplier-bid-form-modal');
+                var form = document.getElementById('n88-bid-form');
+                var submitBtn = document.getElementById('n88-submit-bid-btn');
+                var normalizedMode = mode === 'edit_submitted' ? 'edit_submitted' : '';
+
+                if (modal) {
+                    modal.setAttribute('data-bid-form-mode', normalizedMode);
+                }
+                if (form) {
+                    form.setAttribute('data-bid-form-mode', normalizedMode);
+                }
+                if (submitBtn) {
+                    submitBtn.textContent = getBidFormModeLabel(normalizedMode);
+                }
+            }
+
+            function getModalBidFormMode() {
+                var form = document.getElementById('n88-bid-form');
+                if (form && form.getAttribute('data-bid-form-mode')) {
+                    return form.getAttribute('data-bid-form-mode');
+                }
+                var modal = document.getElementById('n88-supplier-bid-form-modal');
+                return modal ? (modal.getAttribute('data-bid-form-mode') || '') : '';
+            }
+
+            function openEditSubmittedBid(itemId) {
+                if (!itemId) return false;
+                openBidFormModalInternal(itemId, 'edit_submitted');
+                return false;
+            }
+
+            function toggleBidForm(itemId, mode) {
                 var formSection = document.getElementById('n88-bid-form-section-' + itemId);
                 var formContent = document.getElementById('n88-bid-form-content-' + itemId);
                 var toggleBtn = document.getElementById('n88-toggle-bid-form-btn-' + itemId);
                 var resubmitBtn = document.getElementById('n88-resubmit-bid-btn-' + itemId);
+                var editBtn = document.getElementById('n88-edit-bid-btn-' + itemId);
                 var specsBanner = document.getElementById('n88-specs-changed-banner');
                 var bidForm = document.getElementById('n88-bid-form');
                 var leftScrollWrap = document.getElementById('n88-supplier-overview-left-' + itemId);
+                var requestedMode = mode === 'edit_submitted' ? 'edit_submitted' : '';
                 
-                if (!formSection || !formContent) return;
+                if (!formSection || !formContent) {
+                    openBidFormModalInternal(itemId, requestedMode);
+                    return;
+                }
                 
                 if (formSection.style.display === 'none' || !formSection.style.display) {
+                    setEmbeddedBidFormMode(itemId, requestedMode);
                     // Show form section
                     formSection.style.display = 'block';
                     if (toggleBtn) {
@@ -8190,6 +9101,9 @@ class N88_RFQ_Auth {
                         resubmitBtn.textContent = '[ Hide Bid Form ]';
                         resubmitBtn.style.backgroundColor = '#1a1a1a';
                         resubmitBtn.style.color = '#FF0065';
+                    }
+                    if (editBtn) {
+                        editBtn.textContent = '[ Hide Bid Form ]';
                     }
                     
                     // Hide specs changed banner and show form when resubmitting
@@ -8221,6 +9135,7 @@ class N88_RFQ_Auth {
                         }, 220);
                     }
                 } else {
+                    setEmbeddedBidFormMode(itemId, '');
                     // Hide form section
                     formSection.style.display = 'none';
                     if (toggleBtn) {
@@ -8237,6 +9152,9 @@ class N88_RFQ_Auth {
                         resubmitBtn.textContent = '[ Resubmit Bid ]';
                         resubmitBtn.style.backgroundColor = '#ff9800';
                         resubmitBtn.style.color = '#000';
+                    }
+                    if (editBtn) {
+                        editBtn.textContent = '[ Edit Proposal ]';
                     }
                 }
             }
@@ -8279,10 +9197,16 @@ class N88_RFQ_Auth {
                             if (form && staleBidData) {
                                 restoreBidDataToFormEmbedded(form, staleBidData, itemId);
                             }
+                        } else if (getEmbeddedBidFormMode(itemId) === 'edit_submitted' && item.bid_data) {
+                            var currentSubmittedForm = document.getElementById('n88-bid-form-embedded-' + itemId);
+                            if (currentSubmittedForm) {
+                                restoreBidDataToFormEmbedded(currentSubmittedForm, item.bid_data, itemId);
+                            }
                         } else {
                             // Otherwise load from draft
                             loadBidDraft(itemId);
                         }
+                        setEmbeddedBidFormMode(itemId, getEmbeddedBidFormMode(itemId));
                         if (typeof window.n88BatchProposalRefreshItemState === 'function') {
                             setTimeout(function() {
                                 window.n88BatchProposalRefreshItemState(itemId);
@@ -8482,6 +9406,12 @@ class N88_RFQ_Auth {
                     '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
                     '<div id="n88-unit-price-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                             '</div>' +
+                    (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true')) ?
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Fabric quantity (Required)</label>' +
+                    '<input type="text" name="fabric_quantity" required placeholder="Enter fabric quantity" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<div id="n88-fabric-qty-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                    '</div>' : '') +
                     '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Material Included</label>' +
                     '<select name="material_included" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
@@ -8640,6 +9570,9 @@ class N88_RFQ_Auth {
                     '<select name="production_lead_time_text" required style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
                     '<option value="">[ Select lead time... ]</option><option value="2-4 weeks">2-4 weeks</option><option value="4-6 weeks">4-6 weeks</option><option value="6-8 weeks">6-8 weeks</option><option value="8-12 weeks">8-12 weeks</option><option value="12-16 weeks">12-16 weeks</option></select>' +
                     '<div id="n88-lead-time-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true')) ? '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">3- fabric quantity</label>' +
+                    '<input type="text" name="fabric_quantity" required placeholder="Enter fabric quantity" style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<div id="n88-fabric-qty-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' : '') +
                     '</div>' +
                     '<div style="margin-bottom: 24px; padding: 16px; background-color: #111; border-radius: 4px; border: 1px solid #222;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">5- Media</label>' +
@@ -8667,7 +9600,7 @@ class N88_RFQ_Auth {
             }
             
             // Commit 2.3.3: Open bid form modal
-            function openBidFormModal(itemId) {
+            function openBidFormModal(itemId, mode) {
                 // Check if bid already submitted (Commit 2.3.5)
                 fetchSupplierItemDetails(itemId)
                 .then(function(data) {
@@ -8677,7 +9610,7 @@ class N88_RFQ_Auth {
                     // 3. Bid is draft (can continue/update)
                     // Only block if bid is submitted/awarded for current revision (no changes needed)
                     // Commit 2.4.1: Include 'awarded' status - can't resubmit an awarded bid
-                    if (data.success && (data.data.bid_status === 'submitted' || data.data.bid_status === 'awarded') && !data.data.has_revision_mismatch && !data.data.is_resubmission) {
+                    if (data.success && (data.data.bid_status === 'submitted' || data.data.bid_status === 'awarded') && !data.data.has_revision_mismatch && !data.data.is_resubmission && mode !== 'edit_submitted') {
                         if (data.data.bid_status === 'awarded') {
                             alert('This bid has been awarded. You cannot modify an awarded bid.');
                         } else {
@@ -8686,16 +9619,16 @@ class N88_RFQ_Auth {
                         return;
                     }
                     // Continue with opening modal (allows resubmission when dims/qty changed)
-                    openBidFormModalInternal(itemId);
+                    openBidFormModalInternal(itemId, mode);
                 })
                 .catch(function(error) {
                     console.error('Error checking bid status:', error);
                     // Continue with opening modal if check fails
-                    openBidFormModalInternal(itemId);
+                    openBidFormModalInternal(itemId, mode);
                 });
             }
             
-            function openBidFormModalInternal(itemId) {
+            function openBidFormModalInternal(itemId, mode) {
                 var modal = document.getElementById('n88-supplier-bid-form-modal');
                 var modalContent = document.getElementById('n88-supplier-bid-form-modal-content');
                 
@@ -8703,6 +9636,7 @@ class N88_RFQ_Auth {
                 
                 // Store item ID for form submission
                 modal.setAttribute('data-item-id', itemId);
+                modal.setAttribute('data-bid-form-mode', mode === 'edit_submitted' ? 'edit_submitted' : '');
                 
                 // Show loading state
                 modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Loading item details...</div>';
@@ -8867,6 +9801,8 @@ class N88_RFQ_Auth {
                             '</div>';
                     }
                     
+                    var isEditSubmittedMode = mode === 'edit_submitted';
+
                     // Build bid form modal HTML (Commit 2.3.5.2: Dark theme with green accents - terminal style)
                     var modalHTML = 
                         // Item Header Section (RFQ, Qty, Dims, Delivery)
@@ -8965,6 +9901,12 @@ class N88_RFQ_Auth {
                         '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
                         '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
+                        (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true')) ?
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Fabric quantity (Required)</label>' +
+                        '<input type="text" name="fabric_quantity" required placeholder="Enter fabric quantity" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
+                        '<div id="n88-fabric-qty-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' : '') +
                         '<div style="margin-bottom: 24px;">' +
                         '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Material Included</label>' +
                         '<select name="material_included" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
@@ -9104,7 +10046,7 @@ class N88_RFQ_Auth {
                         '<div style="padding: 20px; border-top: 1px solid #FF0065; background-color: #000; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
                         '<div style="flex: 1; min-width: 200px;">' +
                         '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 8px;">Rules:</div>' +
-                        '<div style="font-size: 10px; color: #fff; font-family: monospace;">Rules: No emails / phones / URLs / contact text. No uploads. No links here.</div>' +
+                        '<div style="font-size: 10px; color: #fff; font-family: monospace;"></div>' +
                         '</div>' +
                         '<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">' +
                         '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
@@ -9114,9 +10056,17 @@ class N88_RFQ_Auth {
                         '</div>';
                     
                     modalContent.innerHTML = modalHTML;
+
+                    if (isEditSubmittedMode) {
+                        var existingModalForm = modalContent.querySelector('#n88-bid-form');
+                        if (existingModalForm) {
+                            existingModalForm.outerHTML = buildModalProposalEditFormHTML(item);
+                        }
+                    }
                     
                     // H) Load draft or submitted bid data for modal form
                     setTimeout(function() {
+                        setModalBidFormMode(mode);
                         loadBidDraftModal(itemId, item);
                     }, 200);
                     
@@ -9153,6 +10103,7 @@ class N88_RFQ_Auth {
                 var modal = document.getElementById('n88-supplier-bid-form-modal');
                 if (modal) {
                     modal.style.display = 'none';
+                    modal.setAttribute('data-bid-form-mode', '');
                     document.body.style.overflow = '';
                 }
             }
@@ -9524,9 +10475,22 @@ class N88_RFQ_Auth {
                     }
                 });
                 
-                // Require at least 1 valid video link, max 3
-                if (validVideoLinks < 1 || validVideoLinks > 3) {
+                var requiresMinimumBidMedia = !( !isEmbedded && getModalBidFormMode() === 'edit_submitted' );
+                var videoError = isEmbedded ?
+                    document.getElementById('n88-video-links-error-embedded-' + itemId) :
+                    document.getElementById('n88-video-links-error');
+
+                // In edit-submitted modal, media is optional. If present, still cap at 3 valid links.
+                if ((requiresMinimumBidMedia && validVideoLinks < 1) || validVideoLinks > 3) {
                     isValid = false;
+                    if (videoError) {
+                        videoError.textContent = validVideoLinks > 3 ?
+                            'Maximum 3 valid video links allowed.' :
+                            'At least 1 valid video link is required.';
+                        videoError.style.display = 'block';
+                    }
+                } else if (videoError) {
+                    videoError.style.display = 'none';
                 }
                 
                 // 1.5. Bid Photos: required, min 1, max 5 (Commit 2.3.5.1) - check uploaded photo IDs
@@ -9579,8 +10543,10 @@ class N88_RFQ_Auth {
                     document.getElementById('n88-bid-photos-preview');
                 
                 console.log('Photo validation - Inputs found:', photoIdInputs.length, 'Photos counted:', bidPhotosCount, 'Form:', !!form, 'Preview container:', !!previewContainer);
+
+                var requiresMinimumBidPhotos = !( !isEmbedded && getModalBidFormMode() === 'edit_submitted' );
                 
-                if (bidPhotosCount < 2) {
+                if (requiresMinimumBidPhotos && bidPhotosCount < 2) {
                     isValid = false;
                     if (photosError) {
                         photosError.textContent = 'At least 2 photos are required.';
@@ -9666,6 +10632,24 @@ class N88_RFQ_Auth {
                         priceError.style.display = 'block';
                     }
                 }
+
+                var fabricQuantityInput = form.querySelector('input[name="fabric_quantity"]');
+                var fabricError = isEmbedded ? 
+                    document.getElementById('n88-fabric-qty-error-embedded-' + itemId) : 
+                    document.getElementById('n88-fabric-qty-error');
+                if (fabricQuantityInput) {
+                    if (!fabricQuantityInput.value || !fabricQuantityInput.value.trim()) {
+                        isValid = false;
+                        if (fabricError) {
+                            fabricError.textContent = 'Fabric quantity is required.';
+                            fabricError.style.display = 'block';
+                        }
+                    } else if (fabricError) {
+                        fabricError.style.display = 'none';
+                    }
+                } else if (fabricError) {
+                    fabricError.style.display = 'none';
+                }
                 
                 if (submitBtn) {
                     if (isValid) {
@@ -9746,16 +10730,25 @@ class N88_RFQ_Auth {
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
                 // Other fields
+                var prototypeTimelineField = form.querySelector('select[name="prototype_timeline_option"], input[name="prototype_timeline_option"]');
+                var prototypeCostField = form.querySelector('input[name="prototype_cost"]');
+                var materialIncludedField = form.querySelector('select[name="material_included"], input[name="material_included"]');
+                var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked') || form.querySelector('input[name="sample_required"]');
+                var hiddenSmartAltField = form.querySelector('input[name="smart_alternatives_suggestion"]');
+
                 formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
-                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]') ? form.querySelector('select[name="prototype_timeline_option"]').value : '');
-                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]') ? form.querySelector('input[name="prototype_cost"]').value : '');
+                formData.append('prototype_timeline_option', prototypeTimelineField ? prototypeTimelineField.value : '');
+                formData.append('prototype_cost', prototypeCostField ? prototypeCostField.value : '');
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
-                formData.append('material_included', form.querySelector('select[name="material_included"]') ? form.querySelector('select[name="material_included"]').value : '');
-                var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked');
+                formData.append('material_included', materialIncludedField ? materialIncludedField.value : '');
                 formData.append('sample_required', sampleRequiredField ? sampleRequiredField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                formData.append('fabric_quantity', form.querySelector('input[name="fabric_quantity"]') ? form.querySelector('input[name="fabric_quantity"]').value : '');
                 appendBatchFormContext(formData, itemId);
+                if (getModalBidFormMode() === 'edit_submitted') {
+                    formData.append('edit_submitted_bid', '1');
+                }
                 
                 // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
@@ -9783,6 +10776,8 @@ class N88_RFQ_Auth {
                         lead_time_impact: hasLeadTime ? smartAltLeadTime.value : ''
                     };
                     formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                } else if (hiddenSmartAltField && hiddenSmartAltField.value) {
+                    formData.append('smart_alternatives_suggestion', hiddenSmartAltField.value);
                 }
                 
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_supplier_bid' ); ?>');
@@ -9805,7 +10800,7 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Proposal';
+                        submitBtn.textContent = getBidFormModeLabel(getModalBidFormMode());
                     }
                     
                     if (!data.success) {
@@ -9834,11 +10829,12 @@ class N88_RFQ_Auth {
                             alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
                         }
                     } else {
+                        var successMessage = (data.data && data.data.message) || 'Bid submitted successfully!';
                         // Success - close bid form modal and open item modal on Proposal tab (no reload)
-                        alert(data.data && data.data.message || 'Bid submitted successfully!');
+                        alert(successMessage);
                         closeBidFormModal();
                         if (itemId && typeof openBidModal === 'function') {
-                            openBidModal(itemId, 'overview');
+                            openBidModal(itemId, 'workflow', 0);
                         } else if (window.location.href.indexOf('queue') > -1) {
                             window.location.reload();
                         }
@@ -9847,7 +10843,7 @@ class N88_RFQ_Auth {
                 .catch(function(error) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Proposal';
+                        submitBtn.textContent = getBidFormModeLabel(getModalBidFormMode());
                     }
                     alert('Error submitting bid. Please try again.');
                     console.error('Submission error:', error);
@@ -10486,6 +11482,28 @@ class N88_RFQ_Auth {
                     }
                 }
 
+                var itemData = (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) || window.currentItemData || {};
+                var fabricQuantityInput = form.querySelector('input[name="fabric_quantity"]');
+                var fabricQuantityError = document.getElementById('n88-fabric-qty-error-embedded-' + itemId);
+                if (itemData && (
+                    String(itemData.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes' ||
+                    String(itemData.rfq_fabric_supplied_flag || '').toLowerCase() === '1' ||
+                    String(itemData.rfq_fabric_supplied_flag || '').toLowerCase() === 'true'
+                )) {
+                    if (!fabricQuantityInput || !fabricQuantityInput.value || !fabricQuantityInput.value.trim()) {
+                        isValid = false;
+                        if (fabricQuantityError) {
+                            fabricQuantityError.textContent = 'Fabric quantity is required.';
+                            fabricQuantityError.style.display = 'block';
+                        }
+                        markBatchFieldHighlight(fabricQuantityInput);
+                    } else if (fabricQuantityError) {
+                        fabricQuantityError.style.display = 'none';
+                    }
+                } else if (fabricQuantityError) {
+                    fabricQuantityError.style.display = 'none';
+                }
+
                 if (submitBtn) {
                     if (isValid) {
                         submitBtn.disabled = false;
@@ -10605,6 +11623,7 @@ class N88_RFQ_Auth {
                 var sampleRequiredDraftField = form.querySelector('input[name="sample_required"]:checked');
                 formData.append('sample_required', sampleRequiredDraftField ? sampleRequiredDraftField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                formData.append('fabric_quantity', form.querySelector('input[name="fabric_quantity"]') ? form.querySelector('input[name="fabric_quantity"]').value : '');
                 appendBatchFormContext(formData, itemId);
                 
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
@@ -10779,6 +11798,10 @@ class N88_RFQ_Auth {
                 var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked');
                 formData.append('sample_required', sampleRequiredField ? sampleRequiredField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                formData.append('fabric_quantity', form.querySelector('input[name="fabric_quantity"]') ? form.querySelector('input[name="fabric_quantity"]').value : '');
+                if (getEmbeddedBidFormMode(itemId) === 'edit_submitted') {
+                    formData.append('edit_submitted_bid', '1');
+                }
                 
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
                 var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
@@ -10822,7 +11845,7 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Proposal';
+                        submitBtn.textContent = getBidFormModeLabel(getEmbeddedBidFormMode(itemId));
                     }
                     
                     if (!data.success) {
@@ -10863,6 +11886,7 @@ class N88_RFQ_Auth {
                             window.n88BatchProposalRefreshItemState(itemId);
                         }, 150);
                     }
+                    var successMessage = (data.data && data.data.message) || 'Proposal submitted successfully.';
                     if (isBatchMode) {
                         persistBatchItemState(itemId, 'quote', 'quoted', data.data && data.data.bid_id ? data.data.bid_id : null);
                         var host = document.getElementById('n88-batch-form-host-' + itemId);
@@ -10874,17 +11898,21 @@ class N88_RFQ_Auth {
                                 successBox.style.cssText = 'margin-bottom:14px; padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1; font-family:monospace; font-size:11px;';
                                 host.insertBefore(successBox, host.firstChild);
                             }
-                            successBox.textContent = data.data && data.data.message ? data.data.message : 'Proposal submitted successfully.';
+                            successBox.textContent = successMessage;
                         }
                         if (!silent) {
-                            alert(data.data && data.data.message || 'Proposal submitted successfully!');
+                            alert(successMessage);
                         }
                     } else if (!silent) {
-                        alert(data.data && data.data.message || 'Bid submitted successfully!');
+                        alert(successMessage);
                         if (typeof closeBidModal === 'function') {
                             closeBidModal();
                         }
-                        window.location.href = '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
+                        if (typeof openBidModal === 'function') {
+                            openBidModal(itemId, 'workflow', 0);
+                        } else {
+                            window.location.href = '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
+                        }
                     }
                     return {
                         success: true,
@@ -10896,7 +11924,7 @@ class N88_RFQ_Auth {
                 .catch(function(error) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Proposal';
+                        submitBtn.textContent = getBidFormModeLabel(getEmbeddedBidFormMode(itemId));
                     }
                     if (!silent) {
                         alert('Error submitting bid. Please try again.');
@@ -11114,6 +12142,10 @@ class N88_RFQ_Auth {
                     return;
                     }
                 }
+                if (itemData && getModalBidFormMode() === 'edit_submitted' && itemData.bid_data) {
+                    restoreBidDataToForm(form, itemData.bid_data, itemId);
+                    return;
+                }
                 
                 // Otherwise, load from draft
                 var formData = new FormData();
@@ -11225,10 +12257,15 @@ class N88_RFQ_Auth {
                 // Restore form fields
                 if (bidData.prototype_video_yes !== undefined && bidData.prototype_video_yes !== null) {
                     var radio = form.querySelector('input[name="prototype_video_yes"][value="' + bidData.prototype_video_yes + '"]');
-                    if (radio) radio.checked = true;
+                    if (radio) {
+                        radio.checked = true;
+                    } else {
+                        var hiddenPrototypeInput = form.querySelector('input[type="hidden"][name="prototype_video_yes"]');
+                        if (hiddenPrototypeInput) hiddenPrototypeInput.value = bidData.prototype_video_yes;
+                    }
                 }
                 if (bidData.prototype_timeline_option) {
-                    var timelineSelect = form.querySelector('select[name="prototype_timeline_option"]');
+                    var timelineSelect = form.querySelector('select[name="prototype_timeline_option"], input[name="prototype_timeline_option"]');
                     if (timelineSelect) timelineSelect.value = bidData.prototype_timeline_option;
                 }
                 if (bidData.prototype_cost) {
@@ -11244,21 +12281,34 @@ class N88_RFQ_Auth {
                     if (priceInput) priceInput.value = bidData.unit_price;
                 }
                 if (bidData.material_included) {
-                    var materialSelect = form.querySelector('select[name="material_included"]');
+                    var materialSelect = form.querySelector('select[name="material_included"], input[name="material_included"]');
                     if (materialSelect) materialSelect.value = bidData.material_included;
                 }
                 if (bidData.sample_required) {
                     var sampleInput = form.querySelector('input[name="sample_required"][value="' + bidData.sample_required + '"]');
-                    if (sampleInput) sampleInput.checked = true;
+                    if (sampleInput) {
+                        sampleInput.checked = true;
+                    } else {
+                        var hiddenSampleInput = form.querySelector('input[type="hidden"][name="sample_required"]');
+                        if (hiddenSampleInput) hiddenSampleInput.value = bidData.sample_required;
+                    }
                 }
                 if (bidData.proposal_notes) {
                     var proposalNotesInput = form.querySelector('textarea[name="proposal_notes"]');
                     if (proposalNotesInput) proposalNotesInput.value = bidData.proposal_notes;
                 }
+                if (bidData.fabric_quantity !== undefined && bidData.fabric_quantity !== null && String(bidData.fabric_quantity).trim() !== '') {
+                    var fabricInput = form.querySelector('input[name="fabric_quantity"]');
+                    if (fabricInput) fabricInput.value = bidData.fabric_quantity;
+                }
                 
                 // Restore Smart Alternatives (H) - fix comparison points
                 if (bidData.smart_alternatives_suggestion) {
                     var sa = bidData.smart_alternatives_suggestion;
+                    var hiddenSmartAltInput = form.querySelector('input[type="hidden"][name="smart_alternatives_suggestion"]');
+                    if (hiddenSmartAltInput) {
+                        hiddenSmartAltInput.value = JSON.stringify(sa);
+                    }
                     if (sa.category) {
                         var catSelect = form.querySelector('select[name="smart_alt_category"]');
                         if (catSelect) catSelect.value = sa.category;
@@ -11408,6 +12458,10 @@ class N88_RFQ_Auth {
                     var proposalNotesInput = form.querySelector('textarea[name="proposal_notes"]');
                     if (proposalNotesInput) proposalNotesInput.value = bidData.proposal_notes;
                 }
+                if (bidData.fabric_quantity !== undefined && bidData.fabric_quantity !== null && String(bidData.fabric_quantity).trim() !== '') {
+                    var fabricQuantityInput = form.querySelector('input[name="fabric_quantity"]');
+                    if (fabricQuantityInput) fabricQuantityInput.value = bidData.fabric_quantity;
+                }
                 
                 // Restore Smart Alternatives
                 if (bidData.smart_alternatives_suggestion) {
@@ -11521,6 +12575,7 @@ class N88_RFQ_Auth {
             window.validateAndSubmitBid = validateAndSubmitBid;
             window.submitBid = submitBid;
             window.toggleBidForm = toggleBidForm;
+            window.openEditSubmittedBid = openEditSubmittedBid;
             window.addVideoLinkEmbedded = addVideoLinkEmbedded;
             window.removeVideoLinkEmbedded = removeVideoLinkEmbedded;
             window.validateVideoLinkEmbedded = validateVideoLinkEmbedded;
@@ -11729,6 +12784,9 @@ class N88_RFQ_Auth {
                     button.addEventListener('click', function(e) {
                         var itemId = this.getAttribute('data-item-id');
                         var actionBadge = this.getAttribute('data-action-badge');
+                        var preferredTab = this.getAttribute('data-open-tab') || '';
+                        var preferredStepRaw = this.getAttribute('data-open-step');
+                        var preferredStep = (preferredStepRaw !== null && preferredStepRaw !== '') ? parseInt(preferredStepRaw, 10) : null;
                         
                         // M6: Block if expired
                         if (actionBadge === 'expired') {
@@ -11738,7 +12796,11 @@ class N88_RFQ_Auth {
                             return false;
                         }
                         
-                        openBidModal(itemId);
+                        if (preferredTab) {
+                            openBidModal(itemId, preferredTab, preferredStep);
+                            return;
+                        }
+                        openBidModal(itemId, null, preferredStep);
                     });
                 });
 
@@ -12215,10 +13277,10 @@ class N88_RFQ_Auth {
             // Filter persistence via URL query parameters
             // When filters change, update the URL. On page refresh, PHP reads these params and restores filter values
             function updateAdminQueueURL() {
-                var queueType = document.getElementById('n88-admin-queue-type')?.value || 'pricing';
-                var status = document.getElementById('n88-admin-status')?.value || 'all';
-                var supplier = document.getElementById('n88-admin-supplier')?.value || 'all';
-                var designer = document.getElementById('n88-admin-designer')?.value || 'all';
+                var queueType = (document.getElementById('n88-admin-queue-type') && document.getElementById('n88-admin-queue-type').value) || 'pricing';
+                var status = (document.getElementById('n88-admin-status') && document.getElementById('n88-admin-status').value) || 'all';
+                var supplier = (document.getElementById('n88-admin-supplier') && document.getElementById('n88-admin-supplier').value) || 'all';
+                var designer = (document.getElementById('n88-admin-designer') && document.getElementById('n88-admin-designer').value) || 'all';
                 
                 var params = new URLSearchParams(window.location.search);
                 
@@ -12917,8 +13979,8 @@ class N88_RFQ_Auth {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     if (data.success && data.data && data.data.keywords) {
                         keywordsContainer.innerHTML = '';
                         data.data.keywords.forEach(function(keyword) {
@@ -12949,7 +14011,7 @@ class N88_RFQ_Auth {
                         keywordsContainer.innerHTML = '<p class="n88-keywords-error">Error loading keywords</p>';
                     }
                 })
-                .catch(error => {
+                .catch(function(error) {
                     keywordsContainer.innerHTML = '<p class="n88-keywords-error">Error loading keywords</p>';
                 });
             }
@@ -12979,8 +14041,8 @@ class N88_RFQ_Auth {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     if (data.success) {
                         messageDiv.className = 'n88-auth-message n88-auth-message-success';
                         messageDiv.style.display = 'block';
@@ -12998,7 +14060,7 @@ class N88_RFQ_Auth {
                         submitButton.textContent = 'Save Profile';
                     }
                 })
-                .catch(error => {
+                .catch(function(error) {
                     messageDiv.className = 'n88-auth-message n88-auth-message-error';
                     messageDiv.style.display = 'block';
                     messageDiv.textContent = 'Error saving profile. Please try again.';
@@ -13793,8 +14855,8 @@ class N88_RFQ_Auth {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     if (data.success) {
                         messageDiv.className = 'n88-auth-message n88-auth-message-success';
                         messageDiv.style.display = 'block';
@@ -13812,7 +14874,7 @@ class N88_RFQ_Auth {
                         submitButton.textContent = 'Save Profile';
                     }
                 })
-                .catch(error => {
+                .catch(function(error) {
                     messageDiv.className = 'n88-auth-message n88-auth-message-error';
                     messageDiv.style.display = 'block';
                     messageDiv.textContent = 'Error saving profile. Please try again.';
@@ -13971,6 +15033,7 @@ class N88_RFQ_Auth {
      * No database writes - strictly read-only
      */
     public function ajax_get_supplier_item_details() {
+        $request_started_at = microtime( true );
         check_ajax_referer( 'n88_get_supplier_item_details', '_ajax_nonce' );
 
         if ( ! is_user_logged_in() ) {
@@ -13987,7 +15050,11 @@ class N88_RFQ_Auth {
         }
 
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
-        
+        $requested_section = isset( $_POST['section'] ) ? sanitize_key( wp_unslash( $_POST['section'] ) ) : 'full';
+        if ( ! in_array( $requested_section, array( 'full', 'summary', 'workflow' ), true ) ) {
+            $requested_section = 'full';
+        }
+
         if ( ! $item_id ) {
             wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
         }
@@ -14017,6 +15084,19 @@ class N88_RFQ_Auth {
                 'route_label' => 'Designer-invited RFQ',
                 'reference_images' => array(),
                 'media_links' => array(),
+                'requested_section' => $requested_section,
+                'loaded_sections' => array(
+                    'summary' => true,
+                    'workflow' => ( 'full' === $requested_section || 'workflow' === $requested_section ),
+                ),
+            );
+            $this->log_ajax_performance(
+                'n88_get_supplier_item_details',
+                $request_started_at,
+                array(
+                    'item_id'           => $item_id,
+                    'requested_section' => $requested_section,
+                )
             );
             wp_send_json_success( $response );
         }
@@ -14207,9 +15287,10 @@ class N88_RFQ_Auth {
         // Get routing context (for supplier only, system operators don't need this)
         $routing_context = null;
         $route_label = '';
+        $route_status = '';
         if ( ! $is_system_operator ) {
             $route = $wpdb->get_row( $wpdb->prepare(
-                "SELECT route_type FROM {$rfq_routes_table}
+                "SELECT route_type, status AS route_status FROM {$rfq_routes_table}
                  WHERE item_id = %d AND supplier_id = %d
                  ORDER BY route_id DESC LIMIT 1",
                 $item_id,
@@ -14217,6 +15298,7 @@ class N88_RFQ_Auth {
             ), ARRAY_A );
 
             if ( $route ) {
+                $route_status = isset( $route['route_status'] ) ? $route['route_status'] : '';
                 if ( $route['route_type'] === 'designer_invited' ) {
                     $route_label = 'Designer-invited RFQ';
                 } elseif ( $route['route_type'] === 'system_invited' ) {
@@ -14937,6 +16019,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $material_included = null;
                     $sample_required = null;
                     $proposal_notes = null;
+                    $fabric_quantity = null;
                     if ( $has_bid_meta_json && ! empty( $existing_bid['meta_json'] ) ) {
                         $bid_meta = json_decode( $existing_bid['meta_json'], true );
                         if ( is_array( $bid_meta ) ) {
@@ -14948,6 +16031,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             }
                             if ( isset( $bid_meta['proposal_notes'] ) ) {
                                 $proposal_notes = sanitize_textarea_field( $bid_meta['proposal_notes'] );
+                            }
+                            if ( isset( $bid_meta['fabric_quantity'] ) ) {
+                                $fabric_quantity = sanitize_text_field( $bid_meta['fabric_quantity'] );
                             }
                         }
                     }
@@ -14970,6 +16056,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         'material_included' => $material_included,
                         'sample_required' => $sample_required,
                         'proposal_notes' => $proposal_notes,
+                        'fabric_quantity' => $fabric_quantity,
                         'has_prototype_request' => $has_prototype_request, // Commit 2.3.9.1B: Flag for CAD prototype request
                         'prototype_request_status' => $prototype_request_status, // Commit 2.3.9.1B: Status of prototype request
                         'payment_notification' => $payment_notification, // Commit 2.3.9.1E: Payment notification data
@@ -15068,6 +16155,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $material_included = null;
                     $sample_required = null;
                     $proposal_notes = null;
+                    $fabric_quantity = null;
                     if ( $has_bid_meta_json && ! empty( $existing_bid['meta_json'] ) ) {
                         $bid_meta = json_decode( $existing_bid['meta_json'], true );
                         if ( is_array( $bid_meta ) ) {
@@ -15082,6 +16170,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             }
                             if ( isset( $bid_meta['proposal_notes'] ) ) {
                                 $proposal_notes = sanitize_textarea_field( $bid_meta['proposal_notes'] );
+                            }
+                            if ( isset( $bid_meta['fabric_quantity'] ) ) {
+                                $fabric_quantity = sanitize_text_field( $bid_meta['fabric_quantity'] );
                             }
                         }
                     }
@@ -15102,6 +16193,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         'material_included' => $material_included,
                         'sample_required' => $sample_required,
                         'proposal_notes' => $proposal_notes,
+                        'fabric_quantity' => $fabric_quantity,
                         'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                     );
                 }
@@ -15247,6 +16339,104 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $keywords = array();
         if ( isset( $meta['keywords'] ) && is_array( $meta['keywords'] ) ) {
             $keywords = $meta['keywords'];
+        }
+
+        $award_timestamp = null;
+        if ( isset( $meta['awarded_bid_snapshot'] ) && is_array( $meta['awarded_bid_snapshot'] ) && ! empty( $meta['awarded_bid_snapshot']['awarded_at'] ) ) {
+            $award_timestamp = $meta['awarded_bid_snapshot']['awarded_at'];
+        } elseif ( isset( $meta['award_timestamp'] ) ) {
+            $award_timestamp = $meta['award_timestamp'];
+        }
+        $deposit_status      = isset( $meta['deposit_status'] ) ? $meta['deposit_status'] : '';
+        $deposit_amount      = isset( $meta['deposit_amount'] ) ? floatval( $meta['deposit_amount'] ) : null;
+        $deposit_sent_at     = isset( $meta['deposit_sent_at'] ) ? $meta['deposit_sent_at'] : null;
+        $deposit_received_at = isset( $meta['deposit_received_at'] ) ? $meta['deposit_received_at'] : null;
+        $deposit_receipt_url = ( isset( $meta['deposit_receipt_file_id'] ) && $meta['deposit_receipt_file_id'] ) ? wp_get_attachment_url( (int) $meta['deposit_receipt_file_id'] ) : '';
+        $deposit_sent_note   = isset( $meta['deposit_sent_note'] ) ? $meta['deposit_sent_note'] : '';
+
+        $summary_awarded_bid_id   = null;
+        $is_awarded_supplier_view = false;
+        if ( isset( $meta['awarded_bid_snapshot'] ) && is_array( $meta['awarded_bid_snapshot'] ) && ! empty( $meta['awarded_bid_snapshot']['bid_id'] ) ) {
+            $summary_awarded_bid_id = intval( $meta['awarded_bid_snapshot']['bid_id'] );
+            $snapshot_supplier_id   = ! empty( $meta['awarded_bid_snapshot']['supplier_id'] ) ? intval( $meta['awarded_bid_snapshot']['supplier_id'] ) : 0;
+            if ( ( isset( $bid_id ) && intval( $bid_id ) === $summary_awarded_bid_id ) || ( $snapshot_supplier_id > 0 && intval( $current_user->ID ) === $snapshot_supplier_id ) ) {
+                $bid_status = 'awarded';
+                $is_awarded_supplier_view = true;
+            }
+        }
+
+        if ( 'summary' === $requested_section ) {
+            $summary_response = array(
+                'requested_section' => $requested_section,
+                'loaded_sections' => array(
+                    'summary'  => true,
+                    'workflow' => false,
+                ),
+                'item_id' => intval( $item['id'] ),
+                'title' => sanitize_text_field( $item['title'] ),
+                'description' => sanitize_textarea_field( $item['description'] ),
+                'category' => $category_name,
+                'keywords' => array_map( 'sanitize_text_field', $keywords ),
+                'image_url' => $image_url ? esc_url_raw( $image_url ) : '',
+                'primary_image_url' => $primary_image_url ? esc_url_raw( $primary_image_url ) : '',
+                'quantity' => $quantity,
+                'dimensions' => $dims,
+                'sourcing_type' => isset( $meta['sourcing_type'] ) ? sanitize_text_field( $meta['sourcing_type'] ) : null,
+                'timeline_type' => isset( $meta['timeline_type'] ) ? sanitize_text_field( $meta['timeline_type'] ) : null,
+                'delivery_country' => $delivery_context ? sanitize_text_field( $delivery_context['delivery_country_code'] ) : null,
+                'delivery_postal_code' => $delivery_context && ! empty( $delivery_context['delivery_postal_code'] ) ? sanitize_text_field( $delivery_context['delivery_postal_code'] ) : null,
+                'shipping_mode_label' => $shipping_mode_label,
+                'rfq_fabric_supplied_flag' => isset( $meta['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( $meta['rfq_fabric_supplied_flag'] ) : null,
+                'rfq_fabric_notes' => isset( $meta['rfq_fabric_notes'] ) ? sanitize_textarea_field( $meta['rfq_fabric_notes'] ) : null,
+                'route_label' => $route_label,
+                'route_status' => $route_status,
+                'reference_images' => $reference_images,
+                'inspiration_images' => $inspiration_images,
+                'media_links' => $media_links,
+                'smart_alternatives_enabled' => $smart_alternatives_enabled,
+                'smart_alternatives_note' => $smart_alternatives_note,
+                'bid_status' => ( isset( $bid_status ) && in_array( $bid_status, array( 'draft', 'submitted', 'awarded' ), true ) ) ? $bid_status : null,
+                'show_dims_qty_warning' => ! empty( $show_dims_qty_warning ),
+                'bid_data' => null,
+                'payment_notification' => null,
+                'rfq_revision_current' => isset( $item_current_revision ) ? $item_current_revision : null,
+                'bid_revision' => isset( $bid_revision ) ? $bid_revision : null,
+                'has_revision_mismatch' => false,
+                'latest_stale_bid_data' => null,
+                'is_resubmission' => false,
+                'has_operator_supplier_messages' => false,
+                'workflow_milestones' => array(),
+                'supplier_workflow_active_step' => ( isset( $bid_status ) && $bid_status === 'awarded' ) ? 2 : null,
+                'latest_unread_designer_message_context' => '',
+                'latest_unread_designer_message_step_index' => null,
+                'official_quote_status' => isset( $meta['official_quote_status'] ) ? $meta['official_quote_status'] : '',
+                'official_quote_version' => isset( $meta['official_quote_version'] ) ? intval( $meta['official_quote_version'] ) : null,
+                'awarded_bid_id' => $summary_awarded_bid_id,
+                'is_awarded_supplier' => $is_awarded_supplier_view,
+                'award_timestamp' => $award_timestamp,
+                'deposit_status' => $deposit_status,
+                'deposit_amount' => $deposit_amount,
+                'deposit_sent_at' => $deposit_sent_at,
+                'deposit_received_at' => $deposit_received_at,
+                'deposit_receipt_url' => $deposit_receipt_url,
+                'deposit_sent_note' => $deposit_sent_note,
+                'designer_id' => ! empty( $item['owner_user_id'] ) ? (int) $item['owner_user_id'] : null,
+                'designer_name' => $designer_name ? sanitize_text_field( $designer_name ) : '',
+                'project_id' => ! empty( $item['project_id'] ) ? (int) $item['project_id'] : null,
+                'project_name' => $project_name ? sanitize_text_field( $project_name ) : '',
+                'rfq_reference' => 'ITEM-' . intval( $item['id'] ),
+                'validation_state' => null,
+            );
+
+            $this->log_ajax_performance(
+                'n88_get_supplier_item_details',
+                $request_started_at,
+                array(
+                    'item_id'           => $item_id,
+                    'requested_section' => $requested_section,
+                )
+            );
+            wp_send_json_success( $summary_response );
         }
         
         // Commit 2.3.5.1 Addendum: Calculate Total CBM from current item facts
@@ -15664,12 +16854,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $supplier_workflow_active_step = 2; // Step 3
             }
         }
-        // Commit 3.C.1: When awarded, always open modal on Step 4 (Workflow) so supplier sees Official Quote block or "Quote file submitted"
+        // Commit 3.C.1: When awarded, open supplier workflow on Step 3 (Award Decision) first.
         if ( $bid_status === 'awarded' ) {
-            $supplier_workflow_active_step = 3; // Step 4: Official Quote PDF (show form or "Quote file submitted")
+            $supplier_workflow_active_step = 2; // Step 3: Award Decision
         }
         $validation_state = $this->build_material_validation_state( $item_id, isset( $meta ) && is_array( $meta ) ? $meta : array() );
-        if ( ! empty( $validation_state['request']['requested_at'] ) && empty( $validation_state['supplier']['updated_at'] ) ) {
+        if ( ! empty( $validation_state['can_commit'] ) ) {
+            $supplier_workflow_active_step = 3;
+        } elseif ( ! empty( $validation_state['readiness_flags']['awaiting_com'] ) ) {
+            $supplier_workflow_active_step = 2;
+        }
+        if ( ! empty( $validation_state['request']['requested_at'] ) && empty( $validation_state['supplier']['updated_at'] ) && 'awarded' !== $bid_status ) {
             $supplier_workflow_active_step = 1; // Step 2: supplier must upload samples
         }
         $latest_unread_designer_message_context = '';
@@ -15699,9 +16894,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             ) );
             if ( $latest_unread_designer_message_context ) {
                 $latest_unread_designer_message_step_index = $this->get_item_message_context_step_index( $latest_unread_designer_message_context );
-                if ( null !== $latest_unread_designer_message_step_index ) {
+                if ( null !== $latest_unread_designer_message_step_index && 'awarded' !== $bid_status ) {
                     $supplier_workflow_active_step = $latest_unread_designer_message_step_index;
-                } elseif ( 'item_specs' === $latest_unread_designer_message_context ) {
+                } elseif ( 'item_specs' === $latest_unread_designer_message_context && 'awarded' !== $bid_status ) {
                     $supplier_workflow_active_step = null;
                 }
             }
@@ -15721,17 +16916,25 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $awarded_bid_id_from_meta = null;
         if ( isset( $meta['awarded_bid_snapshot'] ) && is_array( $meta['awarded_bid_snapshot'] ) && ! empty( $meta['awarded_bid_snapshot']['bid_id'] ) ) {
             $awarded_bid_id_from_meta = intval( $meta['awarded_bid_snapshot']['bid_id'] );
-            if ( isset( $bid_id ) && intval( $bid_id ) === $awarded_bid_id_from_meta ) {
+            $snapshot_supplier_id    = ! empty( $meta['awarded_bid_snapshot']['supplier_id'] ) ? intval( $meta['awarded_bid_snapshot']['supplier_id'] ) : 0;
+            if ( ( isset( $bid_id ) && intval( $bid_id ) === $awarded_bid_id_from_meta ) || ( $snapshot_supplier_id > 0 && intval( $current_user->ID ) === $snapshot_supplier_id ) ) {
                 $bid_status = 'awarded';
+                $is_awarded_supplier_view = true;
             }
         }
-        // Ensure workflow opens on Step 4 when supplier is the awarded bidder via snapshot fallback as well
-        if ( $bid_status === 'awarded' && null === $latest_unread_designer_message_step_index && 'item_specs' !== $latest_unread_designer_message_context ) {
-            $supplier_workflow_active_step = 3;
+        // Ensure workflow opens on Step 3 when supplier is the awarded bidder via snapshot fallback as well
+        if ( $bid_status === 'awarded' ) {
+            $supplier_workflow_active_step = 2;
         }
         $response_awarded_bid_id = $awarded_bid_id_from_meta ? $awarded_bid_id_from_meta : ( ( isset( $bid_status ) && $bid_status === 'awarded' && isset( $bid_id ) ) ? intval( $bid_id ) : null );
+
         
         $response = array(
+            'requested_section' => $requested_section,
+            'loaded_sections' => array(
+                'summary'  => true,
+                'workflow' => true,
+            ),
             'item_id' => intval( $item['id'] ),
             'title' => sanitize_text_field( $item['title'] ),
             'description' => sanitize_textarea_field( $item['description'] ),
@@ -15751,6 +16954,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'rfq_fabric_supplied_flag' => isset( $meta['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( $meta['rfq_fabric_supplied_flag'] ) : null,
             'rfq_fabric_notes' => isset( $meta['rfq_fabric_notes'] ) ? sanitize_textarea_field( $meta['rfq_fabric_notes'] ) : null,
             'route_label' => $route_label,
+            'route_status' => $route_status,
             'reference_images' => $reference_images, // Keep for backward compatibility
             'inspiration_images' => $inspiration_images, // Standardized key
             'media_links' => $media_links,
@@ -15774,6 +16978,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'official_quote_status' => isset( $meta['official_quote_status'] ) ? $meta['official_quote_status'] : '',
             'official_quote_version' => isset( $meta['official_quote_version'] ) ? intval( $meta['official_quote_version'] ) : null,
             'awarded_bid_id' => $response_awarded_bid_id,
+            'is_awarded_supplier' => $is_awarded_supplier_view,
+            'award_timestamp' => $award_timestamp,
+            'deposit_status' => $deposit_status,
+            'deposit_amount' => $deposit_amount,
+            'deposit_sent_at' => $deposit_sent_at,
+            'deposit_received_at' => $deposit_received_at,
+            'deposit_receipt_url' => $deposit_receipt_url,
+            'deposit_sent_note' => $deposit_sent_note,
             'designer_id' => ! empty( $item['owner_user_id'] ) ? (int) $item['owner_user_id'] : null,
             'designer_name' => $designer_name ? sanitize_text_field( $designer_name ) : '',
             'project_id' => ! empty( $item['project_id'] ) ? (int) $item['project_id'] : null,
@@ -15782,6 +16994,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'validation_state' => $validation_state,
         );
 
+        $this->log_ajax_performance(
+            'n88_get_supplier_item_details',
+            $request_started_at,
+            array(
+                'item_id'           => $item_id,
+                'requested_section' => $requested_section,
+            )
+        );
         wp_send_json_success( $response );
     }
 
@@ -16427,6 +17647,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $po_uploaded     = ! empty( $commitment['po_file_id'] );
         $samples_approved = ! empty( $review['approved_at'] );
         $com_status      = isset( $commitment['com_status'] ) ? sanitize_key( $commitment['com_status'] ) : '';
+        $com_in_transit  = in_array( $com_status, array( 'com_in_transit', 'shipped', 'in_transit' ), true );
         $com_completed   = ! $com_applicable || in_array( $com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
         $deposit_status  = isset( $commitment['deposit_status'] ) ? sanitize_key( $commitment['deposit_status'] ) : '';
         $deposit_confirmed = in_array( $deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
@@ -16447,6 +17668,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $card_status_color = '#4caf50';
         } elseif ( $readiness['awaiting_deposit'] ) {
             $card_status_text  = 'Awaiting Deposit';
+            $card_status_color = '#ff9800';
+        } elseif ( $com_in_transit ) {
+            $card_status_text  = 'COM Shipped';
             $card_status_color = '#ff9800';
         } elseif ( $readiness['awaiting_com'] ) {
             $card_status_text  = 'Awaiting COM';
@@ -16679,37 +17903,52 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $item_id
         ) ) > 0;
 
-        $direct_supplier_id = 0;
+        $direct_supplier_id      = 0;
         $direct_supplier_options = array();
-        if ( $has_rfq ) {
-            $direct_supplier_ids = $this->get_designer_supplier_thread_supplier_ids( $item_id );
+        $direct_supplier_ids     = $this->get_designer_supplier_thread_supplier_ids( $item_id );
 
-            if ( ! empty( $direct_supplier_ids ) ) {
-                $placeholders = implode( ',', array_fill( 0, count( $direct_supplier_ids ), '%d' ) );
-                $route_supplier_rows = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT ID AS supplier_id, display_name
-                    FROM {$users_table}
-                    WHERE ID IN ({$placeholders})
-                    ORDER BY display_name ASC, ID ASC",
-                    ...$direct_supplier_ids
-                ), ARRAY_A );
+        if ( empty( $direct_supplier_ids ) ) {
+            $direct_supplier_ids = $this->get_item_invited_supplier_ids( $item_id );
+        }
 
-                foreach ( (array) $route_supplier_rows as $supplier_row ) {
-                    $supplier_id_row = isset( $supplier_row['supplier_id'] ) ? absint( $supplier_row['supplier_id'] ) : 0;
-                    if ( ! $supplier_id_row ) {
-                        continue;
-                    }
-                    $direct_supplier_options[] = array(
-                        'supplier_id'   => $supplier_id_row,
-                        'display_name'  => ! empty( $supplier_row['display_name'] ) ? sanitize_text_field( $supplier_row['display_name'] ) : 'Supplier #' . $supplier_id_row,
-                    );
+        if ( ! empty( $direct_supplier_ids ) ) {
+            $placeholders = implode( ',', array_fill( 0, count( $direct_supplier_ids ), '%d' ) );
+            $route_supplier_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT ID AS supplier_id, display_name
+                FROM {$users_table}
+                WHERE ID IN ({$placeholders})",
+                ...$direct_supplier_ids
+            ), ARRAY_A );
+
+            $supplier_name_map = array();
+            foreach ( (array) $route_supplier_rows as $supplier_row ) {
+                $supplier_id_row = isset( $supplier_row['supplier_id'] ) ? absint( $supplier_row['supplier_id'] ) : 0;
+                if ( ! $supplier_id_row ) {
+                    continue;
                 }
+
+                $supplier_name_map[ $supplier_id_row ] = ! empty( $supplier_row['display_name'] )
+                    ? sanitize_text_field( $supplier_row['display_name'] )
+                    : 'Supplier #' . $supplier_id_row;
             }
 
-            $direct_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
-            if ( ! $direct_supplier_id && count( $direct_supplier_options ) === 1 ) {
-                $direct_supplier_id = (int) $direct_supplier_options[0]['supplier_id'];
+            foreach ( $direct_supplier_ids as $supplier_id_row ) {
+                $supplier_id_row = absint( $supplier_id_row );
+                if ( ! $supplier_id_row || ! isset( $supplier_name_map[ $supplier_id_row ] ) ) {
+                    continue;
+                }
+
+                $direct_supplier_options[] = array(
+                    'supplier_id'           => $supplier_id_row,
+                    'display_name'          => $supplier_name_map[ $supplier_id_row ],
+                    'is_wireframe_supplier' => $default_wireframe_supplier_id > 0 && $supplier_id_row === $default_wireframe_supplier_id,
+                );
             }
+        }
+
+        $direct_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
+        if ( ! $direct_supplier_id && count( $direct_supplier_options ) === 1 ) {
+            $direct_supplier_id = (int) $direct_supplier_options[0]['supplier_id'];
         }
 
         // Check if bids exist (submitted, awarded, or declined)
@@ -16860,6 +18099,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $smart_alternatives_suggestion = null;
                 $bid_smart_alternatives_note = null;
                 $proposal_notes               = null;
+                $fabric_quantity              = null;
                 $proposal_group_id            = 0;
                 $batch_shared_uploads       = array();
                 $batch_shared_upload_user_id = 0;
@@ -16878,6 +18118,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         }
                         if ( isset( $bid_meta['proposal_notes'] ) ) {
                             $proposal_notes = sanitize_textarea_field( $bid_meta['proposal_notes'] );
+                        }
+                        if ( isset( $bid_meta['fabric_quantity'] ) ) {
+                            $fabric_quantity = sanitize_text_field( $bid_meta['fabric_quantity'] );
                         }
                         if ( ! empty( $bid_meta['proposal_group_id'] ) ) {
                             $proposal_group_id = absint( $bid_meta['proposal_group_id'] );
@@ -17049,6 +18292,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'smart_alternatives_note' => $smart_alternatives_note, // Item-level note (designer's note)
                     'bid_smart_alternatives_note' => $bid_smart_alternatives_note, // Bid-level note (supplier's note)
                     'proposal_notes' => $proposal_notes,
+                    'fabric_quantity' => $fabric_quantity,
                     'proposal_group_id' => ( $proposal_group_id > 0 ? $proposal_group_id : null ),
                     'batch_shared_uploads' => $batch_shared_uploads,
                     'created_at' => $bid['created_at'],
@@ -17074,6 +18318,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $has_unread_operator_messages = false;
         $unread_supplier_messages = 0;
         $has_unread_supplier_messages = false;
+        $latest_unread_supplier_message_supplier_id = 0;
         
         // Check if messages table exists
         $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
@@ -17095,6 +18340,34 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $item_id
                 ) ) );
             $has_unread_operator_messages = $unread_operator_messages > 0;
+
+            $latest_unread_supplier_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT m.supplier_id, COALESCE(NULLIF(m.context_type, ''), 'item_specs') AS context_type
+                FROM {$messages_table} m
+                WHERE m.item_id = %d
+                AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
+                AND m.sender_role = 'supplier'
+                AND m.supplier_id IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM {$messages_table} m2
+                    WHERE m2.item_id = m.item_id
+                    AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
+                    AND m2.sender_role = 'designer'
+                    AND m2.supplier_id = m.supplier_id
+                    AND COALESCE(NULLIF(m2.context_type, ''), 'item_specs') = COALESCE(NULLIF(m.context_type, ''), 'item_specs')
+                    AND m2.created_at > m.created_at
+                )
+                ORDER BY m.created_at DESC, m.message_id DESC
+                LIMIT 1",
+                $item_id
+            ), ARRAY_A );
+
+            if ( ! empty( $latest_unread_supplier_row['supplier_id'] ) ) {
+                $latest_unread_supplier_message_supplier_id = absint( $latest_unread_supplier_row['supplier_id'] );
+                if ( $latest_unread_supplier_message_supplier_id > 0 ) {
+                    $direct_supplier_id = $latest_unread_supplier_message_supplier_id;
+                }
+            }
 
             if ( $direct_supplier_id > 0 ) {
                 $this->repair_designer_supplier_thread_messages( $item_id, $direct_supplier_id, $current_user->ID );
@@ -17509,8 +18782,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'unread_operator_messages' => $unread_operator_messages, // Count of unread messages
             'has_unread_supplier_messages' => $has_unread_supplier_messages,
             'unread_supplier_messages' => $unread_supplier_messages,
+            'latest_unread_supplier_message_supplier_id' => $latest_unread_supplier_message_supplier_id,
             'direct_supplier_id' => $direct_supplier_id,
             'direct_supplier_options' => $direct_supplier_options,
+            'rfq_draft_invited_suppliers' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['rfq_draft_invited_suppliers'] ) ? $meta['rfq_draft_invited_suppliers'] : array() ) : array(),
             'has_prototype_payment' => $has_prototype_payment, // Commit 2.3.9.1C: Has prototype payment request
             'prototype_payment_id' => $prototype_payment_id, // Commit 2.3.9.2A: Payment record id for CAD actions
             'prototype_payment_bid_id' => $prototype_payment_bid_id, // Commit 2.3.9.2A
@@ -17733,6 +19008,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $proposal_notes = isset( $_POST['proposal_notes'] ) ? sanitize_textarea_field( wp_unslash( $_POST['proposal_notes'] ) ) : '';
+        $fabric_quantity = isset( $_POST['fabric_quantity'] ) ? sanitize_text_field( wp_unslash( $_POST['fabric_quantity'] ) ) : '';
+        $edit_submitted_bid = ! empty( $_POST['edit_submitted_bid'] ) && '1' === (string) wp_unslash( $_POST['edit_submitted_bid'] );
+        $item_meta_for_fabric = $this->get_item_meta_array( $item_id );
+        $fabric_supplied_flag = isset( $item_meta_for_fabric['rfq_fabric_supplied_flag'] ) ? strtolower( trim( (string) $item_meta_for_fabric['rfq_fabric_supplied_flag'] ) ) : '';
+        if ( in_array( $fabric_supplied_flag, array( 'yes', '1', 'true' ), true ) && '' === trim( $fabric_quantity ) ) {
+            $errors['fabric_quantity'] = 'Fabric quantity is required.';
+        }
 
         // If there are errors, return them
         if ( ! empty( $errors ) ) {
@@ -17933,6 +19215,25 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        $material_included = isset( $_POST['material_included'] ) ? sanitize_text_field( wp_unslash( $_POST['material_included'] ) ) : '';
+        if ( ! empty( $material_included ) && ! in_array( $material_included, array( 'yes', 'no', 'partial' ), true ) ) {
+            $material_included = '';
+        }
+
+        $sample_required = isset( $_POST['sample_required'] ) ? sanitize_text_field( wp_unslash( $_POST['sample_required'] ) ) : '';
+        if ( ! empty( $sample_required ) && ! in_array( $sample_required, array( 'yes', 'no' ), true ) ) {
+            $sample_required = '';
+        }
+
+        $proposal_notes = isset( $_POST['proposal_notes'] ) ? sanitize_textarea_field( wp_unslash( $_POST['proposal_notes'] ) ) : '';
+        $fabric_quantity = isset( $_POST['fabric_quantity'] ) ? sanitize_text_field( wp_unslash( $_POST['fabric_quantity'] ) ) : '';
+        $edit_submitted_bid = ! empty( $_POST['edit_submitted_bid'] ) && '1' === (string) wp_unslash( $_POST['edit_submitted_bid'] );
+        $item_meta_for_fabric = $this->get_item_meta_array( $item_id );
+        $fabric_supplied_flag = isset( $item_meta_for_fabric['rfq_fabric_supplied_flag'] ) ? strtolower( trim( (string) $item_meta_for_fabric['rfq_fabric_supplied_flag'] ) ) : '';
+        if ( in_array( $fabric_supplied_flag, array( 'yes', '1', 'true' ), true ) && '' === trim( $fabric_quantity ) ) {
+            $errors['fabric_quantity'] = 'Fabric quantity is required.';
+        }
+
         // 7. Smart Alternatives suggestion (optional, structured data)
         $smart_alternatives_suggestion = null;
         if ( isset( $_POST['smart_alternatives_suggestion'] ) && ! empty( $_POST['smart_alternatives_suggestion'] ) ) {
@@ -17997,10 +19298,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Get current item revision (default to 1 if not set)
         $item_current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : 1;
         
-        // Check if bids table has rfq_revision_at_submit column
+        // Check if bids table has rfq_revision_at_submit/meta_json columns
         $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
         $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
-        
+        $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
+
         // Start transaction
         $wpdb->query( 'START TRANSACTION' );
 
@@ -18009,7 +19311,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $current_revision_bid = null;
             if ( $has_revision_column ) {
                 $current_revision_bid = $wpdb->get_row( $wpdb->prepare(
-                    "SELECT bid_id, status FROM {$item_bids_table} 
+                    "SELECT bid_id, status" . ( $has_bid_meta_json ? ", meta_json" : "" ) . " FROM {$item_bids_table} 
                     WHERE item_id = %d 
                     AND supplier_id = %d
                     AND rfq_revision_at_submit = %d
@@ -18021,8 +19323,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 ) );
             }
             
-            // If there's already a submitted bid for current revision, block (no changes needed)
-            if ( $current_revision_bid && $current_revision_bid->status === 'submitted' ) {
+            $current_route_status = '';
+            if ( isset( $route ) && isset( $route->status ) ) {
+                $current_route_status = (string) $route->status;
+            }
+
+            // If the current revision already has a submitted bid, prefer updating that record.
+            // This keeps "Edit Proposal" resilient even if the client-side edit flag is missing.
+            $treat_current_submitted_as_edit = $edit_submitted_bid
+                || ( $current_revision_bid && $current_revision_bid->status === 'submitted' && $current_route_status === 'bid_submitted' );
+
+            if ( $current_revision_bid && $current_revision_bid->status === 'submitted' && ! $treat_current_submitted_as_edit ) {
                 $wpdb->query( 'ROLLBACK' );
                 wp_send_json_error( array(
                     'message' => 'You\'ve already submitted a bid for this item.',
@@ -18031,6 +19342,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             
             // Check for existing bid (stale or draft) to update
             $existing_bid_query = "SELECT bid_id, status";
+            if ( $has_bid_meta_json ) {
+                $existing_bid_query .= ", meta_json";
+            }
             if ( $has_revision_column ) {
                 $existing_bid_query .= ", rfq_revision_at_submit";
             }
@@ -18041,6 +19355,26 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $item_id,
                 $current_user->ID
             ) );
+
+            if ( $treat_current_submitted_as_edit && $current_revision_bid && ! empty( $current_revision_bid->bid_id ) ) {
+                $existing_bid_exact_query = "SELECT bid_id, status";
+                if ( $has_bid_meta_json ) {
+                    $existing_bid_exact_query .= ", meta_json";
+                }
+                if ( $has_revision_column ) {
+                    $existing_bid_exact_query .= ", rfq_revision_at_submit";
+                }
+                $existing_bid_exact_query .= " FROM {$item_bids_table} WHERE bid_id = %d LIMIT 1";
+
+                $existing_bid_exact = $wpdb->get_row( $wpdb->prepare(
+                    $existing_bid_exact_query,
+                    (int) $current_revision_bid->bid_id
+                ) );
+
+                if ( $existing_bid_exact ) {
+                    $existing_bid = $existing_bid_exact;
+                }
+            }
 
             $is_stale_bid = false;
             $should_update_existing = false;
@@ -18062,13 +19396,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     if ( $existing_bid->status === 'draft' ) {
                         // Allow updating draft to submitted
                         $should_update_existing = true;
+                    } elseif ( $existing_bid->status === 'submitted' && $treat_current_submitted_as_edit ) {
+                        // Allow supplier to revise the current submitted proposal without forcing an RFQ revision.
+                        $should_update_existing = true;
                     }
-                    // If submitted, we already blocked above
                 }
             } elseif ( $existing_bid ) {
                 // If no revision column, check status
                 if ( $existing_bid->status === 'draft' ) {
                     // Allow updating draft to submitted
+                    $should_update_existing = true;
+                } elseif ( $existing_bid->status === 'submitted' && $treat_current_submitted_as_edit ) {
                     $should_update_existing = true;
                 }
                 // If submitted and no revision column, we can't check for stale bids, so block
@@ -18092,6 +19430,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             // Add Smart Alternatives suggestion to meta_json if provided
             $meta_json = null;
             $meta_payload = array();
+            if ( $should_update_existing && $existing_bid && $has_bid_meta_json && ! empty( $existing_bid->meta_json ) ) {
+                $existing_meta_payload = json_decode( $existing_bid->meta_json, true );
+                if ( is_array( $existing_meta_payload ) ) {
+                    $meta_payload = $existing_meta_payload;
+                }
+            }
             if ( $smart_alternatives_suggestion !== null ) {
                 $meta_payload['smart_alternatives_suggestion'] = $smart_alternatives_suggestion;
             }
@@ -18103,6 +19447,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
             if ( $proposal_notes !== '' ) {
                 $meta_payload['proposal_notes'] = $proposal_notes;
+            }
+            if ( $fabric_quantity !== '' ) {
+                $meta_payload['fabric_quantity'] = $fabric_quantity;
             }
             if ( $proposal_group_id ) {
                 $meta_payload['proposal_group_id'] = $proposal_group_id;
@@ -18470,6 +19817,28 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
             $wpdb->query( 'COMMIT' );
 
+            if ( $treat_current_submitted_as_edit ) {
+                $designer_id = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1",
+                    $item_id
+                ) );
+
+                if ( $designer_id > 0 ) {
+                    $this->n88_insert_item_message(
+                        'designer_supplier',
+                        $item_id,
+                        'supplier',
+                        $current_user->ID,
+                        'Supplier updated the submitted proposal. Please review the latest proposal details.',
+                        null,
+                        $bid_id,
+                        $current_user->ID,
+                        $designer_id,
+                        'item_specs'
+                    );
+                }
+            }
+
             // Clear draft from user meta after successful submission
             $draft_meta_key = 'n88_bid_draft_' . $item_id;
             delete_user_meta( $current_user->ID, $draft_meta_key );
@@ -18486,9 +19855,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             );
 
             wp_send_json_success( array(
-                'message' => 'Bid submitted successfully!',
+                'message' => $treat_current_submitted_as_edit ? 'Proposal updated successfully!' : 'Bid submitted successfully!',
                 'bid_id' => $bid_id,
                 'proposal_group_id' => ( $proposal_group_id > 0 ? $proposal_group_id : null ),
+                'edited_submitted_bid' => $treat_current_submitted_as_edit,
             ) );
 
         } catch ( Exception $e ) {
@@ -19734,8 +21104,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $meta       = $this->get_item_meta_array( $item_id );
         $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
         $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
-        $validation['commitment']['com_required']         = ! empty( $_POST['com_required'] );
-        $validation['commitment']['com_qty']              = sanitize_text_field( wp_unslash( $_POST['com_qty'] ?? '' ) );
+        $validation['commitment']['com_required']         = true;
+        $validation['commitment']['com_qty']              = '';
         $com_delivery_address_fields                      = $this->normalize_structured_address(
             array(
                 'name'         => wp_unslash( $_POST['com_contact_name'] ?? '' ),
@@ -19746,6 +21116,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'postal_code'  => wp_unslash( $_POST['com_postal_code'] ?? '' ),
             )
         );
+        if ( ! $this->format_structured_address( $com_delivery_address_fields ) && ! empty( $validation['supplier_id'] ) ) {
+            $com_delivery_address_fields = $this->normalize_structured_address(
+                array(
+                    'address_line' => $this->get_supplier_company_address( absint( $validation['supplier_id'] ) ),
+                )
+            );
+        }
         $validation['commitment']['com_delivery_address_fields'] = $com_delivery_address_fields;
         $validation['commitment']['com_delivery_address'] = $this->format_structured_address(
             $this->format_structured_address( $com_delivery_address_fields ) ? $com_delivery_address_fields : sanitize_text_field( wp_unslash( $_POST['com_delivery_address'] ?? ( $validation['commitment']['com_delivery_address'] ?? '' ) ) ),
@@ -19787,6 +21164,43 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         wp_send_json_success( array(
             'message'          => 'COM marked delivered.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_supplier_mark_validation_com_received() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ), 400 );
+        }
+
+        $current_user = wp_get_current_user();
+        $meta         = $this->get_item_meta_array( $item_id );
+        $validation   = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $supplier_id  = isset( $validation['supplier_id'] ) ? absint( $validation['supplier_id'] ) : ( isset( $validation['request']['supplier_id'] ) ? absint( $validation['request']['supplier_id'] ) : 0 );
+
+        if ( ! $supplier_id || intval( $current_user->ID ) !== $supplier_id ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['commitment']['com_status']       = 'com_delivered';
+        $validation['commitment']['com_delivered_at'] = current_time( 'mysql' );
+        $validation['commitment']['com_received_by']  = $current_user->ID;
+        $meta['material_validation']                  = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to mark COM received.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'COM received confirmed.',
             'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
         ) );
     }
@@ -20852,6 +22266,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $draft_data['material_included'] = isset( $_POST['material_included'] ) ? sanitize_text_field( $_POST['material_included'] ) : '';
         $draft_data['sample_required'] = isset( $_POST['sample_required'] ) ? sanitize_text_field( $_POST['sample_required'] ) : '';
         $draft_data['proposal_notes'] = isset( $_POST['proposal_notes'] ) ? sanitize_textarea_field( wp_unslash( $_POST['proposal_notes'] ) ) : '';
+        $draft_data['fabric_quantity'] = isset( $_POST['fabric_quantity'] ) ? sanitize_text_field( wp_unslash( $_POST['fabric_quantity'] ) ) : '';
 
         // Smart Alternatives suggestion
         if ( isset( $_POST['smart_alternatives_suggestion'] ) && ! empty( $_POST['smart_alternatives_suggestion'] ) ) {
@@ -20983,6 +22398,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $material_included = null;
             $sample_required = null;
             $proposal_notes = null;
+            $fabric_quantity = null;
             if ( ! empty( $draft_bid['meta_json'] ) ) {
                 $bid_meta = json_decode( $draft_bid['meta_json'], true );
                 if ( is_array( $bid_meta ) ) {
@@ -20997,6 +22413,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     }
                     if ( isset( $bid_meta['proposal_notes'] ) ) {
                         $proposal_notes = sanitize_textarea_field( $bid_meta['proposal_notes'] );
+                    }
+                    if ( isset( $bid_meta['fabric_quantity'] ) ) {
+                        $fabric_quantity = sanitize_text_field( $bid_meta['fabric_quantity'] );
                     }
                 }
             }
@@ -21020,6 +22439,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'material_included' => $material_included,
                 'sample_required' => $sample_required,
                 'proposal_notes' => $proposal_notes,
+                'fabric_quantity' => $fabric_quantity,
                 'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
             );
             
@@ -23479,13 +24899,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         (function() {
             // Filter persistence and update
             function updateOperatorQueueURL() {
-                var status = document.getElementById('n88-operator-status-filter')?.value || 'requested';
-                var supplier = document.getElementById('n88-operator-supplier-filter')?.value || 'all';
-                var designer = document.getElementById('n88-operator-designer-filter')?.value || 'all';
-                var category = document.getElementById('n88-operator-category-filter')?.value || 'all';
-                var time = document.getElementById('n88-operator-time-filter')?.value || 'all';
-                var needsAttention = document.getElementById('n88-operator-needs-attention-filter')?.value || 'all';
-                var search = document.getElementById('n88-operator-search-filter')?.value || '';
+                var status = (document.getElementById('n88-operator-status-filter') && document.getElementById('n88-operator-status-filter').value) || 'requested';
+                var supplier = (document.getElementById('n88-operator-supplier-filter') && document.getElementById('n88-operator-supplier-filter').value) || 'all';
+                var designer = (document.getElementById('n88-operator-designer-filter') && document.getElementById('n88-operator-designer-filter').value) || 'all';
+                var category = (document.getElementById('n88-operator-category-filter') && document.getElementById('n88-operator-category-filter').value) || 'all';
+                var time = (document.getElementById('n88-operator-time-filter') && document.getElementById('n88-operator-time-filter').value) || 'all';
+                var needsAttention = (document.getElementById('n88-operator-needs-attention-filter') && document.getElementById('n88-operator-needs-attention-filter').value) || 'all';
+                var search = (document.getElementById('n88-operator-search-filter') && document.getElementById('n88-operator-search-filter').value) || '';
 
                 var params = new URLSearchParams();
                 if (status && status !== 'requested') params.set('status', status);
@@ -23917,7 +25337,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             this.querySelector('textarea[name="message_text"]').value = '';
                             loadThreadMessages(itemId, 'designer_operator', 'n88-designer-thread-' + paymentId);
                         } else {
-                            alert('Error: ' + (data.data?.message || 'Failed to send message.'));
+                            alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to send message.'));
                         }
                         submitBtn.disabled = false;
                         submitBtn.textContent = originalText;
@@ -23986,7 +25406,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             this.querySelector('textarea[name="message_text"]').value = '';
                             loadThreadMessages(itemId, 'supplier_operator', 'n88-supplier-thread-' + paymentId);
                         } else {
-                            alert('Error: ' + (data.data?.message || 'Failed to send message.'));
+                            alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to send message.'));
                         }
                         submitBtn.disabled = false;
                         submitBtn.textContent = originalText;
@@ -24086,7 +25506,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     .then(function(response) { return response.json(); })
                     .then(function(data) {
                         if (data.success) {
-                            alert('CAD uploaded as v' + (data.data?.cad_version || '?') + ' (' + (data.data?.file_count || 0) + ' file(s))');
+                            alert('CAD uploaded as v' + (data && data.data && data.data.cad_version ? data.data.cad_version : '?') + ' (' + (data && data.data && data.data.file_count ? data.data.file_count : 0) + ' file(s))');
                             // Reset selection UI
                             form._cadFiles = null;
                             if (fileInput) fileInput.value = '';
@@ -24096,7 +25516,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var containerId = (modalContent && modalContent.contains && modalContent.contains(form)) ? 'n88-operator-designer-messages' : ('n88-designer-thread-' + paymentId);
                             if (typeof loadThreadMessages === 'function') loadThreadMessages(itemId, 'designer_operator', containerId);
                         } else {
-                            alert('Error: ' + (data.data?.message || 'Failed to upload CAD.'));
+                            alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to upload CAD.'));
                         }
                         if (submitBtn) {
                             submitBtn.disabled = false;
@@ -24215,7 +25635,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         if (typeof window.n88InitCadUploadForms === 'function') window.n88InitCadUploadForms(caseModalContent);
                     } else {
                         if (caseModalContent) {
-                            caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details: ' + (data.data?.message || 'Unknown error') + '</div>';
+                            caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details: ' + (data && data.data && data.data.message ? data.data.message : 'Unknown error') + '</div>';
                         }
                     }
                 })
@@ -24787,7 +26207,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             // Refresh page to update button visibility and counts
                             window.location.reload();
                         } else {
-                            alert('Error: ' + (data.data?.message || 'Failed to release CAD.'));
+                            alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to release CAD.'));
                         }
                         confirmReleaseCad.disabled = false;
                         confirmReleaseCad.textContent = originalText;
@@ -24848,7 +26268,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 setTimeout(function() { window.location.reload(); }, 2000);
                             }
                         } else {
-                            alert('Error: ' + (data.data?.message || 'Failed to mark payment as received.'));
+                            alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to mark payment as received.'));
                             btn.disabled = false;
                             btn.textContent = originalText;
                         }
@@ -24928,7 +26348,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             }
                         }
                     } else {
-                        alert('Error: ' + (data.data?.message || 'Failed to send message. Please try again.'));
+                        alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to send message. Please try again.'));
                     }
                     
                     // Re-enable form
@@ -25009,7 +26429,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             location.reload();
                         }
                     } else {
-                        alert('Error: ' + (data.data?.message || 'Failed to copy message.'));
+                        alert('Error: ' + (data && data.data && data.data.message ? data.data.message : 'Failed to copy message.'));
                     }
                 })
                 .catch(function(error) {
@@ -26827,6 +28247,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
                 $designer_id = $current_user->ID;
                 $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
+                $supplier_email = isset( $_POST['supplier_email'] ) ? sanitize_email( wp_unslash( $_POST['supplier_email'] ) ) : '';
+
+                if ( ! $supplier_id && $supplier_email ) {
+                    $supplier_user = get_user_by( 'email', $supplier_email );
+                    if ( $supplier_user ) {
+                        $supplier_id = (int) $supplier_user->ID;
+                    } else {
+                        wp_send_json_error( array( 'message' => 'Supplier account not found for this email.' ) );
+                        return;
+                    }
+                }
                 if ( ! $supplier_id ) {
                     $supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
                 }
@@ -26853,14 +28284,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Tag normalization for designer/supplier support messages
         $allowed_tags = array( 'clarifying_questions', 'mse_material' );
 
-        // Designer sending to operator: require at least one message tag (Clarifying questions / MSE/Material Suggestions)
+        // Designer/operator support tags are optional; when provided they are stored in category.
         if ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) {
             $selected = array_intersect( $message_tags, $allowed_tags );
-            if ( empty( $selected ) ) {
-                wp_send_json_error( array( 'message' => 'Please select at least one: Clarifying questions or MSE/Material Suggestions.' ) );
-                return;
+            if ( ! empty( $selected ) ) {
+                $category = implode( ',', array_values( $selected ) );
             }
-            $category = implode( ',', array_values( $selected ) );
         } elseif ( $thread_type === 'designer_supplier' && $sender_role === 'designer' ) {
             $selected = array_intersect( $message_tags, $allowed_tags );
             if ( ! empty( $selected ) ) {
@@ -30127,5 +31556,3 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 }
 
 // .....
-
-

@@ -1517,6 +1517,13 @@ class N88_Items {
         $update_data = array();
         $update_format = array();
         
+        // Title
+        if ( isset( $payload['title'] ) ) {
+            $title = sanitize_text_field( $payload['title'] );
+            $update_data['title'] = $title;
+            $update_format[] = '%s';
+        }
+
         // Category (map to item_type if exists, or store in meta_json)
         if ( isset( $payload['category'] ) ) {
             $category = sanitize_text_field( $payload['category'] );

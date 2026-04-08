@@ -317,21 +317,9 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
                 newZ = Math.max(maxBaseZ + 1, maxCalculatedZ + 1);
             }
             
-            // Update z via updateLayout (triggers state update)
+            // Update z locally so the active card comes to front immediately.
+            // Do not persist this on simple click; drag/resize already trigger layout saves.
             updateLayout(item.id, { z: newZ });
-            
-            // Trigger save with updated z-index
-            if (onLayoutChanged) {
-                onLayoutChanged({
-                    id: item.id,
-                    x: item.x,
-                    y: item.y,
-                    z: newZ,
-                    width: item.width,
-                    height: item.height,
-                    displayMode: item.displayMode,
-                });
-            }
         }
     };
 

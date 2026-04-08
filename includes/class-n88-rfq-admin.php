@@ -386,6 +386,7 @@ class N88_RFQ_Admin {
             $has_awarded_bid = true;
         }
         $com_status        = isset( $commitment['com_status'] ) ? sanitize_key( $commitment['com_status'] ) : '';
+        $com_in_transit    = in_array( $com_status, array( 'com_in_transit', 'shipped', 'in_transit' ), true );
         $com_completed     = ! $com_applicable || in_array( $com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
         $deposit_status    = isset( $commitment['deposit_status'] ) ? sanitize_key( $commitment['deposit_status'] ) : '';
         $deposit_confirmed = in_array( $deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
@@ -403,11 +404,11 @@ class N88_RFQ_Admin {
         if ( $can_commit ) {
             $card_status_text  = 'Ready for Production';
             $card_status_color = '#2e7d32';
-        } elseif ( 'samples_approved' === $sample_status ) {
-            $card_status_text  = $has_awarded_bid ? 'Awaiting PO' : 'Samples Approved';
-            $card_status_color = $has_awarded_bid ? '#2e7d32' : '#f4b400';
         } elseif ( $readiness['awaiting_deposit'] ) {
             $card_status_text  = 'Awaiting Deposit';
+            $card_status_color = '#2e7d32';
+        } elseif ( $com_in_transit ) {
+            $card_status_text  = 'COM Shipped';
             $card_status_color = '#2e7d32';
         } elseif ( $readiness['awaiting_com'] ) {
             $card_status_text  = 'Awaiting COM';
@@ -415,8 +416,11 @@ class N88_RFQ_Admin {
         } elseif ( $readiness['awaiting_po'] ) {
             $card_status_text  = 'Awaiting PO';
             $card_status_color = '#2e7d32';
+        } elseif ( 'samples_approved' === $sample_status ) {
+            $card_status_text  = $has_awarded_bid ? 'Awaiting PO' : 'Samples Approved';
+            $card_status_color = $has_awarded_bid ? '#2e7d32' : '#f4b400';
         } elseif ( 'samples_received' === $sample_status ) {
-            $card_status_text  = 'Samples Received';
+            $card_status_text  = 'Sample Received';
             $card_status_color = '#f4b400';
         } elseif ( in_array( $sample_status, array( 'delivered', 'shipped', 'in_transit' ), true ) ) {
             $card_status_text  = 'Samples Shipped';
@@ -5315,6 +5319,7 @@ class N88_RFQ_Admin {
         $is_view_only = N88_RFQ_Auth::is_view_only_team_member( $user_id );
         $current_user = wp_get_current_user();
         $is_operator = $current_user && ( in_array( 'n88_system_operator', $current_user->roles, true ) || current_user_can( 'manage_options' ) );
+        $is_supplier = $current_user && ( in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'supplier_admin', $current_user->roles, true ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
         wp_localize_script( 'n88-debounced-save', 'n88BoardData', array(
@@ -5323,6 +5328,7 @@ class N88_RFQ_Admin {
             'boardName' => $board_name,
             'isViewOnly' => $is_view_only, // Commit 2.6.1: View-only flag for team members
             'isOperator' => $is_operator, // So designer messages show "Comment by designer" when operator views
+            'isSupplier' => $is_supplier,
         ) );
         ?>
         <style>
@@ -5969,6 +5975,30 @@ class N88_RFQ_Admin {
             }
             #n88-add-item-modal .n88-add-another-row .n88-btn-add-another:hover { background: rgba(255,0,101,0.15); }
             #n88-add-item-modal .n88-add-item-footer .n88-btn-add-another:hover { background: rgba(255,0,101,0.15); }
+            #n88-add-item-modal .n88-sync-from-first {
+                display: none;
+                margin: 8px 0 10px;
+                font-size: 11px;
+                color: #cfcfcf;
+            }
+            #n88-add-item-modal .n88-sync-from-first.visible {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            #n88-add-item-modal .n88-sync-from-first input[type="checkbox"] {
+                width: 14px;
+                height: 14px;
+                margin: 0;
+            }
+            #n88-add-item-modal .n88-sync-locked {
+                opacity: 0.72;
+            }
+            #n88-add-item-modal .n88-sync-locked .n88-invite-add-btn,
+            #n88-add-item-modal .n88-sync-locked .n88-invite-input,
+            #n88-add-item-modal .n88-sync-locked .n88-invite-chip-remove {
+                pointer-events: none;
+            }
 
             /* Add Project / Add Room / Invite modals - full cover so no white body shows */
             #n88-add-project-modal-backdrop,
@@ -7062,15 +7092,15 @@ class N88_RFQ_Admin {
                             <div class="n88-dims-row">
                                 <div class="n88-field">
                                     <label for="n88-modal-item-width" style="font-size:11px;">Width</label>
-                                    <input type="number" id="n88-modal-item-width" name="width" step="0.01" placeholder="W">
+                                    <input type="number" id="n88-modal-item-width" name="width" step="1" inputmode="numeric" placeholder="W">
                                 </div>
                                 <div class="n88-field">
                                     <label for="n88-modal-item-depth" style="font-size:11px;">Depth</label>
-                                    <input type="number" id="n88-modal-item-depth" name="depth" step="0.01" placeholder="D">
+                                    <input type="number" id="n88-modal-item-depth" name="depth" step="1" inputmode="numeric" placeholder="D">
                                 </div>
                                 <div class="n88-field">
                                     <label for="n88-modal-item-height" style="font-size:11px;">Height</label>
-                                    <input type="number" id="n88-modal-item-height" name="height" step="0.01" placeholder="H">
+                                    <input type="number" id="n88-modal-item-height" name="height" step="1" inputmode="numeric" placeholder="H">
                                 </div>
                                 <div class="n88-field">
                                     <label for="n88-modal-item-dimension-unit" style="font-size:11px;">Unit</label>
@@ -7140,6 +7170,10 @@ class N88_RFQ_Admin {
                         <!-- COMMIT 3.C.3: Delivery + RFQ evidence fields at Add Item stage -->
                         <div class="n88-field">
                             <label for="n88-modal-delivery-country">Delivery Country</label>
+                            <label class="n88-sync-from-first n88-delivery-sync-toggle">
+                                <input type="checkbox" class="n88-sync-delivery-from-first">
+                                Same as Item 01 delivery
+                            </label>
                             <select id="n88-modal-delivery-country" name="delivery_country">
                                 <option value="">Select Country</option>
                                 <option value="US">US</option>
@@ -7209,6 +7243,10 @@ class N88_RFQ_Admin {
 
                         <div class="n88-field">
                             <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:#ffffff;">Invite Suppliers</div>
+                            <label class="n88-sync-from-first n88-suppliers-sync-toggle">
+                                <input type="checkbox" class="n88-sync-suppliers-from-first">
+                                Same as Item 01 suppliers
+                            </label>
                             <p class="n88-hint">Enter existing supplier username(s) or email address(es). Press Enter or click Add. (1-5 invites)</p>
                             <div class="n88-invite-row">
                                 <input
@@ -7257,6 +7295,9 @@ class N88_RFQ_Admin {
                     <div class="n88-add-item-footer">
                         <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item" data-default-text="[ Add to Workspace ]">[ Add to Workspace ]</button>
                         <button type="button" id="n88-modal-add-another-item" class="n88-btn-add-another">[ + Add Another Item ]</button>
+                        <?php if ( $is_designer && $is_real_board ) : ?>
+                        <button type="button" id="n88-modal-submit-rfq-direct" class="n88-btn-add-item" style="display:none;" data-default-text="[ Submit RFQ ]">[ Submit RFQ ]</button>
+                        <?php endif; ?>
                         <div id="n88-add-item-modal-result" class="n88-result"></div>
                     </div>
                 </div>
@@ -7333,7 +7374,9 @@ class N88_RFQ_Admin {
                 var form = document.getElementById('n88-add-item-modal-form');
                 var submitBtn = document.getElementById('n88-modal-add-item-submit');
                 var addAnotherBtn = document.getElementById('n88-modal-add-another-item');
+                var submitRfqDirectBtn = document.getElementById('n88-modal-submit-rfq-direct');
                 var resultEl = document.getElementById('n88-add-item-modal-result');
+                var pendingCreateSubmitRfq = false;
                 function populateCategorySelect(selectEl, selectedValue) {
                     if (!selectEl) return;
                     var currentValue = selectedValue !== undefined ? selectedValue : (selectEl.value || '');
@@ -7478,6 +7521,7 @@ class N88_RFQ_Admin {
                     if (form) form.style.display = '';
                     if (submitBtn) submitBtn.style.display = '';
                     if (addAnotherBtn) addAnotherBtn.style.display = '';
+                    if (submitRfqDirectBtn) submitRfqDirectBtn.style.display = 'none';
                     if (resultEl) { resultEl.style.display = ''; }
                     var reqOnlyBtnOpen = document.getElementById('n88-modal-request-quote-now-only');
                     if (reqOnlyBtnOpen) reqOnlyBtnOpen.style.display = 'none';
@@ -7489,6 +7533,7 @@ class N88_RFQ_Admin {
                             el.style.boxShadow = '';
                         });
                     }
+                    updateDirectRfqButtonVisibility();
                 }
                 if (form) {
                     form.addEventListener('change', function(e) {
@@ -7595,6 +7640,11 @@ class N88_RFQ_Admin {
                     if (addAnotherBtn) {
                         addAnotherBtn.style.display = '';
                     }
+                    if (submitRfqDirectBtn) {
+                        submitRfqDirectBtn.disabled = false;
+                        submitRfqDirectBtn.style.display = 'none';
+                        submitRfqDirectBtn.textContent = submitRfqDirectBtn.getAttribute('data-default-text') || '[ Submit RFQ ]';
+                    }
                     var overlay = document.getElementById('n88-add-item-postsave');
                     if (overlay && overlay.parentNode) {
                         overlay.parentNode.removeChild(overlay);
@@ -7616,11 +7666,20 @@ class N88_RFQ_Admin {
                             firstBlock.n88PrimaryIndex = 0;
                             firstBlock.n88InvitedSuppliers = [];
                             firstBlock.n88SelectedKeywordIds = [];
+                            firstBlock.n88SyncDeliveryFromFirst = false;
+                            firstBlock.n88SyncSuppliersFromFirst = false;
 
                             var chipsWrap = firstBlock.querySelector('.n88-invite-chips');
                             if (chipsWrap) chipsWrap.innerHTML = '';
                             var allowSystemBox = firstBlock.querySelector('.n88-allow-system-invites');
-                            if (allowSystemBox) allowSystemBox.checked = false;
+                            if (allowSystemBox) {
+                                allowSystemBox.checked = false;
+                                allowSystemBox.disabled = false;
+                            }
+                            var deliverySyncBox = firstBlock.querySelector('.n88-sync-delivery-from-first');
+                            var suppliersSyncBox = firstBlock.querySelector('.n88-sync-suppliers-from-first');
+                            if (deliverySyncBox) deliverySyncBox.checked = false;
+                            if (suppliersSyncBox) suppliersSyncBox.checked = false;
 
                             var blockFileInput = firstBlock.querySelector('input[type="file"]');
                             if (blockFileInput) blockFileInput.value = '';
@@ -7634,6 +7693,11 @@ class N88_RFQ_Admin {
                             var roomField = roomSel ? roomSel.closest('.n88-field') : null;
                             if (roomSel) roomSel.innerHTML = '<option value="">Select Room</option>';
                             if (roomField) roomField.style.display = 'none';
+                            initIntegerDimensionInputsForBlock(firstBlock);
+                            if (typeof firstBlock.n88RenderInviteChips === 'function') {
+                                firstBlock.n88RenderInviteChips();
+                            }
+                            refreshMultiItemSharedFieldSync();
                         }
                     }
                     n88ModalSelectedFiles = [];
@@ -7654,6 +7718,7 @@ class N88_RFQ_Admin {
                             el.style.boxShadow = '';
                         });
                     }
+                    pendingCreateSubmitRfq = false;
                 }
 
                 function updatePrimaryBadgesDefault() {
@@ -7856,6 +7921,8 @@ class N88_RFQ_Admin {
                 }
                 if (form) {
                     form.addEventListener('change', function(e) {
+                        var target = e.target;
+                        var targetBlock = target ? target.closest('.n88-add-item-block') : null;
                         if (e.target && e.target.getAttribute('name') === 'project_id') {
                             var block = e.target.closest('.n88-add-item-block');
                             loadRoomsForBlock(block, e.target.value);
@@ -7871,10 +7938,39 @@ class N88_RFQ_Admin {
                                 notesWrap.style.display = '';
                             }
                         }
+                        if (target && target.classList.contains('n88-sync-delivery-from-first')) {
+                            applyDeliverySyncStateToBlock(targetBlock, !!target.checked);
+                        }
+                        if (target && target.classList.contains('n88-sync-suppliers-from-first')) {
+                            applySupplierSyncStateToBlock(targetBlock, !!target.checked);
+                        }
+                        if (isFirstAddItemBlock(targetBlock)) {
+                            var targetName = target && target.getAttribute ? (target.getAttribute('name') || '') : '';
+                            if (
+                                targetName === 'delivery_country' ||
+                                targetName === 'delivery_postal' ||
+                                targetName === 'project_id' ||
+                                targetName === 'room_id' ||
+                                targetName === 'rfq_fabric_supplied_flag' ||
+                                (target && target.classList && target.classList.contains('n88-allow-system-invites'))
+                            ) {
+                                refreshMultiItemSharedFieldSync();
+                            }
+                        }
                         refreshRfqMissingState();
+                        updateDirectRfqButtonVisibility();
                     });
-                    form.addEventListener('input', function() {
+                    form.addEventListener('input', function(e) {
+                        var target = e.target;
+                        var targetBlock = target ? target.closest('.n88-add-item-block') : null;
+                        if (isFirstAddItemBlock(targetBlock)) {
+                            var targetName = target && target.getAttribute ? (target.getAttribute('name') || '') : '';
+                            if (targetName === 'delivery_postal' || targetName === 'delivery_country') {
+                                refreshMultiItemSharedFieldSync();
+                            }
+                        }
                         refreshRfqMissingState();
+                        updateDirectRfqButtonVisibility();
                     });
                 }
                 if (projectSelect && roomRow && roomSelect) {
@@ -7911,9 +8007,15 @@ class N88_RFQ_Admin {
                             removeBtn.onclick = function() {
                                 block.n88InvitedSuppliers = block.n88InvitedSuppliers.filter(function(s) { return s !== val; });
                                 renderChips();
+                                if (isFirstAddItemBlock(block)) {
+                                    refreshMultiItemSharedFieldSync();
+                                }
                             };
                             chip.appendChild(removeBtn);
                             chipsWrap.appendChild(chip);
+                        });
+                        chipsWrap.querySelectorAll('.n88-invite-chip-remove').forEach(function(btn) {
+                            btn.disabled = !!block.n88SyncSuppliersFromFirst;
                         });
                         refreshRfqMissingState();
                     }
@@ -7925,6 +8027,9 @@ class N88_RFQ_Admin {
                         if (block.n88InvitedSuppliers.length >= 5) return;
                         block.n88InvitedSuppliers.push(v);
                         renderChips();
+                        if (isFirstAddItemBlock(block)) {
+                            refreshMultiItemSharedFieldSync();
+                        }
                     }
 
                     if (addBtn) {
@@ -7945,7 +8050,160 @@ class N88_RFQ_Admin {
                         });
                     }
 
+                    block.n88RenderInviteChips = renderChips;
                     renderChips();
+                }
+
+                function getFirstAddItemBlock() {
+                    return blocksContainer ? blocksContainer.querySelector('.n88-add-item-block') : null;
+                }
+
+                function isFirstAddItemBlock(block) {
+                    var firstBlock = getFirstAddItemBlock();
+                    return !!(firstBlock && block && firstBlock === block);
+                }
+
+                function sanitizeIntegerDimensionValue(value) {
+                    var raw = String(value == null ? '' : value);
+                    var sanitized = raw.replace(/[^\d-]/g, '');
+                    if (sanitized.indexOf('-') > 0) {
+                        sanitized = sanitized.replace(/-/g, '');
+                    }
+                    if (sanitized.indexOf('-') === 0) {
+                        sanitized = '-' + sanitized.slice(1).replace(/-/g, '');
+                    }
+                    return sanitized;
+                }
+
+                function enforceIntegerDimensionInput(input) {
+                    if (!input || input.dataset.integerBound === '1') return;
+                    input.dataset.integerBound = '1';
+                    input.addEventListener('input', function() {
+                        var sanitized = sanitizeIntegerDimensionValue(input.value);
+                        if (input.value !== sanitized) {
+                            input.value = sanitized;
+                        }
+                        refreshRfqMissingState();
+                    });
+                    input.addEventListener('keydown', function(e) {
+                        if (e.key === '.' || e.key === ',' || e.key === 'e' || e.key === 'E') {
+                            e.preventDefault();
+                        }
+                    });
+                }
+
+                function initIntegerDimensionInputsForBlock(block) {
+                    if (!block) return;
+                    ['width', 'depth', 'height'].forEach(function(name) {
+                        enforceIntegerDimensionInput(block.querySelector('[name="' + name + '"]'));
+                    });
+                }
+
+                function getDeliverySyncPayload(block) {
+                    return {
+                        delivery_country: ((block.querySelector('[name="delivery_country"]') || {}).value || ''),
+                        delivery_postal: ((block.querySelector('[name="delivery_postal"]') || {}).value || '')
+                    };
+                }
+
+                function getSupplierSyncPayload(block) {
+                    var allowSystemBox = block.querySelector('.n88-allow-system-invites');
+                    return {
+                        invited_suppliers: Array.isArray(block.n88InvitedSuppliers) ? block.n88InvitedSuppliers.slice() : [],
+                        allow_system_invites: !!(allowSystemBox && allowSystemBox.checked)
+                    };
+                }
+
+                function applyDeliverySyncStateToBlock(block, enabled) {
+                    if (!block) return;
+                    var countrySelect = block.querySelector('[name="delivery_country"]');
+                    var postalInput = block.querySelector('[name="delivery_postal"]');
+                    var deliveryField = countrySelect ? countrySelect.closest('.n88-field') : null;
+                    var postalField = postalInput ? postalInput.closest('.n88-field') : null;
+                    var lockTargets = [countrySelect, postalInput];
+                    block.n88SyncDeliveryFromFirst = !!enabled;
+                    if (deliveryField) deliveryField.classList.toggle('n88-sync-locked', !!enabled);
+                    if (postalField) postalField.classList.toggle('n88-sync-locked', !!enabled);
+                    if (!isFirstAddItemBlock(block) && enabled) {
+                        var firstBlock = getFirstAddItemBlock();
+                        if (firstBlock) {
+                            var payload = getDeliverySyncPayload(firstBlock);
+                            if (countrySelect) countrySelect.value = payload.delivery_country;
+                            if (postalInput) postalInput.value = payload.delivery_postal;
+                        }
+                    }
+                    lockTargets.forEach(function(el) {
+                        if (!el) return;
+                        el.disabled = !!enabled;
+                    });
+                }
+
+                function applySupplierSyncStateToBlock(block, enabled) {
+                    if (!block) return;
+                    var input = block.querySelector('.n88-invite-input');
+                    var addBtn = block.querySelector('.n88-invite-add-btn');
+                    var allowSystemBox = block.querySelector('.n88-allow-system-invites');
+                    var supplierField = input ? input.closest('.n88-field') : null;
+                    block.n88SyncSuppliersFromFirst = !!enabled;
+                    if (supplierField) supplierField.classList.toggle('n88-sync-locked', !!enabled);
+                    if (!isFirstAddItemBlock(block) && enabled) {
+                        var firstBlock = getFirstAddItemBlock();
+                        if (firstBlock) {
+                            var payload = getSupplierSyncPayload(firstBlock);
+                            block.n88InvitedSuppliers = payload.invited_suppliers.slice();
+                            if (allowSystemBox) {
+                                allowSystemBox.checked = !!payload.allow_system_invites;
+                                allowSystemBox.disabled = true;
+                            }
+                            if (typeof block.n88RenderInviteChips === 'function') {
+                                block.n88RenderInviteChips();
+                            }
+                        }
+                    } else {
+                        if (allowSystemBox) allowSystemBox.disabled = false;
+                    }
+                    if (input) {
+                        input.disabled = !!enabled;
+                        input.readOnly = !!enabled;
+                    }
+                    if (addBtn) addBtn.disabled = !!enabled;
+                    block.querySelectorAll('.n88-invite-chip-remove').forEach(function(btn) {
+                        btn.disabled = !!enabled;
+                    });
+                }
+
+                function refreshMultiItemSharedFieldSync() {
+                    if (!blocksContainer) return;
+                    var firstBlock = getFirstAddItemBlock();
+                    var blocks = blocksContainer.querySelectorAll('.n88-add-item-block');
+                    blocks.forEach(function(block, index) {
+                        var isFirst = !!(firstBlock && block === firstBlock);
+                        var deliveryToggle = block.querySelector('.n88-delivery-sync-toggle');
+                        var deliveryCheckbox = block.querySelector('.n88-sync-delivery-from-first');
+                        var suppliersToggle = block.querySelector('.n88-suppliers-sync-toggle');
+                        var suppliersCheckbox = block.querySelector('.n88-sync-suppliers-from-first');
+
+                        if (deliveryToggle) {
+                            deliveryToggle.classList.toggle('visible', !isFirst);
+                            deliveryToggle.hidden = isFirst;
+                            deliveryToggle.style.display = isFirst ? 'none' : 'flex';
+                        }
+                        if (suppliersToggle) {
+                            suppliersToggle.classList.toggle('visible', !isFirst);
+                            suppliersToggle.hidden = isFirst;
+                            suppliersToggle.style.display = isFirst ? 'none' : 'flex';
+                        }
+
+                        if (isFirst) {
+                            if (deliveryCheckbox) deliveryCheckbox.checked = false;
+                            if (suppliersCheckbox) suppliersCheckbox.checked = false;
+                            applyDeliverySyncStateToBlock(block, false);
+                            applySupplierSyncStateToBlock(block, false);
+                        } else {
+                            applyDeliverySyncStateToBlock(block, !!(deliveryCheckbox && deliveryCheckbox.checked));
+                            applySupplierSyncStateToBlock(block, !!(suppliersCheckbox && suppliersCheckbox.checked));
+                        }
+                    });
                 }
 
                 function renderPreviewsForBlock(block, files) {
@@ -8093,6 +8351,8 @@ class N88_RFQ_Admin {
                     clone.n88Files = [];
                     clone.n88Captions = [];
                     clone.n88PrimaryIndex = 0;
+                    clone.n88SyncDeliveryFromFirst = false;
+                    clone.n88SyncSuppliersFromFirst = false;
                     if (fileInp) fileInp.value = '';
                     if (zone) zone.classList.remove('has-file');
                     var uploadTextClone = clone.querySelector('.n88-upload-text, [id$="upload-text"]');
@@ -8103,6 +8363,11 @@ class N88_RFQ_Admin {
                     clone.n88SelectedKeywordIds = [];
                     initInviteControlsForBlock(clone);
                     initMeasurementControlsForBlock(clone);
+                    initIntegerDimensionInputsForBlock(clone);
+                    var cloneDeliverySync = clone.querySelector('.n88-sync-delivery-from-first');
+                    var cloneSuppliersSync = clone.querySelector('.n88-sync-suppliers-from-first');
+                    if (cloneDeliverySync) cloneDeliverySync.checked = false;
+                    if (cloneSuppliersSync) cloneSuppliersSync.checked = false;
 
                     if (zone && fileInp) {
                         zone.addEventListener('click', function() { fileInp.click(); });
@@ -8121,8 +8386,16 @@ class N88_RFQ_Admin {
                         });
                     }
                     blocksContainer.appendChild(clone);
+                    refreshMultiItemSharedFieldSync();
+                    updateDirectRfqButtonVisibility();
                 }
                 if (addAnotherBtnInForm) addAnotherBtnInForm.addEventListener('click', addAnotherItemBlock);
+                if (submitRfqDirectBtn) {
+                    submitRfqDirectBtn.addEventListener('click', function() {
+                        pendingCreateSubmitRfq = true;
+                        if (submitBtn) submitBtn.click();
+                    });
+                }
 
                 // Initialize invite controls for the first (default) block on load
                     if (blocksContainer) {
@@ -8130,6 +8403,9 @@ class N88_RFQ_Admin {
                         if (firstBlockInit) {
                             initInviteControlsForBlock(firstBlockInit);
                             initMeasurementControlsForBlock(firstBlockInit);
+                            initIntegerDimensionInputsForBlock(firstBlockInit);
+                            refreshMultiItemSharedFieldSync();
+                            updateDirectRfqButtonVisibility();
                         }
                     }
                 
@@ -8410,6 +8686,174 @@ class N88_RFQ_Admin {
                     var allowSystem = !!(allowBox && allowBox.checked);
                     return !!(titleVal || descVal || categoryVal || (qtyVal && qtyVal !== '1') || widthVal || depthVal || heightVal || areaVal || lengthVal || customSpecVal || countryVal || postalVal || notesVal || fabricNotesVal || hasInvites || allowSystem || blockHasSelectedImage(block));
                 }
+                function getActiveAddItemBlocks() {
+                    var blocks = blocksContainer ? blocksContainer.querySelectorAll('.n88-add-item-block') : [];
+                    var activeBlocks = [];
+                    for (var bi = 0; bi < blocks.length; bi++) {
+                        if (bi === 0 || blockHasMeaningfulContent(blocks[bi])) {
+                            activeBlocks.push(blocks[bi]);
+                        }
+                    }
+                    return activeBlocks;
+                }
+                function inspectRfqBlocks(createdItemIds, shouldMarkMissing) {
+                    var activeBlocks = getActiveAddItemBlocks();
+                    var itemsForRfq = [];
+                    var missingMessages = [];
+                    var firstMissingField = null;
+                    var invited = [];
+                    var allowSystem = false;
+                    function noteMissing(blockIndex, label, fieldEl) {
+                        missingMessages.push('Item ' + String(blockIndex + 1) + ': ' + label);
+                        if (!firstMissingField && fieldEl) firstMissingField = fieldEl;
+                        if (shouldMarkMissing) markAddItemRequiredValidation(fieldEl);
+                    }
+                    for (var ii = 0; ii < activeBlocks.length; ii++) {
+                        var block = activeBlocks[ii];
+                        var titleEl = block.querySelector('[name="title"]');
+                        var descEl = block.querySelector('[name="description"]');
+                        var categoryEl = block.querySelector('[name="item_type"]');
+                        var qtyEl = block.querySelector('[name="quantity"]');
+                        var countrySel = block.querySelector('select[name="delivery_country"]');
+                        var postalInp = block.querySelector('input[name="delivery_postal"]');
+                        var inviteInputEl = block.querySelector('.n88-invite-input');
+                        var titleVal = titleEl && titleEl.value ? titleEl.value.trim() : '';
+                        var descVal = descEl && descEl.value ? descEl.value.trim() : '';
+                        var categoryVal = categoryEl && categoryEl.value ? categoryEl.value.trim() : '';
+                        var qtyVal = qtyEl ? parseInt(qtyEl.value, 10) || 0 : 0;
+                        var measurementData = getMeasurementPayloadFromBlock(block);
+                        var countryVal = countrySel && countrySel.value ? countrySel.value.toUpperCase().trim() : '';
+                        var postalVal = postalInp && postalInp.value ? postalInp.value.trim() : '';
+                        if (!titleVal) noteMissing(ii, 'Title', titleEl);
+                        if (!blockHasSelectedImage(block)) noteMissing(ii, 'Reference Image', block.querySelector('.n88-upload-zone'));
+                        if (!descVal) noteMissing(ii, 'Description', descEl);
+                        if (!categoryVal) noteMissing(ii, 'Category', categoryEl);
+                        if (!qtyVal || qtyVal <= 0) noteMissing(ii, 'Quantity', qtyEl);
+                        n88GetMeasurementMissingLabels(Object.assign({ category: categoryVal }, measurementData)).forEach(function(label) {
+                            var fieldEl = block.querySelector('[name="width"]');
+                            if (label === 'Depth') fieldEl = block.querySelector('[name="depth"]');
+                            else if (label === 'Height') fieldEl = block.querySelector('[name="height"]');
+                            else if (label === 'Area') fieldEl = block.querySelector('[name="measurement_area"]');
+                            else if (label === 'Linear Length') fieldEl = block.querySelector('[name="measurement_length"]');
+                            else if (label === 'Specification Details') fieldEl = block.querySelector('[name="custom_specification"]');
+                            noteMissing(ii, label, fieldEl);
+                        });
+                        if (!countryVal) noteMissing(ii, 'Delivery Country', countrySel);
+                        if ((countryVal === 'US' || countryVal === 'CA') && !postalVal) noteMissing(ii, 'Final Delivery ZIP Code', postalInp);
+                        var chipsWrap = block.querySelector('.n88-invite-chips');
+                        var invitedBlock = [];
+                        if (chipsWrap) {
+                            var chips = chipsWrap.querySelectorAll('span[data-supplier]');
+                            chips.forEach(function(chip) {
+                                var v = (chip.getAttribute('data-supplier') || '').trim();
+                                if (v) invitedBlock.push(v);
+                            });
+                        }
+                        var allowBox = block.querySelector('.n88-allow-system-invites');
+                        var allowSystemBlock = !!(allowBox && allowBox.checked);
+                        if (invitedBlock.length === 0 && !allowSystemBlock) {
+                            noteMissing(ii, 'Invite Makers: add at least one maker or enable system invites', inviteInputEl);
+                        }
+                        invitedBlock.forEach(function(v) {
+                            if (invited.indexOf(v) === -1) invited.push(v);
+                        });
+                        if (allowSystemBlock) allowSystem = true;
+                        itemsForRfq.push({
+                            item_id: createdItemIds && createdItemIds[ii] ? createdItemIds[ii] : 0,
+                            quantity: qtyVal,
+                            width: measurementData.width ? parseFloat(measurementData.width) : 0,
+                            depth: measurementData.depth ? parseFloat(measurementData.depth) : 0,
+                            height: measurementData.height ? parseFloat(measurementData.height) : 0,
+                            dimension_unit: measurementData.dimension_unit || 'in',
+                            measurement_type: measurementData.measurement_type || 'dimensions',
+                            measurement_area: measurementData.measurement_area ? parseFloat(measurementData.measurement_area) : 0,
+                            measurement_area_unit: measurementData.measurement_area_unit || 'sq_ft',
+                            measurement_length: measurementData.measurement_length ? parseFloat(measurementData.measurement_length) : 0,
+                            measurement_length_unit: measurementData.measurement_length_unit || 'ft',
+                            custom_specification: measurementData.custom_specification || '',
+                            delivery_country: countryVal,
+                            delivery_postal: postalVal
+                        });
+                    }
+                    return {
+                        activeBlocks: activeBlocks,
+                        itemsForRfq: itemsForRfq,
+                        missingMessages: missingMessages,
+                        firstMissingField: firstMissingField,
+                        invited: invited,
+                        allowSystem: allowSystem
+                    };
+                }
+                function updateDirectRfqButtonVisibility() {
+                    if (!submitRfqDirectBtn) return;
+                    var inspection = inspectRfqBlocks(null, false);
+                    var shouldShow = inspection.activeBlocks.length > 0 && inspection.missingMessages.length === 0;
+                    submitRfqDirectBtn.style.display = shouldShow ? '' : 'none';
+                    submitRfqDirectBtn.disabled = false;
+                    submitRfqDirectBtn.textContent = submitRfqDirectBtn.getAttribute('data-default-text') || '[ Submit RFQ ]';
+                }
+                function submitCreatedItemsAsRfq(createdItemIds, buttonEl, onValidationFail) {
+                    var inspection = inspectRfqBlocks(createdItemIds, true);
+                    if (inspection.missingMessages.length > 0) {
+                        var preview = inspection.missingMessages.slice(0, 6).join('\n');
+                        var extra = inspection.missingMessages.length > 6 ? ('\n...and ' + (inspection.missingMessages.length - 6) + ' more') : '';
+                        if (typeof onValidationFail === 'function') {
+                            onValidationFail('Please complete required fields before requesting quotes:\n' + preview + extra, inspection.firstMissingField);
+                        } else {
+                            if (resultEl) {
+                                resultEl.textContent = 'Please complete required fields before requesting quotes:\n' + preview + extra;
+                                resultEl.className = 'n88-result error';
+                            }
+                            if (inspection.firstMissingField) {
+                                setTimeout(function() {
+                                    try { inspection.firstMissingField.focus(); inspection.firstMissingField.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+                                }, 50);
+                            }
+                        }
+                        return Promise.reject(new Error('RFQ validation failed'));
+                    }
+                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) ||
+                                  (window.n88 && window.n88.ajaxUrl) ||
+                                  (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                    var nonce = '';
+                    if (window.n88BoardNonce && window.n88BoardNonce.nonce_submit_rfq) nonce = window.n88BoardNonce.nonce_submit_rfq;
+                    else if (window.n88BoardData && window.n88BoardData.nonce) nonce = window.n88BoardData.nonce;
+                    else if (window.n88 && window.n88.nonce) nonce = window.n88.nonce;
+                    else if (window.n88BoardNonce && window.n88BoardNonce.nonce) nonce = window.n88BoardNonce.nonce;
+                    else nonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_rfq' ) ); ?>';
+                    if (!nonce) {
+                        return Promise.reject(new Error('Security token missing. Please refresh the page and try again.'));
+                    }
+                    var originalText = buttonEl ? buttonEl.textContent : '';
+                    if (buttonEl) {
+                        buttonEl.disabled = true;
+                        buttonEl.textContent = createdItemIds.length === 1 ? '[ Sending Request... ]' : '[ Sending Requests... ]';
+                    }
+                    var fd = new FormData();
+                    fd.append('action', 'n88_submit_rfq');
+                    fd.append('items', JSON.stringify(inspection.itemsForRfq));
+                    fd.append('invited_suppliers', JSON.stringify(inspection.invited));
+                    fd.append('allow_system_invites', inspection.allowSystem ? '1' : '0');
+                    fd.append('_ajax_nonce', nonce);
+                    return fetch(ajaxUrl, {
+                        method: 'POST',
+                        body: fd
+                    }).then(function(response) {
+                        return response.json();
+                    }).then(function(data) {
+                        if (!data.success) {
+                            var msg = (data && data.data && data.data.message) ? data.data.message : 'An error occurred while submitting RFQ.';
+                            throw new Error(msg);
+                        }
+                        return data;
+                    }).catch(function(err) {
+                        if (buttonEl) {
+                            buttonEl.disabled = false;
+                            buttonEl.textContent = originalText;
+                        }
+                        throw err;
+                    });
+                }
                 function clearAddItemRequiredValidation(block) {
                     if (!block) return;
                     var titleEl = block.querySelector('[name="title"]');
@@ -8477,6 +8921,8 @@ class N88_RFQ_Admin {
 
                 if (submitBtn && form) {
                     submitBtn.addEventListener('click', function() {
+                        var shouldSubmitRfqAfterCreate = pendingCreateSubmitRfq === true;
+                        pendingCreateSubmitRfq = false;
                         var blocks = blocksContainer ? blocksContainer.querySelectorAll('.n88-add-item-block') : [];
                         var activeBlocks = [];
                         var firstMissingEl = null;
@@ -8547,10 +8993,19 @@ class N88_RFQ_Admin {
                         var boardId = document.getElementById('n88-modal-item-board') ? document.getElementById('n88-modal-item-board').value : '';
                         var projectId = payloads[0].projectId;
                         var roomId = payloads[0].roomId;
+                        var primaryActionBtn = (shouldSubmitRfqAfterCreate && submitRfqDirectBtn) ? submitRfqDirectBtn : submitBtn;
                         
                         submitBtn.disabled = true;
+                        if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = true;
                         var defaultText = submitBtn.getAttribute('data-default-text') || '[ Add Item ]';
-                        submitBtn.innerHTML = '<span class="spinner is-active" style="display: inline-block; vertical-align: middle; margin-right: 8px; float: none;"></span> Adding ' + payloads.length + ' item(s)...';
+                        var defaultDirectText = submitRfqDirectBtn ? (submitRfqDirectBtn.getAttribute('data-default-text') || '[ Submit RFQ ]') : '[ Submit RFQ ]';
+                        if (primaryActionBtn === submitBtn) {
+                            submitBtn.innerHTML = '<span class="spinner is-active" style="display: inline-block; vertical-align: middle; margin-right: 8px; float: none;"></span> Adding ' + payloads.length + ' item(s)...';
+                            if (submitRfqDirectBtn) submitRfqDirectBtn.textContent = defaultDirectText;
+                        } else {
+                            submitBtn.innerHTML = defaultText;
+                            submitRfqDirectBtn.innerHTML = '<span class="spinner is-active" style="display: inline-block; vertical-align: middle; margin-right: 8px; float: none;"></span> Adding & Sending ' + payloads.length + ' item(s)...';
+                        }
                         resultEl.textContent = '';
                         resultEl.className = 'n88-result';
                         var ajaxUrl = payloads[0].ajaxUrl;
@@ -8559,10 +9014,26 @@ class N88_RFQ_Admin {
                         function submitNext() {
                             if (idx >= payloads.length) {
                                 submitBtn.disabled = false;
+                                if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
                                 submitBtn.innerHTML = defaultText;
+                                if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
                                 if (resultEl) {
                                     resultEl.textContent = payloads.length + ' item(s) created successfully.';
                                     resultEl.className = 'n88-result success';
+                                }
+                                if (shouldSubmitRfqAfterCreate) {
+                                    submitCreatedItemsAsRfq(createdItemIds, submitRfqDirectBtn || submitBtn).then(function(data) {
+                                        alert((data.data && data.data.message) || 'RFQ submitted successfully!');
+                                        closeAddItemModal();
+                                        window.location.reload();
+                                    }).catch(function(err) {
+                                        if (!err || err.message !== 'RFQ validation failed') {
+                                            resultEl.textContent = (err && err.message) ? err.message : 'Request failed. Please try again.';
+                                            resultEl.className = 'n88-result error';
+                                        }
+                                        updateDirectRfqButtonVisibility();
+                                    });
+                                    return;
                                 }
                                 <?php if ( $is_designer && $is_real_board ) : ?>
                                 // Show post-save RFQ decision overlay (Commit 3.C.4)
@@ -8622,6 +9093,7 @@ class N88_RFQ_Admin {
                                     if (form) form.style.display = 'none';
                                     if (submitBtn) submitBtn.style.display = 'none';
                                     if (addAnotherBtn) addAnotherBtn.style.display = 'none';
+                                    if (submitRfqDirectBtn) submitRfqDirectBtn.style.display = 'none';
                                     if (resultEl) resultEl.style.display = 'none';
                                     var headerTitle = document.getElementById('n88-add-item-title');
                                     if (headerTitle) {
@@ -8677,6 +9149,7 @@ class N88_RFQ_Admin {
                                                 if (form) form.style.display = '';
                                                 if (submitBtn) submitBtn.style.display = 'none';
                                                 if (addAnotherBtn) addAnotherBtn.style.display = 'none';
+                                                if (submitRfqDirectBtn) submitRfqDirectBtn.style.display = 'none';
                                                 if (resultEl) {
                                                     resultEl.style.display = '';
                                                     resultEl.textContent = message || 'Please complete required fields before requesting quotes.';
@@ -8879,9 +9352,12 @@ class N88_RFQ_Admin {
                                 .then(function(res) {
                                     if (!res.success) {
                                         submitBtn.disabled = false;
+                                        if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
                                         submitBtn.innerHTML = defaultText;
+                                        if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
                                         resultEl.textContent = 'Error: ' + (res.data && res.data.message ? res.data.message : 'Unknown error');
                                         resultEl.className = 'n88-result error';
+                                        updateDirectRfqButtonVisibility();
                                         return;
                                     }
                                     if (res.data && res.data.item_id) {
@@ -8892,9 +9368,12 @@ class N88_RFQ_Admin {
                                 })
                                 .catch(function() {
                                     submitBtn.disabled = false;
+                                    if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
                                     submitBtn.innerHTML = defaultText;
+                                    if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
                                     resultEl.textContent = 'Request failed. Please try again.';
                                     resultEl.className = 'n88-result error';
+                                    updateDirectRfqButtonVisibility();
                                 });
                         }
                         submitNext();
@@ -11753,6 +12232,310 @@ class N88_RFQ_Admin {
                             })
                         );
                     };
+                    var renderAttachmentGallery = function(files, options) {
+                        files = Array.isArray(files) ? files : [];
+                        options = options || {};
+                        if (!files.length) {
+                            return options.emptyText ? React.createElement('div', {
+                                style: { padding: '10px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' }
+                            }, options.emptyText) : null;
+                        }
+                        return React.createElement('div', {
+                            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }
+                        },
+                            files.map(function(fileEntry, fileIdx) {
+                                var fileUrl = fileEntry && fileEntry.url ? String(fileEntry.url) : '';
+                                var fileName = fileEntry && (fileEntry.title || fileEntry.name) ? String(fileEntry.title || fileEntry.name) : ((options.defaultTitlePrefix || 'File') + ' ' + (fileIdx + 1));
+                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                var isImageFile = /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(fileUrl) || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(fileName);
+                                var isSelectedFile = typeof options.isSelected === 'function' ? !!options.isSelected(fileEntry, fileIdx) : false;
+                                var cardChildren = [];
+
+                                if (typeof options.renderControl === 'function') {
+                                    var controlNode = options.renderControl(fileEntry, fileIdx);
+                                    if (controlNode) {
+                                        cardChildren.push(
+                                            React.createElement('div', {
+                                                key: 'control-' + fileId,
+                                                style: { position: 'absolute', top: '8px', left: '8px', zIndex: 2 }
+                                            }, controlNode)
+                                        );
+                                    }
+                                }
+
+                                if (isSelectedFile) {
+                                    cardChildren.push(
+                                        React.createElement('div', {
+                                            key: 'selected-' + fileId,
+                                            style: { position: 'absolute', top: '8px', right: '8px', zIndex: 2, minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '999px', backgroundColor: greenAccent, color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700' }
+                                        }, '✓')
+                                    );
+                                }
+
+                                cardChildren.push(
+                                    React.createElement('a', {
+                                        key: 'link-' + fileId,
+                                        href: fileUrl || '#',
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        onClick: function(e) {
+                                            if (!fileUrl) {
+                                                e.preventDefault();
+                                                return;
+                                            }
+                                            e.stopPropagation();
+                                        },
+                                        style: { display: 'block', textDecoration: 'none', color: '#fff' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { height: '120px', backgroundColor: '#000', borderBottom: '1px solid ' + darkBorder, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '8px' }
+                                        },
+                                            isImageFile && fileUrl
+                                                ? React.createElement('img', { src: fileUrl, alt: fileName, loading: 'lazy', style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' } })
+                                                : React.createElement('span', { style: { fontSize: '11px', color: greenAccent, fontWeight: '700', letterSpacing: '0.04em' } }, 'FILE')
+                                        ),
+                                        React.createElement('div', { style: { padding: '10px', display: 'grid', gap: '6px' } },
+                                            React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: '#fff', wordBreak: 'break-word' } }, fileName),
+                                            React.createElement('div', { style: { fontSize: '10px', color: isImageFile ? greenAccent : darkText } }, isImageFile ? 'Open image' : 'Open file')
+                                        )
+                                    )
+                                );
+
+                                return React.createElement('div', {
+                                    key: (options.keyPrefix || 'attachment-gallery-') + fileId + '-' + fileIdx,
+                                    style: { position: 'relative', border: '1px solid ' + (isSelectedFile ? greenAccent : darkBorder), borderRadius: '8px', backgroundColor: isSelectedFile ? 'rgba(255,0,101,0.08)' : '#000', overflow: 'hidden' }
+                                }, cardChildren);
+                            })
+                        );
+                    };
+                    var renderAttachmentGallery = function(files, options) {
+                        files = Array.isArray(files) ? files : [];
+                        options = options || {};
+                        if (!files.length) {
+                            return options.emptyText ? React.createElement('div', {
+                                style: { padding: '10px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' }
+                            }, options.emptyText) : null;
+                        }
+                        return React.createElement('div', {
+                            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }
+                        },
+                            files.map(function(fileEntry, fileIdx) {
+                                var fileUrl = fileEntry && fileEntry.url ? String(fileEntry.url) : '';
+                                var fileName = fileEntry && (fileEntry.title || fileEntry.name) ? String(fileEntry.title || fileEntry.name) : ((options.defaultTitlePrefix || 'File') + ' ' + (fileIdx + 1));
+                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                var isImageFile = /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(fileUrl) || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(fileName);
+                                var isSelectedFile = typeof options.isSelected === 'function' ? !!options.isSelected(fileEntry, fileIdx) : false;
+                                var cardChildren = [];
+
+                                if (typeof options.renderControl === 'function') {
+                                    var controlNode = options.renderControl(fileEntry, fileIdx);
+                                    if (controlNode) {
+                                        cardChildren.push(
+                                            React.createElement('div', {
+                                                key: 'control-' + fileId,
+                                                style: { position: 'absolute', top: '8px', left: '8px', zIndex: 2 }
+                                            }, controlNode)
+                                        );
+                                    }
+                                }
+
+                                if (isSelectedFile) {
+                                    cardChildren.push(
+                                        React.createElement('div', {
+                                            key: 'selected-' + fileId,
+                                            style: { position: 'absolute', top: '8px', right: '8px', zIndex: 2, minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '999px', backgroundColor: greenAccent, color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700' }
+                                        }, '✓')
+                                    );
+                                }
+
+                                cardChildren.push(
+                                    React.createElement('a', {
+                                        key: 'link-' + fileId,
+                                        href: fileUrl || '#',
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        onClick: function(e) {
+                                            if (!fileUrl) {
+                                                e.preventDefault();
+                                                return;
+                                            }
+                                            e.stopPropagation();
+                                        },
+                                        style: { display: 'block', textDecoration: 'none', color: '#fff' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { height: '120px', backgroundColor: '#000', borderBottom: '1px solid ' + darkBorder, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }
+                                        },
+                                            isImageFile && fileUrl
+                                                ? React.createElement('img', { src: fileUrl, alt: fileName, loading: 'lazy', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })
+                                                : React.createElement('span', { style: { fontSize: '11px', color: greenAccent, fontWeight: '700', letterSpacing: '0.04em' } }, 'FILE')
+                                        ),
+                                        React.createElement('div', { style: { padding: '10px', display: 'grid', gap: '6px' } },
+                                            React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: '#fff', wordBreak: 'break-word' } }, fileName),
+                                            React.createElement('div', { style: { fontSize: '10px', color: isImageFile ? greenAccent : darkText } }, isImageFile ? 'Open image' : 'Open file')
+                                        )
+                                    )
+                                );
+
+                                return React.createElement('div', {
+                                    key: (options.keyPrefix || 'attachment-gallery-') + fileId + '-' + fileIdx,
+                                    style: { position: 'relative', border: '1px solid ' + (isSelectedFile ? greenAccent : darkBorder), borderRadius: '8px', backgroundColor: isSelectedFile ? 'rgba(255,0,101,0.08)' : '#000', overflow: 'hidden' }
+                                }, cardChildren);
+                            })
+                        );
+                    };
+                    var renderAttachmentGallery = function(files, options) {
+                        files = Array.isArray(files) ? files : [];
+                        options = options || {};
+                        if (!files.length) {
+                            return options.emptyText ? React.createElement('div', {
+                                style: { padding: '10px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' }
+                            }, options.emptyText) : null;
+                        }
+                        return React.createElement('div', {
+                            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }
+                        },
+                            files.map(function(fileEntry, fileIdx) {
+                                var fileUrl = fileEntry && fileEntry.url ? String(fileEntry.url) : '';
+                                var fileName = fileEntry && (fileEntry.title || fileEntry.name) ? String(fileEntry.title || fileEntry.name) : ((options.defaultTitlePrefix || 'File') + ' ' + (fileIdx + 1));
+                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                var isImageFile = /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(fileUrl) || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(fileName);
+                                var isSelectedFile = typeof options.isSelected === 'function' ? !!options.isSelected(fileEntry, fileIdx) : false;
+                                var cardChildren = [];
+
+                                if (typeof options.renderControl === 'function') {
+                                    var controlNode = options.renderControl(fileEntry, fileIdx);
+                                    if (controlNode) {
+                                        cardChildren.push(
+                                            React.createElement('div', {
+                                                key: 'control-' + fileId,
+                                                style: { position: 'absolute', top: '8px', left: '8px', zIndex: 2 }
+                                            }, controlNode)
+                                        );
+                                    }
+                                }
+
+                                if (isSelectedFile) {
+                                    cardChildren.push(
+                                        React.createElement('div', {
+                                            key: 'selected-' + fileId,
+                                            style: { position: 'absolute', top: '8px', right: '8px', zIndex: 2, minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '999px', backgroundColor: greenAccent, color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700' }
+                                        }, '✓')
+                                    );
+                                }
+
+                                cardChildren.push(
+                                    React.createElement('a', {
+                                        key: 'link-' + fileId,
+                                        href: fileUrl || '#',
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        onClick: function(e) {
+                                            if (!fileUrl) {
+                                                e.preventDefault();
+                                                return;
+                                            }
+                                            e.stopPropagation();
+                                        },
+                                        style: { display: 'block', textDecoration: 'none', color: '#fff' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { height: '120px', backgroundColor: '#000', borderBottom: '1px solid ' + darkBorder, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }
+                                        },
+                                            isImageFile && fileUrl
+                                                ? React.createElement('img', { src: fileUrl, alt: fileName, loading: 'lazy', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })
+                                                : React.createElement('span', { style: { fontSize: '11px', color: greenAccent, fontWeight: '700', letterSpacing: '0.04em' } }, 'FILE')
+                                        ),
+                                        React.createElement('div', { style: { padding: '10px', display: 'grid', gap: '6px' } },
+                                            React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: '#fff', wordBreak: 'break-word' } }, fileName),
+                                            React.createElement('div', { style: { fontSize: '10px', color: isImageFile ? greenAccent : darkText } }, isImageFile ? 'Open image' : 'Open file')
+                                        )
+                                    )
+                                );
+
+                                return React.createElement('div', {
+                                    key: (options.keyPrefix || 'attachment-gallery-') + fileId + '-' + fileIdx,
+                                    style: { position: 'relative', border: '1px solid ' + (isSelectedFile ? greenAccent : darkBorder), borderRadius: '8px', backgroundColor: isSelectedFile ? 'rgba(255,0,101,0.08)' : '#000', overflow: 'hidden' }
+                                }, cardChildren);
+                            })
+                        );
+                    };
+                    var renderAttachmentGallery = function(files, options) {
+                        files = Array.isArray(files) ? files : [];
+                        options = options || {};
+                        if (!files.length) {
+                            return options.emptyText ? React.createElement('div', {
+                                style: { padding: '10px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' }
+                            }, options.emptyText) : null;
+                        }
+                        return React.createElement('div', {
+                            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }
+                        },
+                            files.map(function(fileEntry, fileIdx) {
+                                var fileUrl = fileEntry && fileEntry.url ? String(fileEntry.url) : '';
+                                var fileName = fileEntry && (fileEntry.title || fileEntry.name) ? String(fileEntry.title || fileEntry.name) : ((options.defaultTitlePrefix || 'File') + ' ' + (fileIdx + 1));
+                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                var isImageFile = /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(fileUrl) || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(fileName);
+                                var isSelectedFile = typeof options.isSelected === 'function' ? !!options.isSelected(fileEntry, fileIdx) : false;
+                                var cardChildren = [];
+
+                                if (typeof options.renderControl === 'function') {
+                                    var controlNode = options.renderControl(fileEntry, fileIdx);
+                                    if (controlNode) {
+                                        cardChildren.push(
+                                            React.createElement('div', {
+                                                key: 'control-' + fileId,
+                                                style: { position: 'absolute', top: '8px', left: '8px', zIndex: 2 }
+                                            }, controlNode)
+                                        );
+                                    }
+                                }
+
+                                if (isSelectedFile) {
+                                    cardChildren.push(
+                                        React.createElement('div', {
+                                            key: 'selected-' + fileId,
+                                            style: { position: 'absolute', top: '8px', right: '8px', zIndex: 2, minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '999px', backgroundColor: greenAccent, color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700' }
+                                        }, '✓')
+                                    );
+                                }
+
+                                cardChildren.push(
+                                    React.createElement('a', {
+                                        key: 'link-' + fileId,
+                                        href: fileUrl || '#',
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        onClick: function(e) {
+                                            if (!fileUrl) {
+                                                e.preventDefault();
+                                                return;
+                                            }
+                                            e.stopPropagation();
+                                        },
+                                        style: { display: 'block', textDecoration: 'none', color: '#fff' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { height: '120px', backgroundColor: '#000', borderBottom: '1px solid ' + darkBorder, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }
+                                        },
+                                            isImageFile && fileUrl
+                                                ? React.createElement('img', { src: fileUrl, alt: fileName, loading: 'lazy', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })
+                                                : React.createElement('span', { style: { fontSize: '11px', color: greenAccent, fontWeight: '700', letterSpacing: '0.04em' } }, 'FILE')
+                                        ),
+                                        React.createElement('div', { style: { padding: '10px', display: 'grid', gap: '6px' } },
+                                            React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: '#fff', wordBreak: 'break-word' } }, fileName),
+                                            React.createElement('div', { style: { fontSize: '10px', color: isImageFile ? greenAccent : darkText } }, isImageFile ? 'Open image' : 'Open file')
+                                        )
+                                    )
+                                );
+
+                                return React.createElement('div', {
+                                    key: (options.keyPrefix || 'attachment-gallery-') + fileId + '-' + fileIdx,
+                                    style: { position: 'relative', border: '1px solid ' + (isSelectedFile ? greenAccent : darkBorder), borderRadius: '8px', backgroundColor: isSelectedFile ? 'rgba(255,0,101,0.08)' : '#000', overflow: 'hidden' }
+                                }, cardChildren);
+                            })
+                        );
+                    };
                     var mediaMatchesSearch = function(entry, query) {
                         var normalizedQuery = query ? String(query).toLowerCase().trim() : '';
                         if (!normalizedQuery) return true;
@@ -13411,6 +14194,27 @@ class N88_RFQ_Admin {
                         return null;
                     };
                     var itemId = getItemId();
+                    var getSampleRequestStickyKey = function(targetItemId) {
+                        return 'n88-sample-request-sticky-' + String(targetItemId || '');
+                    };
+                    var readSampleRequestSticky = function(targetItemId) {
+                        if (!targetItemId || typeof window === 'undefined' || !window.localStorage) return false;
+                        try {
+                            return window.localStorage.getItem(getSampleRequestStickyKey(targetItemId)) === '1';
+                        } catch (e) {
+                            return false;
+                        }
+                    };
+                    var writeSampleRequestSticky = function(targetItemId, isSticky) {
+                        if (!targetItemId || typeof window === 'undefined' || !window.localStorage) return;
+                        try {
+                            if (isSticky) {
+                                window.localStorage.setItem(getSampleRequestStickyKey(targetItemId), '1');
+                            } else {
+                                window.localStorage.removeItem(getSampleRequestStickyKey(targetItemId));
+                            }
+                        } catch (e) {}
+                    };
                     var addressRegionOptions = <?php echo wp_json_encode( $this->get_address_region_options() ); ?>;
                     var normalizeAddressFields = function(value) {
                         var source = value && typeof value === 'object' ? value : {};
@@ -13505,6 +14309,7 @@ class N88_RFQ_Admin {
                         unread_operator_messages: 0,
                         has_unread_supplier_messages: false,
                         unread_supplier_messages: 0,
+                        latest_unread_supplier_message_supplier_id: null,
                         latest_unread_supplier_message_context: '',
                         latest_unread_supplier_message_step_index: null,
                         direct_supplier_id: null,
@@ -13570,6 +14375,7 @@ class N88_RFQ_Admin {
                     var _selectedDirectSupplierIdState = React.useState(null);
                     var selectedDirectSupplierId = _selectedDirectSupplierIdState[0];
                     var setSelectedDirectSupplierId = _selectedDirectSupplierIdState[1];
+                    var unreadSupplierAutoSelectKeyRef = React.useRef('');
                     var directSupplierSelectRef = React.useRef(null);
                     var _sampleRequestBidIdState = React.useState(requestSampleContextProp && requestSampleContextProp.bidId ? parseInt(requestSampleContextProp.bidId, 10) : null);
                     var sampleRequestBidId = _sampleRequestBidIdState[0];
@@ -13613,10 +14419,14 @@ class N88_RFQ_Admin {
                     var _sampleRequestInlineOpenState = React.useState(false);
                     var sampleRequestInlineOpen = _sampleRequestInlineOpenState[0];
                     var setSampleRequestInlineOpen = _sampleRequestInlineOpenState[1];
+                    var unreadSupplierStepAutoOpenRef = React.useRef ? React.useRef(false) : { current: false };
                     var sampleRequestFileInputRef = React.useRef ? React.useRef(null) : { current: null };
                     var _sampleReviewSubmittingState = React.useState(false);
                     var sampleReviewSubmitting = _sampleReviewSubmittingState[0];
                     var setSampleReviewSubmitting = _sampleReviewSubmittingState[1];
+                    var _step2AwardSubmittingState = React.useState(false);
+                    var step2AwardSubmitting = _step2AwardSubmittingState[0];
+                    var setStep2AwardSubmitting = _step2AwardSubmittingState[1];
                     var _approvedMaterialCodesState = React.useState('');
                     var approvedMaterialCodes = _approvedMaterialCodesState[0];
                     var setApprovedMaterialCodes = _approvedMaterialCodesState[1];
@@ -13680,12 +14490,6 @@ class N88_RFQ_Admin {
                     var _validationComSubmittingState = React.useState(false);
                     var validationComSubmitting = _validationComSubmittingState[0];
                     var setValidationComSubmitting = _validationComSubmittingState[1];
-                    var _validationComRequiredState = React.useState(false);
-                    var validationComRequired = _validationComRequiredState[0];
-                    var setValidationComRequired = _validationComRequiredState[1];
-                    var _validationComQtyState = React.useState('');
-                    var validationComQty = _validationComQtyState[0];
-                    var setValidationComQty = _validationComQtyState[1];
                     var _validationComDeliveryAddressFieldsState = React.useState(normalizeAddressFields({}));
                     var validationComDeliveryAddressFields = _validationComDeliveryAddressFieldsState[0];
                     var setValidationComDeliveryAddressFields = _validationComDeliveryAddressFieldsState[1];
@@ -13792,6 +14596,9 @@ class N88_RFQ_Admin {
                     var setTotalPhrasesSelected = _totalPhrasesSelectedState[1];
                     
                     // Form state
+                    var _titleState = React.useState(item.title || '');
+                    var title = _titleState[0];
+                    var setTitle = _titleState[1];
                     var _categoryState = React.useState(item.item_type || item.category || '');
                     var category = _categoryState[0];
                     var setCategory = _categoryState[1];
@@ -13887,13 +14694,51 @@ class N88_RFQ_Admin {
                     var setShowRfqForm = _showRfqFormState[1];
                     
                     // Invite Makers state - allow Add Item draft invites to pre-fill RFQ form
-                    var _invitedSuppliersState = React.useState(
-                        item.meta && Array.isArray(item.meta.rfq_draft_invited_suppliers)
-                            ? item.meta.rfq_draft_invited_suppliers
-                            : []
-                    );
+                    var initialInvitedSuppliers = [];
+                    var itemMetaFallback = null;
+                    if (item && item.meta_json) {
+                        if (typeof item.meta_json === 'string') {
+                            try {
+                                itemMetaFallback = JSON.parse(item.meta_json);
+                            } catch (e) {
+                                itemMetaFallback = null;
+                            }
+                        } else if (typeof item.meta_json === 'object') {
+                            itemMetaFallback = item.meta_json;
+                        }
+                    }
+                    var invitedSuppliersRaw = itemState && itemState.rfq_draft_invited_suppliers !== undefined
+                        ? itemState.rfq_draft_invited_suppliers
+                        : (item && item.meta ? item.meta.rfq_draft_invited_suppliers : (itemMetaFallback ? itemMetaFallback.rfq_draft_invited_suppliers : null));
+                    if (Array.isArray(invitedSuppliersRaw)) {
+                        initialInvitedSuppliers = invitedSuppliersRaw;
+                    } else if (invitedSuppliersRaw && typeof invitedSuppliersRaw === 'object') {
+                        initialInvitedSuppliers = [invitedSuppliersRaw];
+                    } else if (typeof invitedSuppliersRaw === 'string' && invitedSuppliersRaw.trim()) {
+                        var invitedSuppliersString = invitedSuppliersRaw.trim();
+                        try {
+                            var invitedSuppliersParsed = JSON.parse(invitedSuppliersString);
+                            if (Array.isArray(invitedSuppliersParsed)) {
+                                initialInvitedSuppliers = invitedSuppliersParsed;
+                            } else if (invitedSuppliersParsed) {
+                                initialInvitedSuppliers = [invitedSuppliersParsed];
+                            }
+                        } catch (e) {
+                            initialInvitedSuppliers = invitedSuppliersString.split(',').map(function(entry) { return entry.trim(); }).filter(Boolean);
+                        }
+                    }
+                    var _invitedSuppliersState = React.useState(initialInvitedSuppliers);
                     var invitedSuppliers = _invitedSuppliersState[0];
                     var setInvitedSuppliers = _invitedSuppliersState[1];
+
+                    React.useEffect(function() {
+                        if (invitedSuppliers && invitedSuppliers.length) {
+                            return;
+                        }
+                        if (itemState && Array.isArray(itemState.rfq_draft_invited_suppliers) && itemState.rfq_draft_invited_suppliers.length > 0) {
+                            setInvitedSuppliers(itemState.rfq_draft_invited_suppliers);
+                        }
+                    }, [invitedSuppliers ? invitedSuppliers.length : 0, itemState && Array.isArray(itemState.rfq_draft_invited_suppliers) ? itemState.rfq_draft_invited_suppliers.length : 0]);
                     
                     var _inviteSupplierInputState = React.useState('');
                     var inviteSupplierInput = _inviteSupplierInputState[0];
@@ -13974,13 +14819,13 @@ class N88_RFQ_Admin {
                     var showDesignerMessageForm = _showDesignerMessageFormState[0];
                     var setShowDesignerMessageForm = _showDesignerMessageFormState[1];
                     
-                    var _designerMessagesState = React.useState([]);
-                    var designerMessages = _designerMessagesState[0];
-                    var setDesignerMessages = _designerMessagesState[1];
+                    var _designerMessagesByKeyState = React.useState({});
+                    var designerMessagesByKey = _designerMessagesByKeyState[0];
+                    var setDesignerMessagesByKey = _designerMessagesByKeyState[1];
                     
-                    var _isLoadingDesignerMessagesState = React.useState(false);
-                    var isLoadingDesignerMessages = _isLoadingDesignerMessagesState[0];
-                    var setIsLoadingDesignerMessages = _isLoadingDesignerMessagesState[1];
+                    var _designerMessagesLoadingByKeyState = React.useState({});
+                    var designerMessagesLoadingByKey = _designerMessagesLoadingByKeyState[0];
+                    var setDesignerMessagesLoadingByKey = _designerMessagesLoadingByKeyState[1];
                     var _detailsSupportReadyState = React.useState(false);
                     var detailsSupportReady = _detailsSupportReadyState[0];
                     var setDetailsSupportReady = _detailsSupportReadyState[1];
@@ -13992,13 +14837,6 @@ class N88_RFQ_Admin {
                     var _designerMessageCategoryState = React.useState('');
                     var designerMessageCategory = _designerMessageCategoryState[0];
                     var setDesignerMessageCategory = _designerMessageCategoryState[1];
-                    // Message tags: at least one required (Clarifying questions, MSE/Material Suggestions)
-                    var _msgTagClarifyingState = React.useState(false);
-                    var msgTagClarifying = _msgTagClarifyingState[0];
-                    var setMsgTagClarifying = _msgTagClarifyingState[1];
-                    var _msgTagMSEState = React.useState(false);
-                    var msgTagMSE = _msgTagMSEState[0];
-                    var setMsgTagMSE = _msgTagMSEState[1];
                     var _designerMessageFilesState = React.useState([]);
                     var designerMessageFiles = _designerMessageFilesState[0];
                     var setDesignerMessageFiles = _designerMessageFilesState[1];
@@ -14030,6 +14868,7 @@ class N88_RFQ_Admin {
                     var _isSendingDesignerMessageState = React.useState(false);
                     var isSendingDesignerMessage = _isSendingDesignerMessageState[0];
                     var setIsSendingDesignerMessage = _isSendingDesignerMessageState[1];
+                    var designerMessagesRequestRefs = React.useRef({});
                     
                     // Commit 2.3.9.1C-B: Clarifications state
                     var _clarificationsState = React.useState([]);
@@ -14149,6 +14988,9 @@ class N88_RFQ_Admin {
                     var _showWarningBannerState = React.useState(false);
                     var showWarningBanner = _showWarningBannerState[0];
                     var setShowWarningBanner = _showWarningBannerState[1];
+                    var _detailsEditModeState = React.useState(false);
+                    var detailsEditMode = _detailsEditModeState[0];
+                    var setDetailsEditMode = _detailsEditModeState[1];
                     
                     var _isUploadingInspirationState = React.useState(false);
                     var isUploadingInspiration = _isUploadingInspirationState[0];
@@ -14160,6 +15002,11 @@ class N88_RFQ_Admin {
                     var setActiveTab = _activeTabState[1];
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
+                    var manualTabOverrideRef = React.useRef(false);
+                    var switchDesignerModalTabManually = function(nextTab) {
+                        manualTabOverrideRef.current = true;
+                        setActiveTab(nextTab);
+                    };
                     
                     // Commit 3.A.1: Item timeline state (operator queue - dynamic workflow)
                     var _timelineDataState = React.useState(null);
@@ -14193,13 +15040,22 @@ class N88_RFQ_Admin {
                     var evidenceCommentSubmitting = _evidenceCommentSubmittingState[0];
                     var setEvidenceCommentSubmitting = _evidenceCommentSubmittingState[1];
 
+                    React.useEffect(function() {
+                        if (!isOpen) {
+                            manualTabOverrideRef.current = false;
+                            return;
+                        }
+                        manualTabOverrideRef.current = false;
+                    }, [isOpen, itemId, initialTabProp, openToDetailsAndSupport]);
+
                     // Keep active tab in sync with initialTab prop when it changes (e.g., auto-open RFQ)
                     React.useEffect(function() {
+                        if (manualTabOverrideRef.current) return;
                         if (!initialTabProp || openToDetailsAndSupport) return;
                         if (activeTab !== initialTabProp) {
                             setActiveTab(initialTabProp);
                         }
-                    }, [initialTabProp]);
+                    }, [initialTabProp, openToDetailsAndSupport, activeTab]);
                     React.useEffect(function() {
                         if (!isOpen || openToDetailsAndSupport || initialTabProp !== 'timeline' || initialTimelineStepProp === null) return;
                         setActiveTab('timeline');
@@ -14222,13 +15078,63 @@ class N88_RFQ_Admin {
                     var supplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[0];
                     var setSupplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[1];
                     
+                    // Preselect the target tab immediately so workflow-first items do not wait on details-side effects.
+                    React.useEffect(function() {
+                        if (!isOpen) return;
+                        if (manualTabOverrideRef.current) return;
+                        if (openToDetailsAndSupport) {
+                            if (activeTab !== 'details') {
+                                setActiveTab('details');
+                            }
+                            return;
+                        }
+                        if (initialTabProp === 'timeline' || requestSampleContextProp || pinnedTimelineStep === 2) {
+                            if (activeTab !== 'timeline') {
+                                setActiveTab('timeline');
+                            }
+                            return;
+                        }
+                        var shouldOpenTimelineImmediately = !!(
+                            item && (
+                                item.action_required === true ||
+                                item.action_required === 'true' ||
+                                item.action_required === 1 ||
+                                item.has_unread_operator_messages === true ||
+                                item.has_unread_operator_messages === 'true' ||
+                                item.has_unread_operator_messages === 1 ||
+                                item.has_unread_supplier_messages === true ||
+                                item.has_unread_supplier_messages === 'true' ||
+                                item.has_unread_supplier_messages === 1 ||
+                                item.has_prototype_payment === true ||
+                                item.has_prototype_payment === 'true' ||
+                                item.has_prototype_payment === 1 ||
+                                item.has_prototype_video_submitted === true ||
+                                item.has_prototype_video_submitted === 'true' ||
+                                item.has_prototype_video_submitted === 1 ||
+                                item.has_bids === true ||
+                                item.has_bids === 'true' ||
+                                item.has_bids === 1 ||
+                                item.prototype_status === 'submitted'
+                            )
+                        );
+                        if (shouldOpenTimelineImmediately) {
+                            if (activeTab !== 'timeline') {
+                                setActiveTab('timeline');
+                            }
+                            return;
+                        }
+                        if (activeTab !== 'details') {
+                            setActiveTab('details');
+                        }
+                    }, [isOpen, openToDetailsAndSupport, initialTabProp, requestSampleContextProp, pinnedTimelineStep, item && item.action_required, item && item.has_unread_operator_messages, item && item.has_unread_supplier_messages, item && item.has_prototype_payment, item && item.has_prototype_video_submitted, item && item.has_bids, item && item.prototype_status]);
+
                     // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
                     React.useEffect(function() {
                         if (!isOpen || !openToDetailsAndSupport) return;
                         setActiveTab('details');
                         setShowDesignerMessageForm(true);
                         if (typeof loadDesignerMessages === 'function') {
-                            loadDesignerMessages();
+                            loadDesignerMessages(null, 'support');
                         }
                         try {
                             setTimeout(function() {
@@ -14244,9 +15150,12 @@ class N88_RFQ_Admin {
                     // Skip when opened from Support link so we stay on Item Spec + chat box
                     React.useEffect(function() {
                         if (openToDetailsAndSupport) return;
-                        if (isOpen && initialTabProp === 'timeline' && initialTimelineStepProp !== null) {
+                        if (manualTabOverrideRef.current) return;
+                        if (isOpen && initialTabProp === 'timeline') {
                             setActiveTab('timeline');
-                            setSelectedStepIndex(initialTimelineStepProp);
+                            if (initialTimelineStepProp !== null) {
+                                setSelectedStepIndex(initialTimelineStepProp);
+                            }
                             return;
                         }
                         if (requestSampleContextProp && isOpen) {
@@ -14291,6 +15200,11 @@ class N88_RFQ_Admin {
                         var validationReadinessAuto = validationStateAuto.readiness_flags && typeof validationStateAuto.readiness_flags === 'object'
                             ? validationStateAuto.readiness_flags
                             : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.readiness_flags && typeof item.meta.material_validation.readiness_flags === 'object') ? item.meta.material_validation.readiness_flags : {});
+                        var isSupplierBoardViewer = !!(window.n88BoardData && window.n88BoardData.isSupplier);
+                        var readyForProductionAuto = !!(
+                            validationStateAuto.can_commit ||
+                            validationCardTextAuto === 'ready for production'
+                        );
                         var sampleReviewStepThree = !!(
                             itemState.has_awarded_bid ||
                             validationCommitmentAuto.po_uploaded_at ||
@@ -14302,6 +15216,13 @@ class N88_RFQ_Admin {
                             validationCommitmentAuto.deposit_confirmed_at ||
                             (validationCommitmentAuto.deposit_receipt_files && validationCommitmentAuto.deposit_receipt_files.length) ||
                             validationStateAuto.can_commit ||
+                            validationReadinessAuto.awaiting_po ||
+                            validationReadinessAuto.awaiting_deposit ||
+                            validationReadinessAuto.awaiting_com ||
+                            validationCardTextAuto === 'awaiting po' ||
+                            validationCardTextAuto === 'awaiting deposit' ||
+                            validationCardTextAuto === 'awaiting com' ||
+                            validationCardTextAuto === 'com shipped' ||
                             validationCardTextAuto === 'ready for production'
                         );
                         var sampleReviewStepTwo = sampleSupplierResponseReceived ||
@@ -14319,6 +15240,11 @@ class N88_RFQ_Admin {
                             validationCardTextAuto === 'review samples' ||
                             validationCardTextAuto === 'samples received' ||
                             validationCardTextAuto === 'samples approved';
+                        if (isSupplierBoardViewer && readyForProductionAuto) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(3); // Step 4: supplier production flow begins after commitment is complete
+                            return;
+                        }
                         if (sampleReviewStepThree) {
                             setActiveTab('timeline');
                             setSelectedStepIndex(2); // Step 3: designer sample review / approval
@@ -14445,8 +15371,78 @@ class N88_RFQ_Admin {
                         loadKeywordsForCategory();
                     }, [showCadPrototypeForm, selectedBidId, category]);
                     
-                    var isDirectSupplierConversation = !!itemState.has_rfq;
                     var availableDirectSuppliers = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                    var invitedDraftSuppliers = Array.isArray(invitedSuppliers) ? invitedSuppliers.slice() : [];
+                    var invitedDraftSuppliersRaw = itemState && itemState.rfq_draft_invited_suppliers !== undefined
+                        ? itemState.rfq_draft_invited_suppliers
+                        : (item && item.meta ? item.meta.rfq_draft_invited_suppliers : (itemMetaFallback ? itemMetaFallback.rfq_draft_invited_suppliers : null));
+                    if (Array.isArray(invitedDraftSuppliersRaw)) {
+                        if (!invitedDraftSuppliers.length) {
+                            invitedDraftSuppliers = invitedDraftSuppliersRaw;
+                        }
+                    } else if (invitedDraftSuppliersRaw && typeof invitedDraftSuppliersRaw === 'object') {
+                        if (!invitedDraftSuppliers.length) {
+                            invitedDraftSuppliers = [invitedDraftSuppliersRaw];
+                        }
+                    } else if (typeof invitedDraftSuppliersRaw === 'string' && invitedDraftSuppliersRaw.trim()) {
+                        var invitedDraftSuppliersString = invitedDraftSuppliersRaw.trim();
+                        try {
+                            var invitedParsed = JSON.parse(invitedDraftSuppliersString);
+                            if (Array.isArray(invitedParsed)) {
+                                if (!invitedDraftSuppliers.length) {
+                                    invitedDraftSuppliers = invitedParsed;
+                                }
+                            } else if (invitedParsed) {
+                                if (!invitedDraftSuppliers.length) {
+                                    invitedDraftSuppliers = [invitedParsed];
+                                }
+                            }
+                        } catch (e) {
+                            if (!invitedDraftSuppliers.length) {
+                                invitedDraftSuppliers = invitedDraftSuppliersString.split(',').map(function(entry) { return entry.trim(); }).filter(Boolean);
+                            }
+                        }
+                    }
+                    if ((!availableDirectSuppliers || availableDirectSuppliers.length === 0) && invitedDraftSuppliers.length > 0) {
+                        availableDirectSuppliers = invitedDraftSuppliers.map(function(rawInvite) {
+                            var label = '';
+                            if (rawInvite && typeof rawInvite === 'object') {
+                                label = String(rawInvite.email || rawInvite.value || rawInvite.username || '');
+                            } else if (rawInvite !== undefined && rawInvite !== null) {
+                                label = String(rawInvite);
+                            }
+                            label = label.trim();
+                            if (!label) {
+                                return null;
+                            }
+                            return { supplier_id: label, display_name: label, is_invited_email: true };
+                        }).filter(Boolean);
+                    }
+                    var allSuppliersOptionValue = '__all_suppliers__';
+                    var hasAvailableDirectSuppliers = availableDirectSuppliers.length > 0;
+                    var allowAllSuppliersSelection = false;
+                    var nonWireframeDirectSuppliers = availableDirectSuppliers.filter(function(opt) {
+                        return !(opt && opt.is_wireframe_supplier);
+                    });
+                    var allSuppliersTargetOptions = nonWireframeDirectSuppliers.length > 0 ? nonWireframeDirectSuppliers : availableDirectSuppliers;
+                    var directSupplierSelectOptions = availableDirectSuppliers.slice();
+                    if (!directSupplierSelectOptions.length && Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0) {
+                        directSupplierSelectOptions = invitedSuppliers.map(function(rawInvite) {
+                            var label = '';
+                            if (rawInvite && typeof rawInvite === 'object') {
+                                label = String(rawInvite.email || rawInvite.value || rawInvite.username || '');
+                            } else if (rawInvite !== undefined && rawInvite !== null) {
+                                label = String(rawInvite);
+                            }
+                            label = label.trim();
+                            if (!label) {
+                                return null;
+                            }
+                            return { supplier_id: label, display_name: label, is_invited_email: true };
+                        }).filter(Boolean);
+                    }
+                    var hasInvitedSupplierDraft = Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0;
+                    var isDirectSupplierConversation = hasAvailableDirectSuppliers || hasInvitedSupplierDraft;
                     var getTimelineStepMessageContextType = React.useCallback(function() {
                         var resolvedStepNumber = selectedStepIndex + 1;
                         if (timelineData && timelineData.steps && timelineData.steps[selectedStepIndex] && timelineData.steps[selectedStepIndex].step_number) {
@@ -14464,7 +15460,7 @@ class N88_RFQ_Admin {
                         if (!isDirectSupplierConversation) {
                             return null;
                         }
-                        var options = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                        var options = Array.isArray(availableDirectSuppliers) ? availableDirectSuppliers : [];
                         var optionIds = options.map(function(opt) { return String(opt.supplier_id); });
                         var refValue = '';
                         try {
@@ -14487,6 +15483,9 @@ class N88_RFQ_Admin {
                             if (!normalizedCandidate) {
                                 continue;
                             }
+                            if (normalizedCandidate === allSuppliersOptionValue) {
+                                continue;
+                            }
                             if (optionIds.indexOf(normalizedCandidate) !== -1) {
                                 return normalizedCandidate;
                             }
@@ -14495,17 +15494,54 @@ class N88_RFQ_Admin {
                             return optionIds[0];
                         }
                         return null;
-                    }, [isDirectSupplierConversation, itemState.direct_supplier_options, itemState.direct_supplier_id, selectedDirectSupplierId]);
-                    var getDesignerConversationContext = React.useCallback(function(preferredSupplierId) {
-                        var contextType = (activeTab === 'timeline' && itemState.has_rfq) ? getTimelineStepMessageContextType() : 'item_specs';
-                        var useDirectSupplier = (contextType !== 'item_specs') ? true : !!itemState.has_rfq;
+                    }, [isDirectSupplierConversation, availableDirectSuppliers, itemState.direct_supplier_id, selectedDirectSupplierId, allSuppliersOptionValue]);
+                    var getDesignerConversationContext = React.useCallback(function(scope, preferredSupplierId) {
+                        var resolvedScope = typeof scope === 'string' && scope ? scope : 'active';
+                        if (resolvedScope === 'support') {
+                            if (hasAvailableDirectSuppliers || hasInvitedSupplierDraft) {
+                                return {
+                                    threadType: 'designer_supplier',
+                                    supplierId: normalizeDirectSupplierId(preferredSupplierId),
+                                    contextType: 'item_specs'
+                                };
+                            }
+                            return {
+                                threadType: 'designer_operator',
+                                supplierId: null,
+                                contextType: 'item_specs'
+                            };
+                        }
+                        var contextType = (activeTab === 'timeline' && hasAvailableDirectSuppliers) ? getTimelineStepMessageContextType() : 'item_specs';
+                        var useDirectSupplier = hasAvailableDirectSuppliers || hasInvitedSupplierDraft;
                         return {
                             threadType: useDirectSupplier ? 'designer_supplier' : 'designer_operator',
                             supplierId: useDirectSupplier ? normalizeDirectSupplierId(preferredSupplierId) : null,
                             contextType: contextType
                         };
-                    }, [activeTab, itemState.has_rfq, getTimelineStepMessageContextType, normalizeDirectSupplierId]);
+                    }, [activeTab, hasAvailableDirectSuppliers, hasInvitedSupplierDraft, getTimelineStepMessageContextType, normalizeDirectSupplierId]);
+                    var getDesignerConversationKey = React.useCallback(function(scope, preferredSupplierId) {
+                        if (!itemId) {
+                            return '';
+                        }
+                        var isSupportScope = scope === 'support';
+                        var loadAllSuppliers = !isSupportScope && String(preferredSupplierId || selectedDirectSupplierId || '') === allSuppliersOptionValue;
+                        var conversationContext = getDesignerConversationContext(scope, loadAllSuppliers ? null : preferredSupplierId);
+                        var normalizedSupplierId = conversationContext.supplierId ? String(conversationContext.supplierId) : '';
+                        return [
+                            String(itemId),
+                            String(conversationContext.threadType || ''),
+                            String(conversationContext.contextType || 'item_specs'),
+                            loadAllSuppliers ? allSuppliersOptionValue : normalizedSupplierId
+                        ].join('|');
+                    }, [itemId, selectedDirectSupplierId, allSuppliersOptionValue, getDesignerConversationContext]);
                     var activeDesignerConversationContext = getDesignerConversationContext();
+                    var supportDesignerConversationContext = getDesignerConversationContext('support');
+                    var activeDesignerConversationKey = getDesignerConversationKey();
+                    var supportDesignerConversationKey = getDesignerConversationKey('support');
+                    var designerMessages = activeDesignerConversationKey && designerMessagesByKey[activeDesignerConversationKey] ? designerMessagesByKey[activeDesignerConversationKey] : [];
+                    var supportDesignerMessages = supportDesignerConversationKey && designerMessagesByKey[supportDesignerConversationKey] ? designerMessagesByKey[supportDesignerConversationKey] : [];
+                    var isLoadingDesignerMessages = !!(activeDesignerConversationKey && designerMessagesLoadingByKey[activeDesignerConversationKey]);
+                    var isLoadingSupportDesignerMessages = !!(supportDesignerConversationKey && designerMessagesLoadingByKey[supportDesignerConversationKey]);
                     var activeMessageContextType = activeDesignerConversationContext.contextType || 'item_specs';
                     var activeMessageThreadLabel = activeMessageContextType === 'step_1_responses' ? 'Step 01 - Proposal Submitted Thread'
                         : activeMessageContextType === 'step_2_validation' ? 'Step 02 - Design Evaluation Thread'
@@ -14515,77 +15551,215 @@ class N88_RFQ_Admin {
                         : activeMessageContextType === 'step_6_delivery' ? 'Step 06 - Delivery Thread'
                         : activeMessageContextType === 'batch_proposal' ? 'Batch Proposal'
                         : 'Item Specs';
-                    var requiresMessageTags = activeDesignerConversationContext.threadType === 'designer_operator' && activeMessageContextType === 'item_specs';
-                    var canSendDesignerMessage = !!designerMessageText.trim() && (!requiresMessageTags || msgTagClarifying || msgTagMSE) && (activeDesignerConversationContext.threadType !== 'designer_supplier' || !!normalizeDirectSupplierId());
+                    var canSendDesignerMessage = !!designerMessageText.trim() && (
+                        activeDesignerConversationContext.threadType !== 'designer_supplier' ||
+                        !!normalizeDirectSupplierId() ||
+                        (allowAllSuppliersSelection && String(selectedDirectSupplierId || '') === allSuppliersOptionValue && availableDirectSuppliers.length > 0) ||
+                        (Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0)
+                    );
+                    var canSendSupportDesignerMessage = !!designerMessageText.trim() && (
+                        !isDirectSupplierConversation ||
+                        !!normalizeDirectSupplierId() ||
+                        (allowAllSuppliersSelection && String(selectedDirectSupplierId || '') === allSuppliersOptionValue && availableDirectSuppliers.length > 0) ||
+                        (Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0)
+                    );
 
                     // Commit 2.3.9.1C-a: Load Designer Messages
-                    var loadDesignerMessages = React.useCallback(function(preferredSupplierId) {
+                    var loadDesignerMessages = React.useCallback(function(preferredSupplierId, scope) {
                         if (!itemId) return;
-                        var conversationContext = getDesignerConversationContext(preferredSupplierId);
-                        if (conversationContext.threadType === 'designer_supplier' && !conversationContext.supplierId) {
-                            setDesignerMessages([]);
-                            setIsLoadingDesignerMessages(false);
+                        var isSupportScope = scope === 'support';
+                        var loadAllSuppliers = !isSupportScope && String(preferredSupplierId || selectedDirectSupplierId || '') === allSuppliersOptionValue;
+                        var conversationContext = getDesignerConversationContext(scope, loadAllSuppliers ? null : preferredSupplierId);
+                        var requestKey = getDesignerConversationKey(scope, preferredSupplierId);
+
+                        if (requestKey && designerMessagesRequestRefs.current[requestKey]) {
                             return;
                         }
 
-                        setIsLoadingDesignerMessages(true);
+                        if (conversationContext.threadType === 'designer_supplier' && !loadAllSuppliers && !conversationContext.supplierId) {
+                            setDesignerMessagesByKey(function(prev) {
+                                var next = Object.assign({}, prev);
+                                next[requestKey] = [];
+                                return next;
+                            });
+                            setDesignerMessagesLoadingByKey(function(prev) {
+                                var next = Object.assign({}, prev);
+                                next[requestKey] = false;
+                                return next;
+                            });
+                            return;
+                        }
+
+                        var abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                        designerMessagesRequestRefs.current[requestKey] = abortController || { abort: function() {} };
+                        setDesignerMessagesLoadingByKey(function(prev) {
+                            var next = Object.assign({}, prev);
+                            next[requestKey] = true;
+                            return next;
+                        });
                         try {
-                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php');
                             var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_messages) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
                             
                             if (!nonce) {
                                 console.error('Nonce not found for n88_get_item_messages');
-                                setIsLoadingDesignerMessages(false);
+                                delete designerMessagesRequestRefs.current[requestKey];
+                                setDesignerMessagesLoadingByKey(function(prev) {
+                                    var next = Object.assign({}, prev);
+                                    next[requestKey] = false;
+                                    return next;
+                                });
                                 return;
                             }
                             
-                            var formData = new FormData();
-                            formData.append('action', 'n88_get_item_messages');
-                            formData.append('item_id', String(itemId));
-                            formData.append('thread_type', conversationContext.threadType);
-                            formData.append('context_type', conversationContext.contextType || 'item_specs');
-                            if (conversationContext.supplierId) {
-                                formData.append('supplier_id', String(conversationContext.supplierId));
-                            }
-                            formData.append('_ajax_nonce', nonce);
-                            
-                            fetch(ajaxUrl, {
-                                method: 'POST',
-                                body: formData,
-                            })
-                            .then(function(response) { return response.text(); })
-                            .then(function(responseText) {
-                                try {
-                                    return JSON.parse(responseText);
-                                } catch (parseError) {
-                                    throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                            var fetchDesignerMessagesForSupplier = function(targetSupplierId) {
+                                var formData = new FormData();
+                                formData.append('action', 'n88_get_item_messages');
+                                formData.append('item_id', String(itemId));
+                                formData.append('thread_type', conversationContext.threadType);
+                                formData.append('context_type', conversationContext.contextType || 'item_specs');
+                                if (targetSupplierId) {
+                                    formData.append('supplier_id', String(targetSupplierId));
                                 }
-                            })
+                                formData.append('_ajax_nonce', nonce);
+
+                                return fetch(ajaxUrl, {
+                                    method: 'POST',
+                                    body: formData,
+                                    credentials: 'same-origin',
+                                    signal: abortController ? abortController.signal : undefined
+                                })
+                                .then(function(response) { return response.text(); })
+                                .then(function(responseText) {
+                                    try {
+                                        return JSON.parse(responseText);
+                                    } catch (parseError) {
+                                        throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                                    }
+                                });
+                            };
+
+                            var requestPromise = null;
+                            if (loadAllSuppliers && conversationContext.threadType === 'designer_supplier') {
+                                var supplierIdsToLoad = allSuppliersTargetOptions.map(function(opt) {
+                                    return opt && opt.supplier_id ? String(opt.supplier_id) : '';
+                                }).filter(Boolean);
+                                if (!supplierIdsToLoad.length) {
+                                    delete designerMessagesRequestRefs.current[requestKey];
+                                    setDesignerMessagesByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        next[requestKey] = [];
+                                        return next;
+                                    });
+                                    setDesignerMessagesLoadingByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        next[requestKey] = false;
+                                        return next;
+                                    });
+                                    return;
+                                }
+                                requestPromise = Promise.all(supplierIdsToLoad.map(function(targetSupplierId) {
+                                    return fetchDesignerMessagesForSupplier(targetSupplierId);
+                                }));
+                            } else {
+                                requestPromise = fetchDesignerMessagesForSupplier(conversationContext.supplierId);
+                            }
+
+                            requestPromise
                             .then(function(data) {
-                                if (data.success && data.data && data.data.messages) {
-                                    setDesignerMessages(data.data.messages);
+                                if (!designerMessagesRequestRefs.current[requestKey]) {
+                                    return;
+                                }
+                                if (loadAllSuppliers && Array.isArray(data)) {
+                                    var mergedMessages = [];
+                                    data.forEach(function(entry) {
+                                        if (entry && entry.success && entry.data && Array.isArray(entry.data.messages)) {
+                                            mergedMessages = mergedMessages.concat(entry.data.messages);
+                                        }
+                                    });
+                                    mergedMessages.sort(function(a, b) {
+                                        var aTime = a && a.created_at ? Date.parse(a.created_at) || 0 : 0;
+                                        var bTime = b && b.created_at ? Date.parse(b.created_at) || 0 : 0;
+                                        if (aTime !== bTime) {
+                                            return aTime - bTime;
+                                        }
+                                        return (parseInt(a && a.message_id, 10) || 0) - (parseInt(b && b.message_id, 10) || 0);
+                                    });
+                                    var seenMessageIds = {};
+                                    var dedupedMessages = [];
+                                    mergedMessages.forEach(function(message) {
+                                        var messageKey = String(message && message.message_id ? message.message_id : '');
+                                        if (messageKey && seenMessageIds[messageKey]) {
+                                            return;
+                                        }
+                                        if (messageKey) {
+                                            seenMessageIds[messageKey] = true;
+                                        }
+                                        dedupedMessages.push(message);
+                                    });
+                                    setDesignerMessagesByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        next[requestKey] = dedupedMessages;
+                                        return next;
+                                    });
+                                } else if (data.success && data.data && data.data.messages) {
+                                    setDesignerMessagesByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        next[requestKey] = data.data.messages;
+                                        return next;
+                                    });
                                 } else {
-                                    setDesignerMessages([]);
+                                    setDesignerMessagesByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        next[requestKey] = [];
+                                        return next;
+                                    });
                                 }
                             })
                             .catch(function(error) {
+                                if (error && error.name === 'AbortError') {
+                                    return;
+                                }
                                 console.error('Error loading designer messages:', error);
-                                setDesignerMessages([]);
+                                if (designerMessagesRequestRefs.current[requestKey]) {
+                                    setDesignerMessagesByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        next[requestKey] = [];
+                                        return next;
+                                    });
+                                }
                             })
                             .finally(function() {
-                                setIsLoadingDesignerMessages(false);
+                                if (!designerMessagesRequestRefs.current[requestKey]) {
+                                    return;
+                                }
+                                delete designerMessagesRequestRefs.current[requestKey];
+                                setDesignerMessagesLoadingByKey(function(prev) {
+                                    var next = Object.assign({}, prev);
+                                    next[requestKey] = false;
+                                    return next;
+                                });
                             });
                         } catch (error) {
                             console.error('Error loading designer messages:', error);
-                            setDesignerMessages([]);
-                            setIsLoadingDesignerMessages(false);
+                            delete designerMessagesRequestRefs.current[requestKey];
+                            setDesignerMessagesByKey(function(prev) {
+                                var next = Object.assign({}, prev);
+                                next[requestKey] = [];
+                                return next;
+                            });
+                            setDesignerMessagesLoadingByKey(function(prev) {
+                                var next = Object.assign({}, prev);
+                                next[requestKey] = false;
+                                return next;
+                            });
                         }
-                    }, [itemId, getDesignerConversationContext, selectedDirectSupplierId]);
+                    }, [itemId, getDesignerConversationContext, getDesignerConversationKey, selectedDirectSupplierId, allSuppliersOptionValue, allSuppliersTargetOptions]);
                     
                     // Ensure message history loads every time modal opens/reopens
                     React.useEffect(function() {
-                        if (!isOpen || !itemId) return;
-                        if (typeof loadDesignerMessages !== 'function') return;
+                        if (!isOpen || !itemId || !showDesignerMessageForm || activeTab !== 'timeline') return;
+                        if (activeDesignerConversationContext.threadType === 'designer_supplier') return;
                         var timeoutId = window.setTimeout(function() {
                             try {
                                 loadDesignerMessages();
@@ -14596,18 +15770,31 @@ class N88_RFQ_Admin {
                         return function() {
                             window.clearTimeout(timeoutId);
                         };
-                    }, [isOpen, itemId, loadDesignerMessages]);
+                    }, [isOpen, itemId, showDesignerMessageForm, activeTab, activeDesignerConversationContext.threadType, activeMessageContextType]);
                     React.useEffect(function() {
-                        if (!isOpen || !itemId || activeDesignerConversationContext.threadType !== 'designer_supplier') {
+                        if (!isOpen || !itemId || !showDesignerMessageForm || activeTab !== 'timeline' || activeDesignerConversationContext.threadType !== 'designer_supplier') {
                             return;
                         }
                         if (!selectedDirectSupplierId) {
-                            setDesignerMessages([]);
+                            setDesignerMessagesByKey(function(prev) {
+                                var next = Object.assign({}, prev);
+                                next[activeDesignerConversationKey] = [];
+                                return next;
+                            });
                             return;
                         }
-                        setDesignerMessages([]);
                         loadDesignerMessages(selectedDirectSupplierId);
-                    }, [isOpen, itemId, activeDesignerConversationContext.threadType, selectedDirectSupplierId, loadDesignerMessages]);
+                    }, [isOpen, itemId, showDesignerMessageForm, activeTab, activeDesignerConversationContext.threadType, activeMessageContextType, selectedDirectSupplierId, activeDesignerConversationKey]);
+                    React.useEffect(function() {
+                        return function() {
+                            Object.keys(designerMessagesRequestRefs.current || {}).forEach(function(requestKey) {
+                                if (designerMessagesRequestRefs.current[requestKey] && typeof designerMessagesRequestRefs.current[requestKey].abort === 'function') {
+                                    designerMessagesRequestRefs.current[requestKey].abort();
+                                }
+                                delete designerMessagesRequestRefs.current[requestKey];
+                            });
+                        };
+                    }, []);
                     React.useEffect(function() {
                         if (!isOpen) {
                             setDetailsSupportReady(false);
@@ -14622,9 +15809,22 @@ class N88_RFQ_Admin {
                     }, [isOpen, itemId]);
                     
                     React.useEffect(function() {
-                        var options = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
-                        if (!itemState.has_rfq) {
+                        var options = Array.isArray(availableDirectSuppliers) ? availableDirectSuppliers : [];
+                        if (!hasAvailableDirectSuppliers) {
                             setSelectedDirectSupplierId(null);
+                            return;
+                        }
+                        var unreadSupplierId = itemState && itemState.has_unread_supplier_messages && itemState.latest_unread_supplier_message_supplier_id
+                            ? String(itemState.latest_unread_supplier_message_supplier_id)
+                            : '';
+                        var unreadSupplierAutoSelectKey = itemId + '|' + unreadSupplierId + '|' + String(activeMessageContextType || '');
+                        if (
+                            unreadSupplierId &&
+                            options.some(function(opt) { return String(opt.supplier_id) === unreadSupplierId; }) &&
+                            unreadSupplierAutoSelectKeyRef.current !== unreadSupplierAutoSelectKey
+                        ) {
+                            unreadSupplierAutoSelectKeyRef.current = unreadSupplierAutoSelectKey;
+                            setSelectedDirectSupplierId(unreadSupplierId);
                             return;
                         }
                         var isAwardedWorkflowThread = ['step_3_commitment', 'step_4_production', 'step_5_quality'].indexOf(activeMessageContextType) !== -1;
@@ -14652,133 +15852,174 @@ class N88_RFQ_Admin {
                             setSelectedDirectSupplierId(awardedSupplierId);
                             return;
                         }
-                        if (selectedDirectSupplierId && options.some(function(opt) { return String(opt.supplier_id) === String(selectedDirectSupplierId); })) {
+                        if (
+                            selectedDirectSupplierId &&
+                            (
+                                (allowAllSuppliersSelection && String(selectedDirectSupplierId) === allSuppliersOptionValue && options.length > 1) ||
+                                options.some(function(opt) { return String(opt.supplier_id) === String(selectedDirectSupplierId); })
+                            )
+                        ) {
                             return;
                         }
                         if (itemState.direct_supplier_id) {
                             setSelectedDirectSupplierId(itemState.direct_supplier_id);
                             return;
                         }
-                        if (options.length === 1) {
-                            setSelectedDirectSupplierId(options[0].supplier_id);
+                        if (allowAllSuppliersSelection && options.length > 1) {
+                            setSelectedDirectSupplierId(allSuppliersOptionValue);
+                            return;
                         }
-                    }, [itemState.has_rfq, itemState.direct_supplier_id, itemState.direct_supplier_options, itemState.bids, selectedDirectSupplierId, activeMessageContextType]);
+                        if (options.length >= 1) {
+                            setSelectedDirectSupplierId(String(options[0].supplier_id));
+                        }
+                    }, [hasAvailableDirectSuppliers, itemId, itemState.direct_supplier_id, availableDirectSuppliers, itemState.bids, itemState.has_unread_supplier_messages, itemState.latest_unread_supplier_message_supplier_id, selectedDirectSupplierId, activeMessageContextType, allSuppliersOptionValue, allowAllSuppliersSelection]);
 
                     // Commit 2.3.9.1C-a: Send Designer Message (with required tags + optional attachments)
-                    var sendDesignerMessage = React.useCallback(function(e) {
+                    var sendDesignerMessage = React.useCallback(function(e, scope) {
                         e.preventDefault();
-                        var conversationContext = getDesignerConversationContext();
-                        if (conversationContext.threadType === 'designer_supplier' && conversationContext.supplierId) {
+                        if (isSendingDesignerMessage) {
+                            return;
+                        }
+                        var conversationContext = getDesignerConversationContext(scope);
+                        if (conversationContext.threadType === 'designer_operator' && Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0) {
+                            conversationContext.threadType = 'designer_supplier';
+                        }
+                        var isAllSuppliersSelection = conversationContext.threadType === 'designer_supplier' && String(selectedDirectSupplierId || '') === allSuppliersOptionValue;
+                        if (conversationContext.threadType === 'designer_supplier' && conversationContext.supplierId && !isAllSuppliersSelection) {
                             setSelectedDirectSupplierId(String(conversationContext.supplierId));
                         }
                         if (!itemId || !designerMessageText.trim()) {
                             alert('Please enter a message.');
                             return;
                         }
-                        if (conversationContext.threadType === 'designer_supplier' && !conversationContext.supplierId) {
-                            var availableSuppliers = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
-                            if (availableSuppliers.length > 1) {
-                                var selectionText = availableSuppliers.map(function(opt, index) {
-                                    return (index + 1) + '. ' + (opt.display_name || ('Supplier #' + opt.supplier_id));
-                                }).join('\n');
-                                var picked = window.prompt('Select supplier for this message:\n' + selectionText, '1');
-                                var pickedIndex = parseInt(picked, 10);
-                                if (!pickedIndex || pickedIndex < 1 || pickedIndex > availableSuppliers.length) {
-                                    alert('Message was not sent. Select a valid supplier.');
-                                    return;
-                                }
-                                conversationContext.supplierId = availableSuppliers[pickedIndex - 1].supplier_id;
-                                setSelectedDirectSupplierId(conversationContext.supplierId);
-                            } else {
-                                alert('Select a supplier first.');
-                                return;
-                            }
-                        }
-                        if (conversationContext.threadType === 'designer_operator' && !msgTagClarifying && !msgTagMSE) {
-                            alert('Please select at least one: Clarifying questions or MSE/Material Suggestions.');
-                            return;
-                        }
-                        
                         setIsSendingDesignerMessage(true);
                         try {
-                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php');
                             var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_send_item_message) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
-                            
+                            var messageText = designerMessageText.trim();
+                            var targetSupplierIds = [];
+                             
                             if (!nonce) {
                                 console.error('Nonce not found for n88_send_item_message');
                                 setIsSendingDesignerMessage(false);
                                 return;
                             }
-                            
-                            var formData = new FormData();
-                            formData.append('action', 'n88_send_item_message');
-                            formData.append('item_id', String(itemId));
-                            formData.append('thread_type', conversationContext.threadType);
-                            formData.append('context_type', conversationContext.contextType || 'item_specs');
-                            formData.append('message_text', designerMessageText.trim());
-                            if (conversationContext.supplierId) formData.append('supplier_id', String(conversationContext.supplierId));
-                            if (msgTagClarifying) formData.append('message_tags[]', 'clarifying_questions');
-                            if (msgTagMSE) formData.append('message_tags[]', 'mse_material');
-                            if (conversationContext.threadType === 'designer_operator') {
-                            }
-                            formData.append('_ajax_nonce', nonce);
-                            if (designerMessageFiles && designerMessageFiles.length > 0) {
-                                for (var fi = 0; fi < designerMessageFiles.length; fi++) {
-                                    formData.append('message_attachments[]', designerMessageFiles[fi]);
-                                }
-                            }
-                            
-                            fetch(ajaxUrl, {
-                                method: 'POST',
-                                body: formData,
-                            })
-                            .then(function(response) { return response.text(); })
-                            .then(function(responseText) {
-                                try {
-                                    return JSON.parse(responseText);
-                                } catch (parseError) {
-                                    throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
-                                }
-                            })
-                            .then(function(data) {
-                                if (data.success) {
-                                    var optimisticMessage = {
-                                        message_id: data.data && data.data.message_id ? data.data.message_id : ('tmp-' + Date.now()),
-                                        item_id: itemId,
-                                        supplier_id: conversationContext.supplierId || null,
-                                        sender_role: 'designer',
-                                        sender_user_id: (window.n88BoardData && window.n88BoardData.currentUserId) ? window.n88BoardData.currentUserId : 0,
-                                        sender_name: 'You',
-                                        message_text: designerMessageText.trim(),
-                                        category: (msgTagClarifying || msgTagMSE) ? [msgTagClarifying ? 'clarifying_questions' : null, msgTagMSE ? 'mse_material' : null].filter(Boolean).join(',') : (designerMessageCategory || ''),
-                                        context_type: conversationContext.contextType || 'item_specs',
-                                        created_at: new Date().toISOString(),
-                                        message_attachments: []
-                                    };
-                                    setDesignerMessages(function(prev) {
-                                        return (prev || []).concat([optimisticMessage]);
-                                    });
-                                    var resolvedSupplierId = conversationContext.supplierId;
-                                    if (data.data && data.data.supplier_id) {
-                                        resolvedSupplierId = String(data.data.supplier_id);
-                                        setSelectedDirectSupplierId(resolvedSupplierId);
+
+                                if (conversationContext.threadType === 'designer_supplier') {
+                                    if (String(selectedDirectSupplierId || '') === allSuppliersOptionValue) {
+                                        targetSupplierIds = allSuppliersTargetOptions.map(function(opt) {
+                                            return String(opt.supplier_id || '');
+                                        }).filter(Boolean);
+                                    } else if (conversationContext.supplierId) {
+                                        targetSupplierIds = [String(conversationContext.supplierId)];
+                                    } else if (selectedDirectSupplierId) {
+                                        targetSupplierIds = [String(selectedDirectSupplierId)];
+                                        conversationContext.supplierId = targetSupplierIds[0];
+                                    } else if (availableDirectSuppliers.length === 1) {
+                                        targetSupplierIds = [String(availableDirectSuppliers[0].supplier_id)];
+                                        conversationContext.supplierId = targetSupplierIds[0];
+                                        setSelectedDirectSupplierId(targetSupplierIds[0]);
+                                    } else if (!availableDirectSuppliers.length && Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0) {
+                                        targetSupplierIds = invitedSuppliers.map(function(invite) { return String(invite || '').trim(); }).filter(Boolean);
+                                    } else {
+                                        alert('Select a supplier first.');
+                                        setIsSendingDesignerMessage(false);
+                                        return;
                                     }
-                                    setDesignerMessageText('');
-                                    setMsgTagClarifying(false);
-                                    setMsgTagMSE(false);
-                                    setDesignerMessageFiles([]);
-                                    var fileInput = document.getElementById('n88-designer-message-attachments');
-                                    if (fileInput) fileInput.value = '';
-                                    var fileInputT1 = document.getElementById('n88-designer-message-attachments-timeline');
-                                    if (fileInputT1) fileInputT1.value = '';
-                                    var fileInputT2 = document.getElementById('n88-designer-message-attachments-timeline2');
-                                    if (fileInputT2) fileInputT2.value = '';
-                                    var fileInputWorkflowSidebar = document.getElementById('n88-designer-message-attachments-workflow-sidebar');
-                                    if (fileInputWorkflowSidebar) fileInputWorkflowSidebar.value = '';
-                                    loadDesignerMessages(resolvedSupplierId);
-                                    fetchItemState();
+
+                                if (!targetSupplierIds.length) {
+                                    alert('No supplier available for this message yet.');
+                                    setIsSendingDesignerMessage(false);
+                                    return;
+                                }
+                            }
+
+                            var sendRequestForTarget = function(targetSupplierId) {
+                                var formData = new FormData();
+                                formData.append('action', 'n88_send_item_message');
+                                formData.append('item_id', String(itemId));
+                                formData.append('thread_type', conversationContext.threadType);
+                                formData.append('context_type', conversationContext.contextType || 'item_specs');
+                                formData.append('message_text', messageText);
+                                if (targetSupplierId) {
+                                    var numericSupplierId = parseInt(String(targetSupplierId), 10);
+                                    if (!isNaN(numericSupplierId) && String(numericSupplierId) === String(targetSupplierId)) {
+                                        formData.append('supplier_id', String(numericSupplierId));
+                                    } else {
+                                        formData.append('supplier_email', String(targetSupplierId));
+                                    }
+                                }
+                                formData.append('_ajax_nonce', nonce);
+                                if (designerMessageFiles && designerMessageFiles.length > 0) {
+                                    for (var fi = 0; fi < designerMessageFiles.length; fi++) {
+                                        formData.append('message_attachments[]', designerMessageFiles[fi]);
+                                    }
+                                }
+
+                                return fetch(ajaxUrl, {
+                                    method: 'POST',
+                                    body: formData,
+                                    credentials: 'same-origin'
+                                })
+                                .then(function(response) { return response.text(); })
+                                .then(function(responseText) {
+                                    try {
+                                        return JSON.parse(responseText);
+                                    } catch (parseError) {
+                                        throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                                    }
+                                });
+                            };
+                             
+                            var requestTargets = conversationContext.threadType === 'designer_supplier' ? targetSupplierIds : [null];
+
+                            Promise.all(requestTargets.map(function(targetSupplierId) {
+                                return sendRequestForTarget(targetSupplierId);
+                            }))
+                            .then(function(results) {
+                                var resultPairs = results.map(function(result, idx) {
+                                    return {
+                                        result: result,
+                                        targetSupplierId: requestTargets[idx] || null
+                                    };
+                                });
+                                var successfulResults = resultPairs.filter(function(entry) {
+                                    return !!(entry && entry.result && entry.result.success);
+                                });
+                                if (!successfulResults.length) {
+                                    var firstFailure = results && results[0] && results[0].data && results[0].data.message ? results[0].data.message : 'Failed to send message. Please try again.';
+                                    alert('Error: ' + firstFailure);
+                                    return;
+                                }
+
+                                var resolvedSupplierId = conversationContext.supplierId;
+                                if (successfulResults[0] && successfulResults[0].result && successfulResults[0].result.data && successfulResults[0].result.data.supplier_id) {
+                                    resolvedSupplierId = String(successfulResults[0].result.data.supplier_id);
+                                }
+                                if (conversationContext.threadType === 'designer_supplier' && isAllSuppliersSelection) {
+                                    setSelectedDirectSupplierId(allSuppliersOptionValue);
+                                } else if (resolvedSupplierId) {
+                                    setSelectedDirectSupplierId(resolvedSupplierId);
+                                }
+                                setDesignerMessageText('');
+                                setDesignerMessageFiles([]);
+                                var fileInput = document.getElementById('n88-designer-message-attachments');
+                                if (fileInput) fileInput.value = '';
+                                var fileInputT1 = document.getElementById('n88-designer-message-attachments-timeline');
+                                if (fileInputT1) fileInputT1.value = '';
+                                var fileInputT2 = document.getElementById('n88-designer-message-attachments-timeline2');
+                                if (fileInputT2) fileInputT2.value = '';
+                                var fileInputWorkflowSidebar = document.getElementById('n88-designer-message-attachments-workflow-sidebar');
+                                if (fileInputWorkflowSidebar) fileInputWorkflowSidebar.value = '';
+                                if (conversationContext.threadType === 'designer_supplier' && isAllSuppliersSelection) {
+                                    loadDesignerMessages(allSuppliersOptionValue, scope);
                                 } else {
-                                    alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to send message. Please try again.'));
+                                    loadDesignerMessages(resolvedSupplierId, scope);
+                                }
+                                fetchItemState();
+
+                                if (requestTargets.length > 1 && successfulResults.length !== requestTargets.length) {
+                                    alert('Message sent to some suppliers, but not all. Please review and retry the failed recipients if needed.');
                                 }
                             })
                             .catch(function(error) {
@@ -14793,27 +16034,42 @@ class N88_RFQ_Admin {
                             alert('An error occurred. Please try again.');
                             setIsSendingDesignerMessage(false);
                         }
-                    }, [itemId, designerMessageText, msgTagClarifying, msgTagMSE, designerMessageFiles, loadDesignerMessages, getDesignerConversationContext, designerMessageCategory]);
+                    }, [itemId, designerMessageText, designerMessageFiles, loadDesignerMessages, getDesignerConversationContext, designerMessageCategory, selectedDirectSupplierId, availableDirectSuppliers, allSuppliersTargetOptions, isSendingDesignerMessage, allSuppliersOptionValue]);
                     
                     // Auto-scroll to bottom when messages load or new message is sent
                     React.useEffect(function() {
                         if (showDesignerMessageForm && designerMessages.length > 0) {
                             setTimeout(function() {
-                                var container = document.getElementById('n88-designer-messages-container-admin');
+                                ['n88-designer-messages-container-admin', 'n88-designer-messages-container-workflow-admin'].forEach(function(containerId) {
+                                    var container = document.getElementById(containerId);
+                                    if (container) {
+                                        container.scrollTop = container.scrollHeight;
+                                    }
+                                });
+                            }, 100);
+                        }
+                    }, [showDesignerMessageForm, designerMessages]);
+                    React.useEffect(function() {
+                        if (detailsSupportReady && supportDesignerMessages.length > 0) {
+                            setTimeout(function() {
+                                var container = document.getElementById('n88-designer-messages-container-details-admin');
                                 if (container) {
                                     container.scrollTop = container.scrollHeight;
                                 }
                             }, 100);
                         }
-                    }, [showDesignerMessageForm, designerMessages]);
+                    }, [detailsSupportReady, supportDesignerMessages]);
                     
                     // Commit 3.C.20: Reload isolated thread when workflow step changes.
                     React.useEffect(function() {
                         if (activeTab !== 'timeline' || !itemId) return;
-                        if ((itemState.has_rfq || itemState.has_prototype_payment) && typeof loadDesignerMessages === 'function') {
+                        if (hasAvailableDirectSuppliers && activeDesignerConversationContext.threadType === 'designer_supplier' && !selectedDirectSupplierId) {
+                            return;
+                        }
+                        if (hasAvailableDirectSuppliers || itemState.has_rfq || itemState.has_prototype_payment) {
                             loadDesignerMessages();
                         }
-                    }, [activeTab, itemId, itemState.has_rfq, itemState.has_prototype_payment, selectedStepIndex, pinnedTimelineStep, loadDesignerMessages]);
+                    }, [activeTab, itemId, hasAvailableDirectSuppliers, itemState.has_rfq, itemState.has_prototype_payment, selectedStepIndex, pinnedTimelineStep, activeDesignerConversationContext.threadType, activeMessageContextType, selectedDirectSupplierId]);
                     var fetchTimeline = React.useCallback(function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) return;
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
@@ -14863,20 +16119,18 @@ class N88_RFQ_Admin {
                         }
                     }, [isOpen, itemId, activeTab, itemState.loaded_sections, itemState.loading_sections]);
                     React.useEffect(function() {
-                        if (!isOpen || !itemId) return;
-                        if (activeTab === 'details' && itemState.has_bids && !isItemStateSectionLoaded('bids') && !isItemStateSectionLoading('bids')) {
-                            window.setTimeout(function() {
-                                fetchItemState('bids');
-                            }, 0);
-                        }
-                    }, [isOpen, itemId, activeTab, itemState.has_bids, itemState.loaded_sections, itemState.loading_sections]);
-                    React.useEffect(function() {
                         setTimelineData(null);
                         setTimelineError(null);
                         setSelectedStepIndex(0);
                         setSupplierStepEvidenceView(null);
                         setOperatorStep456VideoFormStep(null);
+                        setDetailsEditMode(false);
                     }, [itemId]);
+                    React.useEffect(function() {
+                        if (activeTab !== 'details') {
+                            setDetailsEditMode(false);
+                        }
+                    }, [activeTab]);
                     
                     // Commit 2.3.9.2A: CAD workflow actions state
                     var _isCadActionBusyState = React.useState(false);
@@ -14932,7 +16186,7 @@ class N88_RFQ_Admin {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_supplier_id: null, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                             });
                             return;
                         }
@@ -14957,7 +16211,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_supplier_id: null, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                             });
                             return;
                         }
@@ -15020,6 +16274,7 @@ class N88_RFQ_Admin {
                                         unread_operator_messages: data.data.unread_operator_messages || 0,
                                         has_unread_supplier_messages: data.data.has_unread_supplier_messages || false,
                                         unread_supplier_messages: data.data.unread_supplier_messages || 0,
+                                        latest_unread_supplier_message_supplier_id: data.data.latest_unread_supplier_message_supplier_id || null,
                                         latest_unread_supplier_message_context: data.data.latest_unread_supplier_message_context || '',
                                         latest_unread_supplier_message_step_index: typeof data.data.latest_unread_supplier_message_step_index === 'number' ? data.data.latest_unread_supplier_message_step_index : null,
                                         direct_supplier_id: data.data.direct_supplier_id || null,
@@ -15098,14 +16353,14 @@ class N88_RFQ_Admin {
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_supplier_id: null, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_supplier_id: null, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                             });
                         })
                         .finally(function() {
@@ -15167,9 +16422,29 @@ class N88_RFQ_Admin {
                         setSampleRequestError('');
                         setSampleRequestPanelDismissed(false);
                         setSampleRequestInlineOpen(true);
+                        writeSampleRequestSticky(itemId, true);
                         setActiveTab('timeline');
                         setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 1);
                     }, [isOpen, requestSampleContextProp, initialTimelineStepProp]);
+                    React.useEffect(function() {
+                        if (!isOpen) {
+                            unreadSupplierStepAutoOpenRef.current = false;
+                            return;
+                        }
+                        if (manualTabOverrideRef.current) return;
+                        if (unreadSupplierStepAutoOpenRef.current) return;
+                        var unreadSupplierStepIndex = itemState && typeof itemState.latest_unread_supplier_message_step_index === 'number'
+                            ? itemState.latest_unread_supplier_message_step_index
+                            : null;
+                        if (itemState && itemState.has_unread_supplier_messages && unreadSupplierStepIndex === 1) {
+                            setSampleRequestInlineOpen(true);
+                            setSampleRequestPanelDismissed(false);
+                            writeSampleRequestSticky(itemId, true);
+                            if (activeTab !== 'timeline') setActiveTab('timeline');
+                            if (selectedStepIndex !== 1) setSelectedStepIndex(1);
+                            unreadSupplierStepAutoOpenRef.current = true;
+                        }
+                    }, [isOpen, itemId, itemState.has_unread_supplier_messages, itemState.latest_unread_supplier_message_step_index, activeTab, selectedStepIndex]);
                     React.useEffect(function() {
                         if (!isOpen || !selectedSupportMediaBid) return;
                         window.setTimeout(function() {
@@ -15180,6 +16455,10 @@ class N88_RFQ_Admin {
                     }, [isOpen, selectedSupportMediaBid]);
                     React.useEffect(function() {
                         setSampleRequestInlineOpen(false);
+                        setSampleRequestPanelDismissed(false);
+                        if (itemId && readSampleRequestSticky(itemId)) {
+                            setSampleRequestInlineOpen(true);
+                        }
                     }, [itemId]);
                     React.useEffect(function() {
                         if (!isOpen || !itemState.bids || !itemState.bids.length) return;
@@ -15575,17 +16854,56 @@ class N88_RFQ_Admin {
                         if (requestStateForReview.payment_mode) {
                             setSampleRequestPaymentMode(requestStateForReview.payment_mode);
                         }
-                        setValidationComRequired(!!commitmentStateForReview.com_required);
-                        setValidationComQty(typeof commitmentStateForReview.com_qty === 'string' ? commitmentStateForReview.com_qty : '');
                         if (commitmentStateForReview.com_delivery_address_fields && typeof commitmentStateForReview.com_delivery_address_fields === 'object') {
                             setValidationComDeliveryAddressFields(normalizeAddressFields(commitmentStateForReview.com_delivery_address_fields));
                         } else if (typeof commitmentStateForReview.com_delivery_address === 'string') {
                             setValidationComDeliveryAddressFields(normalizeAddressFields(commitmentStateForReview.com_delivery_address));
                         }
                         setValidationComTrackingNumber(typeof commitmentStateForReview.com_tracking_number === 'string' ? commitmentStateForReview.com_tracking_number : '');
-                        setValidationDepositSupplierName(typeof commitmentStateForReview.deposit_supplier_name === 'string' ? commitmentStateForReview.deposit_supplier_name : '');
-                        setValidationDepositAmount(commitmentStateForReview.deposit_amount !== null && commitmentStateForReview.deposit_amount !== undefined ? String(commitmentStateForReview.deposit_amount) : '');
-                    }, [itemState.validation_state]);
+                        var awardedSnapshotForReview = item && item.meta && item.meta.awarded_bid_snapshot && typeof item.meta.awarded_bid_snapshot === 'object'
+                            ? item.meta.awarded_bid_snapshot
+                            : {};
+                        var awardedBidForReview = null;
+                        if (itemState && Array.isArray(itemState.bids) && itemState.bids.length) {
+                            awardedBidForReview = itemState.bids.find(function(bid) {
+                                return String((bid && (bid.status || bid.bid_status)) || '').toLowerCase() === 'awarded';
+                            }) || null;
+                            if (!awardedBidForReview && awardedSnapshotForReview.bid_id) {
+                                awardedBidForReview = itemState.bids.find(function(bid) {
+                                    return Number(bid && bid.bid_id) === Number(awardedSnapshotForReview.bid_id);
+                                }) || null;
+                            }
+                        }
+                        var autoDepositSupplierName = '';
+                        if (awardedBidForReview && awardedBidForReview.supplier_name) {
+                            autoDepositSupplierName = String(awardedBidForReview.supplier_name);
+                        } else if (awardedSnapshotForReview && awardedSnapshotForReview.supplier_name) {
+                            autoDepositSupplierName = String(awardedSnapshotForReview.supplier_name);
+                        } else if (awardedSnapshotForReview && awardedSnapshotForReview.supplier_id) {
+                            autoDepositSupplierName = 'Supplier #' + String(awardedSnapshotForReview.supplier_id);
+                        }
+                        var autoDepositAmount = null;
+                        if (awardedBidForReview) {
+                            var totalProductionCostAuto = awardedBidForReview.total_price != null && awardedBidForReview.total_price !== '' ? parseFloat(awardedBidForReview.total_price) : null;
+                            var deliveryCostAuto = awardedBidForReview.delivery_cost_usd != null && awardedBidForReview.delivery_cost_usd !== '' ? parseFloat(awardedBidForReview.delivery_cost_usd) : null;
+                            var prototypeCreditAuto = awardedBidForReview.prototype_cost != null && awardedBidForReview.prototype_cost !== '' && parseFloat(awardedBidForReview.prototype_cost) > 0 ? (parseFloat(awardedBidForReview.prototype_cost) * 0.5) : 0;
+                            var finalOrderTotalAuto = (totalProductionCostAuto != null && deliveryCostAuto != null) ? (totalProductionCostAuto + deliveryCostAuto - prototypeCreditAuto) : null;
+                            autoDepositAmount = finalOrderTotalAuto != null ? finalOrderTotalAuto : totalProductionCostAuto;
+                        }
+                        if (autoDepositAmount == null && itemState && itemState.deposit_amount != null && itemState.deposit_amount !== '') {
+                            autoDepositAmount = parseFloat(itemState.deposit_amount);
+                        }
+                        setValidationDepositSupplierName(
+                            (typeof commitmentStateForReview.deposit_supplier_name === 'string' && commitmentStateForReview.deposit_supplier_name)
+                                ? commitmentStateForReview.deposit_supplier_name
+                                : autoDepositSupplierName
+                        );
+                        setValidationDepositAmount(
+                            commitmentStateForReview.deposit_amount !== null && commitmentStateForReview.deposit_amount !== undefined && commitmentStateForReview.deposit_amount !== ''
+                                ? String(commitmentStateForReview.deposit_amount)
+                                : ''
+                        );
+                    }, [itemState.validation_state, itemState.bids, itemState.deposit_amount, item && item.meta]);
                     React.useEffect(function() {
                         if (!itemId) return;
                         var storageKey = 'n88-sample-request-address-' + String(itemId);
@@ -15602,23 +16920,6 @@ class N88_RFQ_Admin {
                             localStorage.setItem('n88-sample-request-address-' + String(itemId), JSON.stringify(normalizeAddressFields(sampleRequestShippingAddressFields)));
                         } catch (e) {}
                     }, [itemId, sampleRequestShippingAddressFields]);
-                    React.useEffect(function() {
-                        if (!itemId) return;
-                        var storageKey = 'n88-validation-com-address-' + String(itemId);
-                        try {
-                            var raw = localStorage.getItem(storageKey);
-                            if (raw && !hasAddressFieldsValue(validationComDeliveryAddressFields)) {
-                                setValidationComDeliveryAddressFields(normalizeAddressFields(JSON.parse(raw)));
-                            }
-                        } catch (e) {}
-                    }, [itemId]);
-                    React.useEffect(function() {
-                        if (!itemId) return;
-                        try {
-                            localStorage.setItem('n88-validation-com-address-' + String(itemId), JSON.stringify(normalizeAddressFields(validationComDeliveryAddressFields)));
-                        } catch (e) {}
-                    }, [itemId, validationComDeliveryAddressFields]);
-                    
                     // Commit 2.3.9.2A: Designer CAD actions (Request Revision / Approve CAD) - defined after fetchItemState
                     var requestCadRevision = React.useCallback(function(files) {
                         if (!itemId || !itemState.prototype_payment_id) return;
@@ -15868,7 +17169,7 @@ class N88_RFQ_Admin {
                     
                     // Fetch board projects when modal opens (use n88BoardNonce.nonce - projects/rooms expect 'n88-rfq-nonce')
                     React.useEffect(function() {
-                        if (!isOpen) return;
+                        if (!isOpen || !projectMenuOpen) return;
                         var bid = boardId ? Number(boardId) : 0;
                         if (!bid || bid <= 0) return;
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
@@ -15884,12 +17185,12 @@ class N88_RFQ_Admin {
                             })
                             .catch(function() { setBoardProjects([]); })
                             .finally(function() { setProjectsLoading(false); });
-                    }, [isOpen, boardId]);
+                    }, [isOpen, projectMenuOpen, boardId]);
                     
                     // Fetch rooms when selected project changes (use n88BoardNonce.nonce - rooms endpoint expects 'n88-rfq-nonce')
                     var roomsFetchProjectIdRef = React.useRef ? React.useRef(0) : { current: 0 };
                     React.useEffect(function() {
-                        if (!isOpen) return;
+                        if (!isOpen || !projectMenuOpen) return;
                         if (!selectedProjectId || selectedProjectId <= 0) { setProjectRooms([]); setRoomsLoading(false); return; }
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
@@ -15914,7 +17215,7 @@ class N88_RFQ_Admin {
                             })
                             .catch(function() { if (roomsFetchProjectIdRef.current === pid) setProjectRooms([]); })
                             .finally(function() { setRoomsLoading(false); });
-                    }, [isOpen, selectedProjectId]);
+                    }, [isOpen, projectMenuOpen, selectedProjectId]);
                     
                     var getSelectedProjectName = function() {
                         var pid = Number(selectedProjectId || 0);
@@ -16020,6 +17321,7 @@ class N88_RFQ_Admin {
                     // COMMIT 3.C.3: Sync RFQ overall notes, fabric supplied, fabric notes from item.meta
                     React.useEffect(function() {
                         var meta = item.meta || {};
+                        setTitle(item.title || '');
                         setCategory(item.item_type || item.category || '');
                         setSelectedCategoryKeywordIds(
                             Array.isArray(meta.selected_keyword_ids)
@@ -16035,7 +17337,7 @@ class N88_RFQ_Admin {
                         if (meta.measurement_length !== undefined || item.measurement_length !== undefined) setMeasurementLength(item.measurement_length || meta.measurement_length || '');
                         if (meta.measurement_length_unit !== undefined || item.measurement_length_unit !== undefined) setMeasurementLengthUnit(item.measurement_length_unit || meta.measurement_length_unit || 'ft');
                         if (meta.custom_specification !== undefined || item.custom_specification !== undefined) setCustomSpecification(item.custom_specification || meta.custom_specification || '');
-                    }, [item.id, item.meta]);
+                    }, [item.id, item.title, item.item_type, item.category, item.meta, item.measurement_type, item.measurement_area, item.measurement_area_unit, item.measurement_length, item.measurement_length_unit, item.custom_specification]);
                     React.useEffect(function() {
                         setMeasurementType(n88GetCategoryMeasurementType(category));
                     }, [category]);
@@ -16072,6 +17374,12 @@ class N88_RFQ_Admin {
                             return list;
                         });
                     };
+                    var selectedCategoryKeywordLabels = (Array.isArray(availableCategoryKeywords) ? availableCategoryKeywords : []).filter(function(keyword) {
+                        var keywordId = parseInt(keyword.keyword_id, 10);
+                        return selectedCategoryKeywordIds.indexOf(keywordId) !== -1;
+                    }).map(function(keyword) {
+                        return keyword.keyword || keyword.keyword_text || keyword.name || ('Keyword #' + String(keyword.keyword_id || ''));
+                    });
                      
                     // Computed values (read-only) - initialize from saved item data
                     var _computedState = React.useState({
@@ -16682,6 +17990,7 @@ class N88_RFQ_Admin {
                             var notesValue = smartAlternativesNote || '';
                             
                             var payload = {
+                                title: title,
                                 category: category,
                                 description: description,
                                 quantity: qtyValue,
@@ -16815,6 +18124,33 @@ class N88_RFQ_Admin {
                                 }
                             }
                             
+                            var validInspiration = (Array.isArray(inspiration) ? inspiration : []).filter(function(insp) {
+                                if (!insp || typeof insp !== 'object') return false;
+                                var hasId = insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0;
+                                var url = insp.url ? String(insp.url).trim() : '';
+                                var hasValidUrl = url &&
+                                    url.length > 0 &&
+                                    (url.indexOf('http://') === 0 || url.indexOf('https://') === 0) &&
+                                    url.indexOf('data:') !== 0;
+                                return hasId || hasValidUrl;
+                            }).map(function(insp) {
+                                var url = insp.url ? String(insp.url).trim() : '';
+                                var hasValidUrl = url && (url.indexOf('http://') === 0 || url.indexOf('https://') === 0);
+                                return {
+                                    type: insp.type || 'image',
+                                    id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
+                                    url: hasValidUrl ? url : '',
+                                    title: insp.title || insp.filename || 'Reference image',
+                                    caption: (insp.caption && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : ''
+                                };
+                            });
+
+                            if ((Array.isArray(inspiration) ? inspiration.length : 0) > 0 && validInspiration.length === 0) {
+                                alert('Warning: All uploaded photos were invalid and will not be saved. Please re-upload them.');
+                                setIsSaving(false);
+                                return;
+                            }
+
                             // Process quantity
                             var qtyValue = null;
                             if (quantity !== '' && quantity !== null && quantity !== undefined) {
@@ -16827,7 +18163,17 @@ class N88_RFQ_Admin {
                             // Only update dimensions and quantity
                             // Build payload - only include fields that have values
                             var payload = {};
+                            var notesValue = smartAlternativesNote || '';
                             
+                            payload.title = title;
+                            payload.category = category;
+                            payload.selected_keyword_ids = Array.isArray(selectedCategoryKeywordIds) ? selectedCategoryKeywordIds.slice() : [];
+                            payload.measurement_type = measurementType;
+                            payload.measurement_area = measurementType === 'area' ? (measurementArea ? parseFloat(measurementArea) : null) : null;
+                            payload.measurement_area_unit = measurementAreaUnit;
+                            payload.measurement_length = measurementType === 'linear_length' ? (measurementLength ? parseFloat(measurementLength) : null) : null;
+                            payload.measurement_length_unit = measurementLengthUnit;
+                            payload.custom_specification = measurementType === 'custom_specification' ? customSpecification : '';
                             // Always include quantity (even if null, to clear it)
                             payload.quantity = qtyValue;
                             
@@ -16850,10 +18196,13 @@ class N88_RFQ_Admin {
                             if (cbmValue !== null && cbmValue !== undefined && !isNaN(cbmValue)) {
                                 payload.cbm = cbmValue;
                             }
+                            payload.smart_alternatives_note = notesValue;
+                            payload.inspiration = validInspiration;
                             
                             console.log('ItemDetailModal (admin.php) - Updating dimensions (handleUpdateDimensions):', {
                                 itemId: item.id,
                                 quantity: qtyValue,
+                                smart_alternatives_note: notesValue,
                                 payload: payload
                             });
                             
@@ -16897,10 +18246,11 @@ class N88_RFQ_Admin {
                                             }
                                         }
                                         setIsSaving(false);
-                                        alert('Dimensions and quantity updated successfully.');
+                                        setDetailsEditMode(false);
+                                        alert('Item details updated successfully.');
                                     }).catch(function(error) {
                                         console.error('Error updating dimensions (catch):', error);
-                                        var errorMessage = 'Failed to update dimensions.';
+                                        var errorMessage = 'Failed to update item details.';
                                         if (error && error.message) {
                                             errorMessage += ' ' + error.message;
                                         } else if (error && typeof error === 'string') {
@@ -16922,7 +18272,7 @@ class N88_RFQ_Admin {
                             }
                         } catch (error) {
                             console.error('Error updating dimensions:', error);
-                            alert('Failed to update dimensions. Please try again.');
+                            alert('Failed to update item details. Please try again.');
                             setIsSaving(false);
                         }
                     };
@@ -17208,6 +18558,74 @@ class N88_RFQ_Admin {
                         if (viewerPayload.url) {
                             window.open(viewerPayload.url, '_blank');
                         }
+                    };
+                    var renderAttachmentGallery = function(files, options) {
+                        files = Array.isArray(files) ? files : [];
+                        options = options || {};
+                        if (!files.length) {
+                            return options.emptyText ? React.createElement('div', {
+                                style: { padding: '10px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' }
+                            }, options.emptyText) : null;
+                        }
+                        return React.createElement('div', {
+                            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }
+                        },
+                            files.map(function(fileEntry, fileIdx) {
+                                var fileUrl = fileEntry && fileEntry.url ? String(fileEntry.url) : '';
+                                var fileName = fileEntry && (fileEntry.title || fileEntry.name) ? String(fileEntry.title || fileEntry.name) : ((options.defaultTitlePrefix || 'File') + ' ' + (fileIdx + 1));
+                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                var isImageFile = /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(fileUrl) || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(fileName);
+                                var isSelectedFile = typeof options.isSelected === 'function' ? !!options.isSelected(fileEntry, fileIdx) : false;
+                                var cardChildren = [];
+                                if (typeof options.renderControl === 'function') {
+                                    var controlNode = options.renderControl(fileEntry, fileIdx);
+                                    if (controlNode) {
+                                        cardChildren.push(React.createElement('div', {
+                                            key: 'control-' + fileId,
+                                            style: { position: 'absolute', top: '8px', left: '8px', zIndex: 2 }
+                                        }, controlNode));
+                                    }
+                                }
+                                if (isSelectedFile) {
+                                    cardChildren.push(React.createElement('div', {
+                                        key: 'selected-' + fileId,
+                                        style: { position: 'absolute', top: '8px', right: '8px', zIndex: 2, minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '999px', backgroundColor: greenAccent, color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700' }
+                                    }, '✓'));
+                                }
+                                cardChildren.push(
+                                    React.createElement('a', {
+                                        key: 'link-' + fileId,
+                                        href: fileUrl || '#',
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        onClick: function(e) {
+                                            if (!fileUrl) {
+                                                e.preventDefault();
+                                                return;
+                                            }
+                                            e.stopPropagation();
+                                        },
+                                        style: { display: 'block', textDecoration: 'none', color: '#fff' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { height: '120px', backgroundColor: '#000', borderBottom: '1px solid ' + darkBorder, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }
+                                        },
+                                            isImageFile && fileUrl
+                                                ? React.createElement('img', { src: fileUrl, alt: fileName, loading: 'lazy', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })
+                                                : React.createElement('span', { style: { fontSize: '11px', color: greenAccent, fontWeight: '700', letterSpacing: '0.04em' } }, 'FILE')
+                                        ),
+                                        React.createElement('div', { style: { padding: '10px', display: 'grid', gap: '6px' } },
+                                            React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: '#fff', wordBreak: 'break-word' } }, fileName),
+                                            React.createElement('div', { style: { fontSize: '10px', color: isImageFile ? greenAccent : darkText } }, isImageFile ? 'Open image' : 'Open file')
+                                        )
+                                    )
+                                );
+                                return React.createElement('div', {
+                                    key: (options.keyPrefix || 'attachment-gallery-') + fileId + '-' + fileIdx,
+                                    style: { position: 'relative', border: '1px solid ' + (isSelectedFile ? greenAccent : darkBorder), borderRadius: '8px', backgroundColor: isSelectedFile ? 'rgba(255,0,101,0.08)' : '#000', overflow: 'hidden' }
+                                }, cardChildren);
+                            })
+                        );
                     };
                     var renderSupportMediaCards = function(mediaItems, options) {
                         mediaItems = Array.isArray(mediaItems) ? mediaItems : [];
@@ -17559,17 +18977,10 @@ class N88_RFQ_Admin {
                                                         onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
                                                         style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
                                                     },
-                                                        React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
-                                                        availableDirectSuppliers.map(function(opt) {
+                                                        React.createElement('option', { value: '' }, directSupplierSelectOptions.length ? 'Select supplier' : 'No supplier available'),
+                                                        directSupplierSelectOptions.map(function(opt) {
                                                             return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
                                                         })
-                                                    )
-                                                ) : null,
-                                                requiresMessageTags ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                                                    React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
-                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
-                                                        React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
-                                                        React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
                                                     )
                                                 ) : null,
                                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
@@ -17775,7 +19186,7 @@ class N88_RFQ_Admin {
                                         }
                                     },
                                         React.createElement('button', {
-                                            onClick: function() { setActiveTab('details'); },
+                                            onClick: function() { switchDesignerModalTabManually('details'); },
                                             style: {
                                                 flex: 1,
                                                 padding: '12px 16px',
@@ -17790,7 +19201,7 @@ class N88_RFQ_Admin {
                                             }
                                         }, 'Item Specification'),
                                         React.createElement('button', {
-                                            onClick: function() { setActiveTab('timeline'); },
+                                            onClick: function() { switchDesignerModalTabManually('timeline'); },
                                             style: {
                                                 flex: 1,
                                                 padding: '12px 16px',
@@ -17834,13 +19245,159 @@ class N88_RFQ_Admin {
                                             (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
                                                 React.createElement(React.Fragment, null,
                                                     React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
-                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', marginBottom: '16px', color: darkText, borderBottom: '1px solid ' + darkBorder, paddingBottom: '8px' } }, 'Item Specification'),
-                                                        (item.title || item.description) ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Name:'), React.createElement('div', { style: { fontSize: '13px', color: greenAccent, fontWeight: '500' } }, item.title || item.description || 'Untitled Item')) : null,
+                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', color: darkText, borderBottom: '1px solid ' + darkBorder, paddingBottom: '8px' } },
+                                                            React.createElement('div', { style: { fontSize: '14px', fontWeight: '600' } }, 'Item Specification'),
+                                                            (currentState === 'B' || currentState === 'C') ? React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+                                                                currentState === 'B' ? React.createElement('span', { style: { display: 'inline-flex', alignItems: 'center', padding: '5px 10px', borderRadius: '999px', border: '1px solid rgba(0,180,0,0.2)', backgroundColor: 'rgba(0,128,0,0.08)', color: 'rgba(0,180,0,0.75)', fontSize: '11px', fontFamily: 'monospace' } }, 'RFQ Sent') : null,
+                                                                !detailsEditMode ? React.createElement('button', {
+                                                                    type: 'button',
+                                                                    onClick: function() { setDetailsEditMode(true); },
+                                                                    disabled: isLockedAwaitingPayment,
+                                                                    style: { padding: '7px 12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', fontFamily: 'monospace', cursor: isLockedAwaitingPayment ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: isLockedAwaitingPayment ? 0.6 : 1 }
+                                                                }, 'Edit') : null
+                                                            ) : null
+                                                        ),
+                                                        ((currentState === 'B' || currentState === 'C') && detailsEditMode) ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Name:'),
+                                                            React.createElement('input', { type: 'text', value: title, onChange: function(e) { setTitle(e.target.value); }, placeholder: 'Item name', disabled: isLockedAwaitingPayment, style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } })
+                                                        ) : ((title || item.title || item.description) ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Name:'), React.createElement('div', { style: { fontSize: '13px', color: greenAccent, fontWeight: '500' } }, title || item.title || item.description || 'Untitled Item')) : null),
                                                         description ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Description:'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.6' } }, description)) : null,
-                                                        category ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Category:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, category)) : null,
-                                                        quantity ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Quantity:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, quantity)) : null,
-                                                        formatDimensions() ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Specification:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, formatDimensions())) : null,
-                                                        smartAlternativesNote ? React.createElement('div', { style: { marginBottom: '0' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Notes for suppliers:'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.6' } }, smartAlternativesNote)) : null
+                                                        ((currentState === 'B' || currentState === 'C') && detailsEditMode) ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Category:'),
+                                                            React.createElement('select', {
+                                                                value: category || '',
+                                                                onChange: function(e) {
+                                                                    var nextCategory = e.target.value;
+                                                                    setCategory(nextCategory);
+                                                                    setSelectedCategoryKeywordIds([]);
+                                                                    setMeasurementType(n88GetCategoryMeasurementType(nextCategory));
+                                                                },
+                                                                disabled: isLockedAwaitingPayment,
+                                                                style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' }
+                                                            },
+                                                                React.createElement('option', { value: '' }, 'Select category'),
+                                                                (window.n88DesignerCategoryOptions || []).map(function(c) {
+                                                                    return React.createElement('option', { key: c, value: c }, c);
+                                                                })
+                                                            )
+                                                        ) : (category ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Category:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, category)) : null),
+                                                        (category && ((currentState === 'B' || currentState === 'C') && detailsEditMode)) ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '6px', color: darkText, opacity: 0.7 } }, 'Keywords:'),
+                                                            React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                                categoryKeywordsLoading ? React.createElement('div', { style: { fontSize: '11px', opacity: 0.75, color: darkText } }, 'Loading keywords...') : ((availableCategoryKeywords || []).length ? availableCategoryKeywords.map(function(keyword) {
+                                                                    var keywordId = parseInt(keyword.keyword_id, 10);
+                                                                    var isSelected = selectedCategoryKeywordIds.indexOf(keywordId) !== -1;
+                                                                    return React.createElement('button', {
+                                                                        key: keywordId,
+                                                                        type: 'button',
+                                                                        onClick: function() { toggleSelectedCategoryKeywordId(keywordId); },
+                                                                        disabled: isLockedAwaitingPayment,
+                                                                        style: {
+                                                                            padding: '6px 10px',
+                                                                            borderRadius: '999px',
+                                                                            border: isSelected ? '1px solid #ff0065' : ('1px solid ' + darkBorder),
+                                                                            backgroundColor: isSelected ? 'rgba(255,0,101,0.16)' : darkBg,
+                                                                            color: isSelected ? '#fff' : darkText,
+                                                                            fontSize: '11px',
+                                                                            fontFamily: 'monospace',
+                                                                            cursor: isLockedAwaitingPayment ? 'not-allowed' : 'pointer',
+                                                                            opacity: isLockedAwaitingPayment ? 0.6 : 1
+                                                                        }
+                                                                    }, keyword.keyword || keyword.keyword_text || keyword.name || ('Keyword #' + String(keywordId)));
+                                                                }) : React.createElement('div', { style: { fontSize: '11px', opacity: 0.75, color: darkText } }, 'No keywords available for this category.'))
+                                                            )
+                                                        ) : ((selectedCategoryKeywordLabels.length > 0) ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '6px', color: darkText, opacity: 0.7 } }, 'Keywords:'),
+                                                            React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                                selectedCategoryKeywordLabels.map(function(label, idx) {
+                                                                    return React.createElement('span', {
+                                                                        key: label + '-' + idx,
+                                                                        style: {
+                                                                            padding: '6px 10px',
+                                                                            borderRadius: '999px',
+                                                                            border: '1px solid ' + darkBorder,
+                                                                            backgroundColor: darkBg,
+                                                                            color: greenAccent,
+                                                                            fontSize: '11px',
+                                                                            fontFamily: 'monospace'
+                                                                        }
+                                                                    }, label);
+                                                                })
+                                                            )
+                                                        ) : null),
+                                                        (currentState === 'B' || currentState === 'C') && detailsEditMode ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Quantity:'),
+                                                            React.createElement('input', { type: 'number', value: quantity, onChange: function(e) { setQuantity(e.target.value); }, min: '1', placeholder: '1', disabled: isLockedAwaitingPayment, style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } })
+                                                        ) : (quantity ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Quantity:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, quantity)) : null),
+                                                        (currentState === 'B' || currentState === 'C') && detailsEditMode ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Specification:'),
+                                                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' } },
+                                                                React.createElement('input', { type: 'number', value: width, onChange: function(e) { setWidth(e.target.value); }, placeholder: 'W', step: '0.01', disabled: isLockedAwaitingPayment, style: { padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } }),
+                                                                React.createElement('input', { type: 'number', value: depth, onChange: function(e) { setDepth(e.target.value); }, placeholder: 'D', step: '0.01', disabled: isLockedAwaitingPayment, style: { padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } }),
+                                                                React.createElement('input', { type: 'number', value: height, onChange: function(e) { setHeight(e.target.value); }, placeholder: 'H', step: '0.01', disabled: isLockedAwaitingPayment, style: { padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } }),
+                                                                React.createElement('select', { value: unit, onChange: function(e) { setUnit(e.target.value); }, disabled: isLockedAwaitingPayment, style: { padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } },
+                                                                    React.createElement('option', { value: 'in' }, 'in'),
+                                                                    React.createElement('option', { value: 'cm' }, 'cm'),
+                                                                    React.createElement('option', { value: 'mm' }, 'mm'),
+                                                                    React.createElement('option', { value: 'm' }, 'm')
+                                                                )
+                                                            )
+                                                        ) : (formatDimensions() ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Specification:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, formatDimensions())) : null),
+                                                        (currentState === 'B' || currentState === 'C') && detailsEditMode ? React.createElement('div', { style: { marginBottom: '12px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#0f0f0f' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: darkText } }, 'Photos'),
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: function() {
+                                                                    var f = document.getElementById('details-reference-upload-' + String(itemId));
+                                                                    if (f) f.click();
+                                                                },
+                                                                disabled: isLockedAwaitingPayment || isUploadingInspiration,
+                                                                style: { padding: '8px 12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: (isLockedAwaitingPayment || isUploadingInspiration) ? 'not-allowed' : 'pointer', opacity: (isLockedAwaitingPayment || isUploadingInspiration) ? 0.6 : 1 }
+                                                            }, isUploadingInspiration ? 'Uploading...' : 'Upload photos'),
+                                                            React.createElement('input', {
+                                                                id: 'details-reference-upload-' + String(itemId),
+                                                                type: 'file',
+                                                                multiple: true,
+                                                                accept: 'image/*,.heic,.heif,.pdf',
+                                                                onChange: handleInspirationFileChange,
+                                                                style: { display: 'none' }
+                                                            }),
+                                                            React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } },
+                                                                (inspiration || []).length ? (inspiration || []).map(function(insp, idx) {
+                                                                    var url = insp && insp.url ? insp.url : '';
+                                                                    if (!url) return null;
+                                                                    var isPdf = (insp.type === 'pdf') || (typeof url === 'string' && url.toLowerCase().endsWith('.pdf'));
+                                                                    return React.createElement('div', { key: ('details-photo-' + url + '-' + idx), style: { width: '70px', height: '70px', borderRadius: '4px', border: '1px solid ' + darkBorder, overflow: 'hidden', position: 'relative', backgroundColor: '#111' } },
+                                                                        React.createElement('button', {
+                                                                            type: 'button',
+                                                                            onClick: function(e) { e.preventDefault(); e.stopPropagation(); setInspiration(inspiration.filter(function(_, i) { return i !== idx; })); },
+                                                                            style: { position: 'absolute', top: '2px', right: '2px', width: '16px', height: '16px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', backgroundColor: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '10px', lineHeight: '12px', cursor: 'pointer', padding: 0, zIndex: 2 }
+                                                                        }, 'x'),
+                                                                        isPdf ? React.createElement('div', { style: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#ddd' } }, 'PDF') : React.createElement('img', { src: url, alt: 'Reference', style: { width: '100%', height: '100%', objectFit: 'cover' } })
+                                                                    );
+                                                                }) : React.createElement('div', { style: { fontSize: '11px', color: darkText, opacity: 0.7 } }, 'No photos added yet.')
+                                                            )
+                                                        ) : ((inspiration || []).length ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '6px', color: darkText, opacity: 0.7 } }, 'Photos:'),
+                                                            React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                                (inspiration || []).slice(0, 6).map(function(insp, idx) {
+                                                                    var url = insp && insp.url ? insp.url : '';
+                                                                    if (!url) return null;
+                                                                    var isPdf = (insp.type === 'pdf') || (typeof url === 'string' && url.toLowerCase().endsWith('.pdf'));
+                                                                    return React.createElement('div', { key: ('details-photo-readonly-' + url + '-' + idx), style: { width: '70px', height: '70px', borderRadius: '4px', border: '1px solid ' + darkBorder, overflow: 'hidden', backgroundColor: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
+                                                                        isPdf ? React.createElement('div', { style: { fontSize: '10px', color: '#ddd' } }, 'PDF') : React.createElement('img', { src: url, alt: 'Reference', style: { width: '100%', height: '100%', objectFit: 'cover' } })
+                                                                    );
+                                                                })
+                                                            )
+                                                        ) : null),
+                                                        (currentState === 'B' || currentState === 'C') && detailsEditMode ? React.createElement('div', { style: { marginBottom: '0' } },
+                                                            React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Notes for suppliers:'),
+                                                            React.createElement('textarea', { value: smartAlternativesNote, onChange: function(e) { var val = e.target.value; if (val.length <= 240) { setSmartAlternativesNote(val); } }, placeholder: '[ Add notes for suppliers ]', maxLength: 240, disabled: isLockedAwaitingPayment, style: { width: '100%', minHeight: '72px', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', resize: 'vertical' } }),
+                                                            React.createElement('div', { style: { marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' } },
+                                                                React.createElement('button', { type: 'button', onClick: function() { setDetailsEditMode(false); }, style: { padding: '8px 14px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' } }, 'Cancel'),
+                                                                React.createElement('button', { type: 'button', onClick: handleUpdateDimensions, disabled: isSaving || isUploadingInspiration || isLockedAwaitingPayment, style: { padding: '8px 14px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 0.6 : 1 } }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update'))
+                                                            )
+                                                        ) : (smartAlternativesNote ? React.createElement('div', { style: { marginBottom: '0' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Notes for suppliers:'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.6' } }, smartAlternativesNote)) : null)
                                                     )
                                                 )
                                             ) : null,
@@ -17848,27 +19405,6 @@ class N88_RFQ_Admin {
                                             React.createElement('div', {
                                                 style: { marginBottom: '24px', marginTop: '0px' }
                                             },
-                                                // RFQ Sent Status Indicator (State B Only)
-                                                currentState === 'B' ? React.createElement('div', {
-                                                    style: {
-                                                        marginBottom: '20px',
-                                                        padding: '12px 16px',
-                                                        backgroundColor: 'rgba(0, 128, 0, 0.08)',
-                                                        border: '1px solid rgba(0, 128, 0, 0.2)',
-                                                        borderRadius: '4px',
-                                                        textAlign: 'center',
-                                                        opacity: 0.7,
-                                                    }
-                                                },
-                                                    React.createElement('div', {
-                                                        style: {
-                                                            fontSize: '14px',
-                                                            fontWeight: '500',
-                                                            color: 'rgba(0, 180, 0, 0.6)',
-                                                            fontFamily: 'monospace',
-                                                        }
-                                                    }, 'RFQ request sent - waiting to hear back')
-                                                ) : null,
                                                 // Request Quote Button / RFQ Form (State A only)
                                                 currentState === 'A' ? React.createElement('div', {
                                                     style: { marginBottom: '24px' }
@@ -18280,9 +19816,9 @@ class N88_RFQ_Admin {
                                             React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '12px', backgroundColor: '#111' } },
                                                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, React.createElement('span', { style: { fontSize: '12px', color: darkText } }, 'Check messages below')),
                                                 !detailsSupportReady ? React.createElement('div', { style: { height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder, color: '#666', fontSize: '12px' } }, 'Support loading...') : React.createElement('div', { id: 'n88-designer-messages-container-details-admin', style: { height: '200px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder } },
-                                                    isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#888', padding: '20px' } }, 'Loading conversation\u2026') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px' } }, 'No messages yet.') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
+                                                    isLoadingSupportDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#888', padding: '20px' } }, 'Loading conversation\u2026') : supportDesignerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px' } }, 'No messages yet.') : supportDesignerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
                                                         var isD = msg.sender_role === 'designer';
-                                                        var senderName = isD ? 'You' : (itemState.has_rfq ? 'Supplier' : 'Operator');
+                                                        var senderName = isD ? 'You' : 'Operator';
                                                         var tags = [];
                                                         if (msg.category) { var parts = String(msg.category).split(','); if (parts.indexOf('clarifying_questions') !== -1) tags.push('Clarifying questions'); if (parts.indexOf('mse_material') !== -1) tags.push('MSE/Material Suggestions'); }
                                                         var attachments = [];
@@ -18290,42 +19826,37 @@ class N88_RFQ_Admin {
                                                         return React.createElement('div', { key: idx, style: { marginBottom: '5px', textAlign: isD ? 'right' : 'left' } }, React.createElement('div', { style: { display: 'inline-block', maxWidth: '85%', padding: '5px 9px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: '6px', fontSize: '10px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: 1.35 } }, React.createElement('div', { style: { fontSize: '8px', fontWeight: 600, color: isD ? greenAccent : '#00aa00', marginBottom: 2 } }, senderName), React.createElement('div', null, (msg.message_text || '').substring(0, 2000)), tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '9px', color: greenAccent } }, 'FILE')); })) : null, React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')));
                                                     })
                                                 ),
-                                                detailsSupportReady ? React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-                                                    isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                                                        React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
-                                                        React.createElement('select', {
-                                                            ref: directSupplierSelectRef,
-                                                            className: 'n88-direct-supplier-select',
-                                                            value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
-                                                            onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
-                                                            style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
-                                                        },
-                                                            React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
-                                                            availableDirectSuppliers.map(function(opt) {
-                                                                return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
-                                                            })
-                                                        )
-                                                    ) : null,
-                                                    React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
-                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
-                                                        React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
-                                                        React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
-                                                    ),
+                                                detailsSupportReady ? React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e, 'support'); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
                                                                             renderDesignerMessageFilePreview(),
                                                                             React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
                                                                             React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
+                                                                        isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                                            React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
+                                                                            React.createElement('select', {
+                                                                                ref: directSupplierSelectRef,
+                                                                                className: 'n88-direct-supplier-select',
+                                                                                value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
+                                                                                onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
+                                                                                style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
+                                                                            },
+                                                                                React.createElement('option', { value: '' }, directSupplierSelectOptions.length ? 'Select supplier' : 'No supplier available'),
+                                                                                directSupplierSelectOptions.map(function(opt) {
+                                                                                    return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
+                                                                                })
+                                                                            )
+                                                                        ) : null,
                                                     React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '30px' } },
                                                         React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...' }),
-                                                        React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
+                                                        React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendSupportDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendSupportDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendSupportDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendSupportDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                     )
                                                 ) : React.createElement('div', { style: { fontSize: '11px', color: '#666', paddingTop: '4px' } }, 'Conversation box is initializing...')
                                             )
                                             )
                                         ) : null,
                                         // Request Quote update box (dimensions, etc.) - only after RFQ sent (State B/C), not before (State A)
-                                        (activeTab === 'details' && (currentState === 'B' || currentState === 'C')) ? React.createElement('div', { style: { maxWidth: '60%', marginRight: '40%' } },
+                                        false && (activeTab === 'details' && (currentState === 'B' || currentState === 'C')) ? React.createElement('div', { style: { maxWidth: '60%', marginRight: '40%' } },
                                 // State B and C: Quantity, Dimensions, and Notes for suppliers - Inside Request Quote tab
                                 (currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
                                     // Commit 2.3.5.1: Warning Banner - Show if dims/qty changed after RFQ with bids
@@ -19938,15 +21469,6 @@ class N88_RFQ_Admin {
                                                 timelineData.steps[selectedStepIndex] ? (function() {
                                                     var s = timelineData.steps[selectedStepIndex];
                                                     var cadSubmittedStep = (Number(itemState.cad_current_version) || 0) > 0;
-                                                    var statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
-                                                    var stepDescriptions = {
-                                                        1: ' review supplier proposals\n compare pricing and timelines\n view supplier media\n operator clarification thread can live here later',
-                                                        2: ' CAD review\n spec sheet review\n samples\n evaluation videos\n prototypes\n operator clarification thread here small box',
-                                                        3: ' select supplier\n arrange deposit\n finalize quote / confirm order\n operator message thread here',
-                                                        4: ' production begins after deposit confirmation\n shop drawings finalized and approved\n production progress updates and factory media\n operator coordination thread for production questions',
-                                                        5: ' factory quality inspection and review\n final product photos or inspection videos\n packing confirmation and shipment preparation\n operator coordination thread for inspection or corrections',
-                                                        6: ' shipping confirmation and tracking details\n logistics updates and estimated arrival\n delivery confirmation and installation coordination\n final operator message thread for closing the project'
-                                                    };
                                                     return React.createElement('div', {
                                                         style: {
                                                             padding: '16px',
@@ -19956,7 +21478,6 @@ class N88_RFQ_Admin {
                                                         }
                                                     },
                                                         React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, s.step_number + '. ' + s.label),
-                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4, whiteSpace: 'pre-wrap' } }, stepDescriptions[s.step_number] || ''),
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested') ? React.createElement('div', {
                                                             id: 'n88-step1-payment-required',
                                                             style: { marginBottom: '24px', padding: '20px', backgroundColor: '#331100', border: '2px solid #ff8800', borderRadius: '4px' }
@@ -19970,7 +21491,7 @@ class N88_RFQ_Admin {
                                                                         React.createElement('span', { style: { color: darkText } }, 'Quotes Received')
                                                                     )
                                                                 ),
-                                                                React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId, itemQuantity: item && (item.quantity != null ? item.quantity : (item.meta && item.meta.quantity)), itemCbm: item && item.cbm, itemDimsCm: item && item.dims_cm, batchActionMode: true, lockedSupplierId: itemState.validation_state && itemState.validation_state.supplier_id ? parseInt(itemState.validation_state.supplier_id, 10) : 0, onViewSupportMediaBid: function(selectedBid) { openSupportMediaForBid(selectedBid); }, onRequestSampleBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; setSampleRequestBidId(parseInt(selectedBid.bid_id, 10) || null); setSupportMediaBidId(parseInt(selectedBid.bid_id, 10) || null); setSelectedSupplierSampleIds([]); setSampleRequestFiles([]); if (sampleRequestFileInputRef && sampleRequestFileInputRef.current) { sampleRequestFileInputRef.current.value = ''; } setSampleRequestMessage(''); setSampleRequestError(''); setSampleRequestPanelDismissed(false); setSampleRequestInlineOpen(true); if (activeTab !== 'timeline') { setActiveTab('timeline'); } if (selectedStepIndex !== 1) { setSelectedStepIndex(1); } }, onAwardProjectBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) return; var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php'); var nonce = ''; if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) { nonce = window.n88BoardNonce.nonce_award_bid; } else if (window.n88BoardData && window.n88BoardData.nonce) { nonce = window.n88BoardData.nonce; } else if (window.n88 && window.n88.nonce) { nonce = window.n88.nonce; } if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; } var formData = new FormData(); formData.append('action', 'n88_award_bid'); formData.append('item_id', itemId); formData.append('bid_id', selectedBid.bid_id); formData.append('_ajax_nonce', nonce); fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(response) { return response.json(); }).then(function(data) { if (data.success) { alert('Bid awarded successfully!'); window.location.reload(); } else { alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid')); } }).catch(function(error) { console.error('Error awarding bid:', error); alert('Error awarding bid. Please try again.'); }); } }),
+                                                                React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId, itemQuantity: item && (item.quantity != null ? item.quantity : (item.meta && item.meta.quantity)), itemCbm: item && item.cbm, itemDimsCm: item && item.dims_cm, batchActionMode: true, lockedSupplierId: itemState.validation_state && itemState.validation_state.supplier_id ? parseInt(itemState.validation_state.supplier_id, 10) : 0, onViewSupportMediaBid: function(selectedBid) { openSupportMediaForBid(selectedBid); }, onRequestSampleBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; setSampleRequestBidId(parseInt(selectedBid.bid_id, 10) || null); setSupportMediaBidId(parseInt(selectedBid.bid_id, 10) || null); setSelectedSupplierSampleIds([]); setSampleRequestFiles([]); if (sampleRequestFileInputRef && sampleRequestFileInputRef.current) { sampleRequestFileInputRef.current.value = ''; } setSampleRequestMessage(''); setSampleRequestError(''); setSampleRequestPanelDismissed(false); setSampleRequestInlineOpen(true); writeSampleRequestSticky(itemId, true); if (activeTab !== 'timeline') { setActiveTab('timeline'); } if (selectedStepIndex !== 1) { setSelectedStepIndex(1); } }, onAwardProjectBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) return; var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php'); var nonce = ''; if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) { nonce = window.n88BoardNonce.nonce_award_bid; } else if (window.n88BoardData && window.n88BoardData.nonce) { nonce = window.n88BoardData.nonce; } else if (window.n88 && window.n88.nonce) { nonce = window.n88.nonce; } if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; } var formData = new FormData(); formData.append('action', 'n88_award_bid'); formData.append('item_id', itemId); formData.append('bid_id', selectedBid.bid_id); formData.append('_ajax_nonce', nonce); fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(response) { return response.json(); }).then(function(data) { if (data.success) { alert('Bid awarded successfully!'); window.location.reload(); } else { alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid')); } }).catch(function(error) { console.error('Error awarding bid:', error); alert('Error awarding bid. Please try again.'); }); } }),
                                                                 selectedSupportMediaBid ? (function() {
                                                                     var supportMediaGroups = {
                                                                         our_work: Array.isArray(supportMediaLibrary.our_work) ? supportMediaLibrary.our_work : [],
@@ -20102,6 +21623,7 @@ class N88_RFQ_Admin {
                                                             var openedFromSampleRequestAction = !!(requestSampleContextProp || sampleRequestInlineOpen);
                                                             var canDismissSampleRequestPanel = !!(!hasSampleRequest && openedFromSampleRequestAction);
                                                             var shouldRenderSamplePanel = !!(hasSampleRequest || openedFromSampleRequestAction);
+                                                            var canShowSampleRequestForm = !!(showSampleRequestStep && !sampleRequestAlreadySubmitted && !showSupplierResponse && (!hasSampleRequest || openedFromSampleRequestAction));
                                                             var samplePanelTitle = (showSupplierResponse || step2ReviewReceived || step2ReviewApproved) ? 'Review Material Samples' : 'Request Material Samples';
                                                             if (canDismissSampleRequestPanel && sampleRequestPanelDismissed) {
                                                                 return null;
@@ -20125,7 +21647,7 @@ class N88_RFQ_Admin {
                                                                     ),
                                                                     canDismissSampleRequestPanel ? React.createElement('button', {
                                                                         type: 'button',
-                                                                        onClick: function() { setSampleRequestPanelDismissed(true); },
+                                                                        onClick: function() { setSampleRequestPanelDismissed(true); setSampleRequestInlineOpen(false); writeSampleRequestSticky(itemId, false); },
                                                                         'aria-label': 'Close request material samples form',
                                                                         title: 'Close',
                                                                         style: { width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, backgroundColor: 'transparent', color: '#999', border: '1px solid ' + darkBorder, borderRadius: '999px', cursor: 'pointer', fontSize: '16px', lineHeight: 1, fontFamily: 'monospace', flexShrink: 0 }
@@ -20158,7 +21680,7 @@ class N88_RFQ_Admin {
                                                                     React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: '#ff9800', marginBottom: '4px' } }, 'Waiting for Supplier Sample'),
                                                                     React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.5 } }, 'Sample request has been sent. Supplier response will appear here in Step 02 once files/details are uploaded.')
                                                                 ) : null,
-                                                                (showSampleRequestStep && (!hasSampleRequest || openedFromSampleRequestAction)) ? (function() {
+                                                                canShowSampleRequestForm ? (function() {
                                                                     var selectedBidOurWork = Array.isArray(sampleRequestLibrary.our_work) ? sampleRequestLibrary.our_work : [];
                                                                     var selectedBidMaterialSamples = Array.isArray(sampleRequestLibrary.material_samples) ? sampleRequestLibrary.material_samples : [];
                                                                     var visibleLibraryItems = [];
@@ -20275,7 +21797,7 @@ class N88_RFQ_Admin {
                                                                         style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
                                                                     })
                                                                 ),
-                                                                renderStructuredAddressFields('Shipping Address', sampleRequestShippingAddressFields, setSampleRequestShippingAddressFields, sampleRequestSubmitting, {
+                                                                renderStructuredAddressFields('Material Sample Shipping info', sampleRequestShippingAddressFields, setSampleRequestShippingAddressFields, sampleRequestSubmitting, {
                                                                     name: 'Recipient Name',
                                                                     address_line: 'Address',
                                                                     city: 'City',
@@ -20297,7 +21819,7 @@ class N88_RFQ_Admin {
                                                                     mergedValidationSupplier.updated_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Updated: ' + formatWorkflowDateTime(mergedValidationSupplier.updated_at)) : null,
                                                                     mergedValidationSupplier.tracking_number ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Tracking: ' + mergedValidationSupplier.tracking_number) : null,
                                                                     mergedValidationRequest.shipping_address ? React.createElement('div', { style: { marginBottom: '8px' } },
-                                                                        React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '4px' } }, 'Shipping address'),
+                                                                        React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '4px' } }, 'Material Sample Shipping info'),
                                                                         React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, mergedValidationRequest.shipping_address)
                                                                     ) : null,
                                                                     mergedValidationSupplier.note ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px', whiteSpace: 'pre-wrap' } }, mergedValidationSupplier.note) : null,
@@ -20307,32 +21829,26 @@ class N88_RFQ_Admin {
                                                                     ) : null,
                                                                     mergedValidationRequest.reference_files && mergedValidationRequest.reference_files.length ? React.createElement('div', { style: { marginTop: '10px', marginBottom: '10px' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '4px' } }, 'Designer reference files'),
-                                                                        mergedValidationRequest.reference_files.map(function(file, fileIdx) {
-                                                                            return React.createElement('div', { key: 'designer-sample-ref-' + fileIdx, style: { marginBottom: '4px' } },
-                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Reference File ' + (fileIdx + 1)))
-                                                                            );
-                                                                        })
+                                                                        renderAttachmentGallery(mergedValidationRequest.reference_files, { keyPrefix: 'designer-sample-ref-', defaultTitlePrefix: 'Reference File' })
                                                                     ) : null,
                                                                     mergedValidationSupplier.files && mergedValidationSupplier.files.length ? React.createElement('div', { style: { marginBottom: '12px' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Uploaded files'),
-                                                                        mergedValidationSupplier.files.map(function(file, fileIdx) {
-                                                                            return React.createElement('div', {
-                                                                                key: 'supplier-sample-file-' + fileIdx,
-                                                                                style: { marginBottom: '6px', padding: '8px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#000' }
-                                                                            },
-                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Sample File ' + (fileIdx + 1)))
-                                                                            );
-                                                                        })
+                                                                        renderAttachmentGallery(mergedValidationSupplier.files, { keyPrefix: 'supplier-sample-file-', defaultTitlePrefix: 'Sample File' })
                                                                     ) : null,
                                                                     step2ReviewApproved ? React.createElement('div', { style: { marginBottom: '12px', padding: '12px', backgroundColor: '#05050a', border: '1px solid ' + darkBorder, borderRadius: '4px', display: 'grid', gap: '6px' } },
                                                                         React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
                                                                         mergedValidationReview.approved_material_codes && mergedValidationReview.approved_material_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + mergedValidationReview.approved_material_codes.join(', ')) : null,
                                                                         mergedValidationReview.approved_finish_codes && mergedValidationReview.approved_finish_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + mergedValidationReview.approved_finish_codes.join(', ')) : null,
                                                                         mergedValidationReview.notes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, mergedValidationReview.notes) : null,
+                                                                        mergedValidationReview.approved_sample_images && mergedValidationReview.approved_sample_images.length ? React.createElement('div', { style: { marginTop: '8px' } },
+                                                                            React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Approved sample photos'),
+                                                                            renderAttachmentGallery(mergedValidationReview.approved_sample_images, { keyPrefix: 'approved-sample-photo-', defaultTitlePrefix: 'Approved Sample Photo' })
+                                                                        ) : null,
                                                                         step2ValidationCanAward ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, display: 'grid', gap: '8px' } },
                                                                             React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Validation approved. You can now award this supplier and move to Step 03.'),
                                                                             React.createElement('button', {
                                                                                 type: 'button',
+                                                                                disabled: step2AwardSubmitting,
                                                                                 onClick: function() {
                                                                                     if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
                                                                                     var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
@@ -20341,6 +21857,9 @@ class N88_RFQ_Admin {
                                                                                         setSampleRequestError('Security token missing. Please refresh and try again.');
                                                                                         return;
                                                                                     }
+                                                                                    setStep2AwardSubmitting(true);
+                                                                                    setSampleRequestMessage('');
+                                                                                    setSampleRequestError('');
                                                                                     var fd = new FormData();
                                                                                     fd.append('action', 'n88_award_bid');
                                                                                     fd.append('item_id', String(itemId));
@@ -20351,6 +21870,13 @@ class N88_RFQ_Admin {
                                                                                         .then(function(data) {
                                                                                             if (data && data.success) {
                                                                                                 setSampleRequestMessage(data.data && data.data.message ? data.data.message : 'Bid awarded successfully.');
+                                                                                                setItemState(function(prev) {
+                                                                                                    var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                    nextState.has_awarded_bid = true;
+                                                                                                    nextState.awarded_bid_id = parseInt(step2ReviewBidId, 10) || nextState.awarded_bid_id || null;
+                                                                                                    return nextState;
+                                                                                                });
+                                                                                                setActiveTab('timeline');
                                                                                                 setPinnedTimelineStep(2);
                                                                                                 setSelectedStepIndex(2);
                                                                                                 fetchItemState();
@@ -20361,10 +21887,13 @@ class N88_RFQ_Admin {
                                                                                         .catch(function(error) {
                                                                                             console.error('Error awarding bid:', error);
                                                                                             setSampleRequestError('Failed to award bid. Please try again.');
+                                                                                        })
+                                                                                        .finally(function() {
+                                                                                            setStep2AwardSubmitting(false);
                                                                                         });
                                                                                 },
-                                                                                style: { padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '700' }
-                                                                            }, 'Award Bid')
+                                                                                style: { padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: step2AwardSubmitting ? 'not-allowed' : 'pointer', opacity: step2AwardSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '700' }
+                                                                            }, step2AwardSubmitting ? 'Awarding...' : 'Award Bid')
                                                                         ) : (showSampleResponseStep && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '11px', color: greenAccent } }, 'Bid awarded. Step 03 is now active for PO, COM, and deposit.') : null
                                                                     ) : null,
                                                                     React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
@@ -20405,7 +21934,7 @@ class N88_RFQ_Admin {
                                                                                         setSampleReviewSubmitting(false);
                                                                                     });
                                                                             },
-                                                                            style: { marginBottom: '10px', padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
+                                                                            style: { marginBottom: '10px', padding: '8px 12px', background: '#FF0065', color: '#000', border: '1px solid #FF0065', borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace', fontWeight: '700' }
                                                                         }, sampleReviewSubmitting ? 'Saving...' : 'Mark Samples Received')
                                                                     )
                                                                 ) : null,
@@ -20416,13 +21945,29 @@ class N88_RFQ_Admin {
                                                                     mergedValidationReview.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(mergedValidationReview.samples_received_at)) : null,
                                                                     mergedValidationSupplier.files && mergedValidationSupplier.files.length ? React.createElement('div', { style: { marginBottom: '12px' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Select supplier samples'),
-                                                                        mergedValidationSupplier.files.map(function(fileEntry, fileIdx) {
-                                                                            var fileId = String(fileEntry.id || ('idx-' + fileIdx));
-                                                                            var isSelectedSample = selectedSupplierSampleIds.indexOf(fileId) !== -1;
-                                                                            return React.createElement('label', { key: 'step2-supplier-sample-' + fileIdx, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', marginBottom: '6px', border: '1px solid ' + (isSelectedSample ? greenAccent : darkBorder), borderRadius: '4px', background: isSelectedSample ? 'rgba(255,0,101,0.08)' : '#000', cursor: step2ReviewApproved ? 'default' : 'pointer' } },
-                                                                                !step2ReviewApproved ? React.createElement('input', { type: 'checkbox', checked: isSelectedSample, onChange: function(e) { setSelectedSupplierSampleIds(function(prev) { return e.target.checked ? (prev.indexOf(fileId) === -1 ? prev.concat([fileId]) : prev) : prev.filter(function(v) { return v !== fileId; }); }); } }) : null,
-                                                                                React.createElement('a', { href: fileEntry.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', textDecoration: 'none' } }, fileEntry.title || fileEntry.name || ('Sample #' + (fileIdx + 1)))
-                                                                            );
+                                                                        renderAttachmentGallery(mergedValidationSupplier.files, {
+                                                                            keyPrefix: 'step2-supplier-sample-',
+                                                                            defaultTitlePrefix: 'Sample',
+                                                                            isSelected: function(fileEntry, fileIdx) {
+                                                                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                                                                return selectedSupplierSampleIds.indexOf(fileId) !== -1;
+                                                                            },
+                                                                            renderControl: step2ReviewApproved ? null : function(fileEntry, fileIdx) {
+                                                                                var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
+                                                                                var isSelectedSample = selectedSupplierSampleIds.indexOf(fileId) !== -1;
+                                                                                return React.createElement('input', {
+                                                                                    type: 'checkbox',
+                                                                                    checked: isSelectedSample,
+                                                                                    onChange: function(e) {
+                                                                                        e.stopPropagation();
+                                                                                        setSelectedSupplierSampleIds(function(prev) {
+                                                                                            return e.target.checked
+                                                                                                ? (prev.indexOf(fileId) === -1 ? prev.concat([fileId]) : prev)
+                                                                                                : prev.filter(function(v) { return v !== fileId; });
+                                                                                        });
+                                                                                    }
+                                                                                });
+                                                                            }
                                                                         })
                                                                     ) : null,
                                                                     React.createElement('div', { style: { display: 'grid', gap: '10px' } },
@@ -20529,12 +22074,17 @@ class N88_RFQ_Admin {
                                                                         React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
                                                                         mergedValidationReview.approved_material_codes && mergedValidationReview.approved_material_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + mergedValidationReview.approved_material_codes.join(', ')) : null,
                                                                         mergedValidationReview.approved_finish_codes && mergedValidationReview.approved_finish_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + mergedValidationReview.approved_finish_codes.join(', ')) : null,
-                                                                        mergedValidationReview.notes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, mergedValidationReview.notes) : null
+                                                                        mergedValidationReview.notes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, mergedValidationReview.notes) : null,
+                                                                        mergedValidationReview.approved_sample_images && mergedValidationReview.approved_sample_images.length ? React.createElement('div', { style: { marginTop: '8px' } },
+                                                                            React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Approved sample photos'),
+                                                                            renderAttachmentGallery(mergedValidationReview.approved_sample_images, { keyPrefix: 'approved-sample-photo-summary-', defaultTitlePrefix: 'Approved Sample Photo' })
+                                                                        ) : null
                                                                     ) : null,
                                                                     step2ValidationCanAward ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, display: 'grid', gap: '8px' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Validation approved. You can now award this supplier and move to Step 03.'),
                                                                         React.createElement('button', {
                                                                             type: 'button',
+                                                                            disabled: step2AwardSubmitting,
                                                                             onClick: function() {
                                                                                 if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
                                                                                 var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
@@ -20543,6 +22093,9 @@ class N88_RFQ_Admin {
                                                                                     setSampleRequestError('Security token missing. Please refresh and try again.');
                                                                                     return;
                                                                                 }
+                                                                                setStep2AwardSubmitting(true);
+                                                                                setSampleRequestMessage('');
+                                                                                setSampleRequestError('');
                                                                                 var fd = new FormData();
                                                                                 fd.append('action', 'n88_award_bid');
                                                                                 fd.append('item_id', String(itemId));
@@ -20553,6 +22106,13 @@ class N88_RFQ_Admin {
                                                                                     .then(function(data) {
                                                                                         if (data && data.success) {
                                                                                             setSampleRequestMessage(data.data && data.data.message ? data.data.message : 'Bid awarded successfully.');
+                                                                                            setItemState(function(prev) {
+                                                                                                var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                nextState.has_awarded_bid = true;
+                                                                                                nextState.awarded_bid_id = parseInt(step2ReviewBidId, 10) || nextState.awarded_bid_id || null;
+                                                                                                return nextState;
+                                                                                            });
+                                                                                            setActiveTab('timeline');
                                                                                             setPinnedTimelineStep(2);
                                                                                             setSelectedStepIndex(2);
                                                                                             fetchItemState();
@@ -20563,10 +22123,13 @@ class N88_RFQ_Admin {
                                                                                     .catch(function(error) {
                                                                                         console.error('Error awarding bid:', error);
                                                                                         setSampleRequestError('Failed to award bid. Please try again.');
+                                                                                    })
+                                                                                    .finally(function() {
+                                                                                        setStep2AwardSubmitting(false);
                                                                                     });
                                                                             },
-                                                                            style: { padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '700' }
-                                                                        }, 'Award Bid')
+                                                                            style: { padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: step2AwardSubmitting ? 'not-allowed' : 'pointer', opacity: step2AwardSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '700' }
+                                                                        }, step2AwardSubmitting ? 'Awarding...' : 'Award Bid')
                                                                     ) : (showSampleResponseStep && itemState.has_awarded_bid && step2ReviewApproved) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '11px', color: greenAccent } }, 'Bid awarded. Step 03 is now active for PO, COM, and deposit.') : null
                                                                 ) : null
                                                             );
@@ -20593,7 +22156,7 @@ class N88_RFQ_Admin {
                                                                         var attachments = []; try { if (msg.message_attachments) { var a = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments; if (Array.isArray(a)) attachments = a; } } catch (e) {}
                                                                         return React.createElement('div', { key: idx, style: { marginBottom: '6px', display: 'flex', justifyContent: isD ? 'flex-end' : 'flex-start', width: '100%' } },
                                                                             React.createElement('div', { style: { maxWidth: '75%', padding: '6px 10px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: isD ? '10px 10px 4px 10px' : '10px 10px 10px 4px', fontSize: '11px', color: '#fff', wordWrap: 'break-word', whiteSpace: 'pre-wrap', lineHeight: 1.35 } },
-                                                                                React.createElement('div', { style: { fontSize: '8px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '2px' } }, isD ? 'You' : (itemState.has_rfq ? 'Supplier' : 'Operator')),
+                                                                                React.createElement('div', { style: { fontSize: '8px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '2px' } }, isD ? 'You' : (activeDesignerConversationContext.threadType === 'designer_supplier' ? 'Supplier' : 'Operator')),
                                                                                 React.createElement('div', { style: { fontSize: '11px', lineHeight: '1.35', marginBottom: '2px' } }, msg.message_text || ''),
                                                                                 tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null,
                                                                                 attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '9px', color: greenAccent } }, 'FILE')); })) : null,
@@ -20602,33 +22165,28 @@ class N88_RFQ_Admin {
                                                                         );
                                                                     }),
                                                                     React.createElement('form', { onSubmit: function(e) { e.preventDefault(); sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-                                                                        isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                                                                            React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
-                                                                            React.createElement('select', {
-                                                                                ref: directSupplierSelectRef,
-                                                                                className: 'n88-direct-supplier-select',
-                                                                                value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
-                                                                                onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
-                                                                                style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
-                                                                            },
-                                                                                React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
-                                                                                availableDirectSuppliers.map(function(opt) {
-                                                                                    return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
-                                                                                })
-                                                                            )
-                                                                        ) : null,
-                                                                        React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
-                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
-                                                                            React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
-                                                                            React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
-                                                                        ),
+                                                (isDirectSupplierConversation || activeMessageContextType === 'item_specs') ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                    React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
+                                                    React.createElement('select', {
+                                                        ref: directSupplierSelectRef,
+                                                        className: 'n88-direct-supplier-select',
+                                                        value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
+                                                        onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
+                                                        style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
+                                                    },
+                                                        React.createElement('option', { value: '' }, directSupplierSelectOptions.length ? 'Select supplier' : 'No supplier available'),
+                                                        directSupplierSelectOptions.map(function(opt) {
+                                                            return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
+                                                        })
+                                                    )
+                                                ) : null,
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
                                                                             renderDesignerMessageFilePreview(),
                                                                             React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments-timeline'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
                                                                             React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '44px' } },
-                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSendDesignerMessage) sendDesignerMessage(e); } } }),
+                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!canSendDesignerMessage) return; var form = e.currentTarget && e.currentTarget.form ? e.currentTarget.form : null; if (form && typeof form.requestSubmit === 'function') { form.requestSubmit(); } else if (form) { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); } } } }),
                                                                             React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                                         )
                                                                     )
@@ -20637,7 +22195,7 @@ class N88_RFQ_Admin {
                                                         ) : null,
                                                         s.step_number !== 1 ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
                                                             '· State: ',
-                                                            React.createElement('span', { style: { color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText } }, statusLabel)
+                                                            React.createElement('span', { style: { color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText } }, s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending')
                                                         ) : null,
                                                         s.started_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Started: ' + formatWorkflowDateTime(s.started_at)) : null,
                                                         s.completed_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Completed: ' + formatWorkflowDateTime(s.completed_at)) : null,
@@ -20665,6 +22223,31 @@ class N88_RFQ_Admin {
                                                                 ? step3ValidationState.readiness_flags
                                                                 : ((step3ValidationMeta.readiness_flags && typeof step3ValidationMeta.readiness_flags === 'object') ? step3ValidationMeta.readiness_flags : {});
                                                             var step3ProgressCardText = String(step3ValidationState.card_status_text || step3ValidationMeta.card_status_text || itemState.validation_card_status_text || item.validation_card_status_text || '').toLowerCase();
+                                                            var awardedSnapshotStep3 = (item && item.meta && item.meta.awarded_bid_snapshot && typeof item.meta.awarded_bid_snapshot === 'object')
+                                                                ? item.meta.awarded_bid_snapshot
+                                                                : {};
+                                                            var awardedBidStep3 = null;
+                                                            if (itemState && Array.isArray(itemState.bids) && itemState.bids.length) {
+                                                                awardedBidStep3 = itemState.bids.find(function(bid) {
+                                                                    return String((bid && (bid.status || bid.bid_status)) || '').toLowerCase() === 'awarded';
+                                                                }) || null;
+                                                                if (!awardedBidStep3 && awardedSnapshotStep3.bid_id) {
+                                                                    awardedBidStep3 = itemState.bids.find(function(bid) {
+                                                                        return Number(bid && bid.bid_id) === Number(awardedSnapshotStep3.bid_id);
+                                                                    }) || null;
+                                                                }
+                                                            }
+                                                            var awardedSupplierNameStep3 = awardedBidStep3 && awardedBidStep3.supplier_name
+                                                                ? awardedBidStep3.supplier_name
+                                                                : (awardedSnapshotStep3.supplier_name || (awardedSnapshotStep3.supplier_id ? ('Supplier #' + awardedSnapshotStep3.supplier_id) : 'Supplier pending'));
+                                                            var awardedAtStep3 = awardedSnapshotStep3.awarded_at || item.award_timestamp || null;
+                                                            var totalProductionCostStep3 = awardedBidStep3 && awardedBidStep3.total_price != null && awardedBidStep3.total_price !== '' ? parseFloat(awardedBidStep3.total_price) : null;
+                                                            var deliveryCostStep3 = awardedBidStep3 && awardedBidStep3.delivery_cost_usd != null && awardedBidStep3.delivery_cost_usd !== '' ? parseFloat(awardedBidStep3.delivery_cost_usd) : null;
+                                                            var prototypeCreditStep3 = awardedBidStep3 && awardedBidStep3.prototype_cost != null && awardedBidStep3.prototype_cost !== '' && parseFloat(awardedBidStep3.prototype_cost) > 0 ? (parseFloat(awardedBidStep3.prototype_cost) * 0.5) : 0;
+                                                            var finalOrderTotalStep3 = (totalProductionCostStep3 != null && deliveryCostStep3 != null)
+                                                                ? (totalProductionCostStep3 + deliveryCostStep3 - prototypeCreditStep3)
+                                                                : null;
+                                                            var displayAwardAmountStep3 = finalOrderTotalStep3 != null ? finalOrderTotalStep3 : totalProductionCostStep3;
                                                             var step3HasCommitmentProgress = !!(
                                                                 (step3Commitment.po_file && step3Commitment.po_file.url) ||
                                                                 step3Commitment.po_uploaded_at ||
@@ -20746,7 +22329,7 @@ class N88_RFQ_Admin {
                                                                             submitMaterialValidationAction('n88_upload_validation_po', {}, { po_file: validationPoFile })
                                                                                 .then(function(res) {
                                                                                     if (res && res.success) {
-                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded.');
+                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded successfully.');
                                                                                         setValidationPoFile(null);
                                                                                         if (validationPoInputRef && validationPoInputRef.current) validationPoInputRef.current.value = '';
                                                                                         fetchItemState();
@@ -20764,9 +22347,9 @@ class N88_RFQ_Admin {
                                                                         style: { padding: '12px 18px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationPoSubmitting || !validationPoFile) ? 'not-allowed' : 'pointer', opacity: (validationPoSubmitting || !validationPoFile) ? 0.55 : 1, fontSize: '14px', fontFamily: 'monospace', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
                                                                     }, validationPoSubmitting ? 'Uploading...' : 'UPLOAD PO')
                                                                 ) : null,
-                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, 'Validation Approved'),
-                                                                step3Review.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(step3Review.samples_received_at)) : null,
-                                                                step3Supplier.files && step3Supplier.files.length ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, hasStep3Approved ? 'Bid Awarded' : 'Validation Approved'),
+                                                                (!hasStep3Approved && step3Review.samples_received_at) ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(step3Review.samples_received_at)) : null,
+                                                                (!hasStep3Approved && step3Supplier.files && step3Supplier.files.length) ? React.createElement('div', { style: { marginBottom: '12px' } },
                                                                     React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Supplier uploaded samples'),
                                                                     step3Supplier.files.map(function(fileEntry, fileIdx) {
                                                                         var fileId = String(fileEntry.id || ('idx-' + fileIdx));
@@ -20875,11 +22458,10 @@ class N88_RFQ_Admin {
                                                                         style: { padding: '10px 14px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '600' }
                                                                     }, sampleReviewSubmitting ? 'Approving...' : 'Approve Samples')
                                                                 ) : React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)' } },
-                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
-                                                                    (step3Review.approved_at || step3Commitment.po_uploaded_at || step3Commitment.com_delivered_at || step3Commitment.deposit_confirmed_at) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Progress saved: ' + formatWorkflowDateTime(step3Review.approved_at || step3Commitment.po_uploaded_at || step3Commitment.com_delivered_at || step3Commitment.deposit_confirmed_at)) : null,
-                                                                    step3Review.approved_material_codes && step3Review.approved_material_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + step3Review.approved_material_codes.join(', ')) : null,
-                                                                    step3Review.approved_finish_codes && step3Review.approved_finish_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + step3Review.approved_finish_codes.join(', ')) : null,
-                                                                    step3Review.notes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Notes: ' + step3Review.notes) : null,
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Bid Awarded Details'),
+                                                                    awardedAtStep3 ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Awarded at: ' + formatWorkflowDateTime(awardedAtStep3)) : null,
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Supplier: ' + awardedSupplierNameStep3),
+                                                                    displayAwardAmountStep3 != null && !isNaN(displayAwardAmountStep3) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, (finalOrderTotalStep3 != null ? 'Final Order Total: $' : 'Total Production Cost: $') + Number(displayAwardAmountStep3).toFixed(2)) : null,
                                                                     step3HasPoSuccess ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'PO Uploaded'),
                                                                         (step3Commitment.po_file && step3Commitment.po_file.url) ? React.createElement('a', { href: step3Commitment.po_file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, 'Open PO') : React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'PO is already saved in this workflow.'),
@@ -20907,10 +22489,7 @@ class N88_RFQ_Admin {
                                                                     step3IsReadyForProduction ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '700', color: greenAccent } }, 'Ready for Production'),
                                                                         React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'All validation commitments are complete.')
-                                                                    ) : null,
-                                                                    step3Review.approved_sample_images && step3Review.approved_sample_images.length ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } }, step3Review.approved_sample_images.map(function(file, fileIdx) {
-                                                                        return React.createElement('a', { key: 'step3-approved-image-' + fileIdx, href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, file.title || ('Approved Sample ' + (fileIdx + 1)));
-                                                                    })) : null
+                                                                    ) : null
                                                                 )
                                                             );
                                                         })() : null,
@@ -20954,6 +22533,31 @@ class N88_RFQ_Admin {
                                                             var step3AwaitingPoReadiness = !!step3ReadinessFlags.awaiting_po;
                                                             var step3AwaitingComReadiness = !!step3ReadinessFlags.awaiting_com;
                                                             var step3AwaitingDepositReadiness = !!step3ReadinessFlags.awaiting_deposit;
+                                                            var awardedSnapshotStep3Readiness = (item && item.meta && item.meta.awarded_bid_snapshot && typeof item.meta.awarded_bid_snapshot === 'object')
+                                                                ? item.meta.awarded_bid_snapshot
+                                                                : {};
+                                                            var awardedBidStep3Readiness = null;
+                                                            if (itemState && Array.isArray(itemState.bids) && itemState.bids.length) {
+                                                                awardedBidStep3Readiness = itemState.bids.find(function(bid) {
+                                                                    return String((bid && (bid.status || bid.bid_status)) || '').toLowerCase() === 'awarded';
+                                                                }) || null;
+                                                                if (!awardedBidStep3Readiness && awardedSnapshotStep3Readiness.bid_id) {
+                                                                    awardedBidStep3Readiness = itemState.bids.find(function(bid) {
+                                                                        return Number(bid && bid.bid_id) === Number(awardedSnapshotStep3Readiness.bid_id);
+                                                                    }) || null;
+                                                                }
+                                                            }
+                                                            var totalProductionCostStep3Readiness = awardedBidStep3Readiness && awardedBidStep3Readiness.total_price != null && awardedBidStep3Readiness.total_price !== '' ? parseFloat(awardedBidStep3Readiness.total_price) : null;
+                                                            var deliveryCostStep3Readiness = awardedBidStep3Readiness && awardedBidStep3Readiness.delivery_cost_usd != null && awardedBidStep3Readiness.delivery_cost_usd !== '' ? parseFloat(awardedBidStep3Readiness.delivery_cost_usd) : null;
+                                                            var prototypeCreditStep3Readiness = awardedBidStep3Readiness && awardedBidStep3Readiness.prototype_cost != null && awardedBidStep3Readiness.prototype_cost !== '' && parseFloat(awardedBidStep3Readiness.prototype_cost) > 0 ? (parseFloat(awardedBidStep3Readiness.prototype_cost) * 0.5) : 0;
+                                                            var finalOrderTotalStep3Readiness = (totalProductionCostStep3Readiness != null && deliveryCostStep3Readiness != null)
+                                                                ? (totalProductionCostStep3Readiness + deliveryCostStep3Readiness - prototypeCreditStep3Readiness)
+                                                                : null;
+                                                            var displayAwardAmountStep3Readiness = finalOrderTotalStep3Readiness != null ? finalOrderTotalStep3Readiness : totalProductionCostStep3Readiness;
+                                                            var step3SuggestedDepositAmountReadiness = displayAwardAmountStep3Readiness != null && !isNaN(displayAwardAmountStep3Readiness)
+                                                                ? Number(displayAwardAmountStep3Readiness).toFixed(2)
+                                                                : '';
+                                                            var step3ComShippedReadiness = ['com_in_transit', 'shipped', 'in_transit'].indexOf(String(step3CommitmentReadiness.com_status || '').toLowerCase()) !== -1;
                                                             if (step3ValidationStateReadiness.can_commit) {
                                                                 return null;
                                                             }
@@ -20974,7 +22578,7 @@ class N88_RFQ_Admin {
                                                                         submitMaterialValidationAction('n88_upload_validation_po', {}, { po_file: validationPoFile })
                                                                             .then(function(res) {
                                                                                 if (res && res.success) {
-                                                                                    setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded.');
+                                                                                    setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded successfully.');
                                                                                     setValidationPoFile(null);
                                                                                     if (validationPoInputRef && validationPoInputRef.current) validationPoInputRef.current.value = '';
                                                                                     fetchItemState();
@@ -20994,8 +22598,13 @@ class N88_RFQ_Admin {
                                                             ) : null,
                                                             (step3CommitmentReadiness.po_file && (step3AwaitingDepositReadiness || step3DepositConfirmedReadiness || (step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length))) ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
                                                                 React.createElement('div', { style: { fontSize: '16px', lineHeight: 1.2, color: '#fff', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Upload Deposit Receipt'),
-                                                                !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'text', value: validationDepositSupplierName, onChange: function(e) { setValidationDepositSupplierName(e.target.value); }, placeholder: 'Supplier / payee name', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
-                                                                !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'number', step: '0.01', value: validationDepositAmount, onChange: function(e) { setValidationDepositAmount(e.target.value); }, placeholder: 'Deposit amount', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
+                                                                !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'text', value: validationDepositSupplierName, readOnly: true, placeholder: 'Supplier / payee name', style: { width: '100%', padding: '8px', background: '#050505', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
+                                                                !step3DepositConfirmedReadiness && step3SuggestedDepositAmountReadiness ? React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', padding: '8px 10px', background: '#050505', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
+                                                                    React.createElement('div', { style: { fontSize: '10px', color: darkText, textTransform: 'uppercase', letterSpacing: '0.5px' } }, 'Deposit Total'),
+                                                                    React.createElement('div', { style: { fontSize: '13px', color: '#fff', fontWeight: '700', fontFamily: 'monospace' } }, '$' + step3SuggestedDepositAmountReadiness)
+                                                                ) : null,
+                                                                !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'number', step: '0.01', value: validationDepositAmount, onChange: function(e) { setValidationDepositAmount(e.target.value); }, placeholder: 'Enter amount being sent', style: { width: '100%', padding: '8px', background: '#050505', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
+                                                                !step3DepositConfirmedReadiness ? React.createElement('div', { style: { fontSize: '10px', color: darkText, lineHeight: 1.5 } }, 'Deposit total is shown above. Enter the amount you are sending, then upload the receipt.') : null,
                                                                 !step3DepositConfirmedReadiness ? React.createElement('input', { ref: validationDepositInputRef, type: 'file', multiple: true, onChange: function(e) { setValidationDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }) : null,
                                                                 (!step3DepositConfirmedReadiness && validationDepositReceipts.length) ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, validationDepositReceipts.map(function(file) { return file.name; }).join(', ')) : null,
                                                                 step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length ? React.createElement('div', { style: { display: 'grid', gap: '4px' } }, step3CommitmentReadiness.deposit_receipt_files.map(function(file, fileIdx) {
@@ -21038,31 +22647,23 @@ class N88_RFQ_Admin {
                                                             ) : null,
                                                             (step3CommitmentReadiness.po_file && step3DepositConfirmedReadiness && step3ComApplicableReadiness && (step3AwaitingComReadiness || step3CommitmentReadiness.com_status || step3CommitmentReadiness.com_delivered_at)) ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
                                                                 React.createElement('div', { style: { fontSize: '12px', color: '#fff', fontWeight: '600' } }, 'COM (Customer-Owned Material)'),
-                                                                !step3ComCompletedReadiness ? React.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: darkText } },
-                                                                    React.createElement('input', { type: 'checkbox', checked: validationComRequired, onChange: function(e) { setValidationComRequired(!!e.target.checked); } }),
-                                                                    'Confirm COM requirement'
-                                                                ) : null,
-                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComQty, onChange: function(e) { setValidationComQty(e.target.value); }, placeholder: 'Required COM quantity', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
-                                                                !step3ComCompletedReadiness ? renderStructuredAddressFields('Delivery Address', validationComDeliveryAddressFields, setValidationComDeliveryAddressFields, false, {
-                                                                    name: 'Recipient Name',
-                                                                    address_line: 'Address',
-                                                                    city: 'City',
-                                                                    country: 'Country',
-                                                                    postal_code: 'ZIP / Postal Code'
-                                                                }) : null,
-                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComTrackingNumber, onChange: function(e) { setValidationComTrackingNumber(e.target.value); }, placeholder: 'COM shipping tracking', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
+                                                                React.createElement('div', { style: { display: 'grid', gap: '6px', padding: '10px', background: '#050505', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, textTransform: 'uppercase', letterSpacing: '0.4px' } }, 'Delivery Address'),
+                                                                    React.createElement('div', { style: { fontSize: '12px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: 1.5 } }, formatAddressFields(validationComDeliveryAddressFields) || 'Address pending from supplier.')
+                                                                ),
+                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComTrackingNumber, onChange: function(e) { setValidationComTrackingNumber(e.target.value); }, placeholder: 'COM shipping tracking', disabled: step3ComShippedReadiness, style: { width: '100%', padding: '8px', background: step3ComShippedReadiness ? '#050505' : '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box', opacity: step3ComShippedReadiness ? 0.75 : 1 } }) : null,
                                                                 step3CommitmentReadiness.com_status ? React.createElement('div', { style: { fontSize: '11px', color: step3ComCompletedReadiness ? greenAccent : darkText } }, 'COM Status: ' + String(step3CommitmentReadiness.com_status).replace(/_/g, ' ')) : null,
                                                                 !step3ComCompletedReadiness ? React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
                                                                     React.createElement('button', {
                                                                         type: 'button',
-                                                                        disabled: validationComSubmitting || !validationComTrackingNumber,
+                                                                        disabled: validationComSubmitting || !validationComTrackingNumber || step3ComShippedReadiness,
                                                                         onClick: function() {
                                                                             setValidationComSubmitting(true);
                                                                             setSampleRequestError('');
                                                                             setSampleRequestMessage('');
                                                                             submitMaterialValidationAction('n88_submit_validation_com', {
-                                                                                com_required: validationComRequired ? '1' : '',
-                                                                                com_qty: validationComQty,
+                                                                                com_required: '1',
+                                                                                com_qty: '',
                                                                                 com_delivery_address: formatAddressFields(validationComDeliveryAddressFields),
                                                                                 com_contact_name: validationComDeliveryAddressFields.name,
                                                                                 com_address_line1: validationComDeliveryAddressFields.address_line,
@@ -21074,7 +22675,6 @@ class N88_RFQ_Admin {
                                                                             }, {})
                                                                                 .then(function(res) {
                                                                                     if (res && res.success) {
-                                                                                        try { localStorage.removeItem('n88-validation-com-address-' + String(itemId || '')); } catch (e) {}
                                                                                         setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM shipment recorded.');
                                                                                         fetchItemState();
                                                                                     } else {
@@ -21088,33 +22688,8 @@ class N88_RFQ_Admin {
                                                                                     setValidationComSubmitting(false);
                                                                                 });
                                                                         },
-                                                                        style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationComSubmitting || !validationComTrackingNumber) ? 'not-allowed' : 'pointer', opacity: (validationComSubmitting || !validationComTrackingNumber) ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
-                                                                    }, validationComSubmitting ? 'Saving...' : 'Mark COM Shipped'),
-                                                                    (step3CommitmentReadiness.com_status === 'com_in_transit' || step3CommitmentReadiness.com_status === 'awaiting_com') ? React.createElement('button', {
-                                                                        type: 'button',
-                                                                        disabled: validationComSubmitting,
-                                                                        onClick: function() {
-                                                                            setValidationComSubmitting(true);
-                                                                            setSampleRequestError('');
-                                                                            setSampleRequestMessage('');
-                                                                            submitMaterialValidationAction('n88_mark_validation_com_delivered', {}, {})
-                                                                                .then(function(res) {
-                                                                                    if (res && res.success) {
-                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM marked delivered.');
-                                                                                        fetchItemState();
-                                                                                    } else {
-                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to mark COM delivered.');
-                                                                                    }
-                                                                                })
-                                                                                .catch(function(err) {
-                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to mark COM delivered.');
-                                                                                })
-                                                                                .finally(function() {
-                                                                                    setValidationComSubmitting(false);
-                                                                                });
-                                                                        },
-                                                                        style: { padding: '9px 12px', background: 'transparent', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: validationComSubmitting ? 'not-allowed' : 'pointer', opacity: validationComSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
-                                                                    }, 'Mark COM Delivered') : null
+                                                                        style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationComSubmitting || !validationComTrackingNumber || step3ComShippedReadiness) ? 'not-allowed' : 'pointer', opacity: (validationComSubmitting || !validationComTrackingNumber || step3ComShippedReadiness) ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
+                                                                    }, validationComSubmitting ? 'Saving...' : (step3ComShippedReadiness ? 'COM Shipped' : 'Mark COM Shipped'))
                                                                 ) : null,
                                                                 step3CommitmentReadiness.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, 'Delivered: ' + formatWorkflowDateTime(step3CommitmentReadiness.com_delivered_at)) : null
                                                             ) : null
@@ -21330,24 +22905,19 @@ class N88_RFQ_Admin {
                                                                                 onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
                                                                                 style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
                                                                             },
-                                                                                React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
-                                                                                availableDirectSuppliers.map(function(opt) {
+                                                                                React.createElement('option', { value: '' }, directSupplierSelectOptions.length ? 'Select supplier' : 'No supplier available'),
+                                                                                directSupplierSelectOptions.map(function(opt) {
                                                                                     return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
                                                                                 })
                                                                             )
                                                                         ) : null,
-                                                                        React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
-                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
-                                                                            React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
-                                                                            React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
-                                                                        ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
                                                                             renderDesignerMessageFilePreview(),
                                                                             React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments-timeline2'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
                                                                             React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline2', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '44px' } },
-                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSendDesignerMessage) sendDesignerMessage(e); } } }),
+                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!canSendDesignerMessage) return; var form = e.currentTarget && e.currentTarget.form ? e.currentTarget.form : null; if (form && typeof form.requestSubmit === 'function') { form.requestSubmit(); } else if (form) { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); } } } }),
                                                                             React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                                         )
                                                                     )
@@ -22422,9 +23992,112 @@ class N88_RFQ_Admin {
                         open: function() { 
                             var unreadSupplierContext = item && item.latest_unread_supplier_message_context ? String(item.latest_unread_supplier_message_context) : '';
                             var unreadSupplierStepIndex = item && typeof item.latest_unread_supplier_message_step_index === 'number' ? item.latest_unread_supplier_message_step_index : null;
+                            var validationStateOpen = item && item.validation_state && typeof item.validation_state === 'object'
+                                ? item.validation_state
+                                : ((item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object') ? item.meta.material_validation : {});
+                            var validationSupplierOpen = validationStateOpen.supplier && typeof validationStateOpen.supplier === 'object'
+                                ? validationStateOpen.supplier
+                                : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.supplier && typeof item.meta.material_validation.supplier === 'object') ? item.meta.material_validation.supplier : {});
+                            var validationReviewOpen = validationStateOpen.review && typeof validationStateOpen.review === 'object'
+                                ? validationStateOpen.review
+                                : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.review && typeof item.meta.material_validation.review === 'object') ? item.meta.material_validation.review : {});
+                            var validationCommitmentOpen = validationStateOpen.commitment && typeof validationStateOpen.commitment === 'object'
+                                ? validationStateOpen.commitment
+                                : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.commitment && typeof item.meta.material_validation.commitment === 'object') ? item.meta.material_validation.commitment : {});
+                            var validationSampleStatusOpen = String(validationStateOpen.sample_status || (item && item.meta && item.meta.material_validation && item.meta.material_validation.sample_status) || '').toLowerCase();
+                            var validationCardTextOpen = String((validationStateOpen && validationStateOpen.card_status_text) || item.validation_card_status_text || '').toLowerCase();
+                            var validationReadinessOpen = validationStateOpen.readiness_flags && typeof validationStateOpen.readiness_flags === 'object'
+                                ? validationStateOpen.readiness_flags
+                                : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.readiness_flags && typeof item.meta.material_validation.readiness_flags === 'object') ? item.meta.material_validation.readiness_flags : {});
+                            var isSupplierBoardViewer = !!(window.n88BoardData && window.n88BoardData.isSupplier);
+                            var readyForProductionOpen = !!(
+                                validationStateOpen.can_commit ||
+                                validationCardTextOpen === 'ready for production'
+                            );
+                            var sampleSupplierResponseReceivedOpen = !!(
+                                validationSupplierOpen.updated_at ||
+                                validationSupplierOpen.status ||
+                                validationSupplierOpen.note ||
+                                validationSupplierOpen.tracking_number ||
+                                (validationSupplierOpen.files && validationSupplierOpen.files.length)
+                            );
+                            var sampleReviewStepThreeOpen = !!(
+                                (item && (item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1)) ||
+                                validationCommitmentOpen.po_uploaded_at ||
+                                (validationCommitmentOpen.po_file && validationCommitmentOpen.po_file.url) ||
+                                validationCommitmentOpen.com_status ||
+                                validationCommitmentOpen.com_tracking_number ||
+                                validationCommitmentOpen.com_delivered_at ||
+                                validationCommitmentOpen.deposit_status ||
+                                validationCommitmentOpen.deposit_confirmed_at ||
+                                (validationCommitmentOpen.deposit_receipt_files && validationCommitmentOpen.deposit_receipt_files.length) ||
+                                validationStateOpen.can_commit ||
+                                validationReadinessOpen.awaiting_po ||
+                                validationReadinessOpen.awaiting_deposit ||
+                                validationReadinessOpen.awaiting_com ||
+                                validationCardTextOpen === 'awaiting po' ||
+                                validationCardTextOpen === 'awaiting deposit' ||
+                                validationCardTextOpen === 'awaiting com' ||
+                                validationCardTextOpen === 'com shipped' ||
+                                validationCardTextOpen === 'ready for production'
+                            );
+                            var sampleReviewStepTwoOpen = sampleSupplierResponseReceivedOpen ||
+                                validationSampleStatusOpen === 'sample_requested' ||
+                                validationReviewOpen.samples_received_at ||
+                                validationReviewOpen.approved_at ||
+                                validationSampleStatusOpen === 'delivered' ||
+                                validationSampleStatusOpen === 'shipped' ||
+                                validationSampleStatusOpen === 'in_transit' ||
+                                validationSampleStatusOpen === 'samples_received' ||
+                                validationSampleStatusOpen === 'under_review' ||
+                                validationSampleStatusOpen === 'samples_approved' ||
+                                validationCardTextOpen === 'sample requested' ||
+                                validationCardTextOpen === 'samples requested' ||
+                                validationCardTextOpen === 'review samples' ||
+                                validationCardTextOpen === 'samples received' ||
+                                validationCardTextOpen === 'samples approved' ||
+                                validationCardTextOpen === 'material samples shipped';
+                            var shouldOpenTimelineByDefault = !!(
+                                item && (
+                                    item.action_required === true ||
+                                    item.action_required === 'true' ||
+                                    item.action_required === 1 ||
+                                    item.has_unread_operator_messages === true ||
+                                    item.has_unread_operator_messages === 'true' ||
+                                    item.has_unread_operator_messages === 1 ||
+                                    item.has_unread_supplier_messages === true ||
+                                    item.has_unread_supplier_messages === 'true' ||
+                                    item.has_unread_supplier_messages === 1 ||
+                                    item.has_prototype_payment === true ||
+                                    item.has_prototype_payment === 'true' ||
+                                    item.has_prototype_payment === 1 ||
+                                    item.has_prototype_video_submitted === true ||
+                                    item.has_prototype_video_submitted === 'true' ||
+                                    item.has_prototype_video_submitted === 1 ||
+                                    item.has_bids === true ||
+                                    item.has_bids === 'true' ||
+                                    item.has_bids === 1 ||
+                                    item.prototype_status === 'submitted'
+                                )
+                            );
                             if (unreadSupplierContext && unreadSupplierContext.indexOf('step_') === 0 && unreadSupplierStepIndex !== null) {
                                 setInitialTab('timeline');
                                 setInitialTimelineStep(unreadSupplierStepIndex);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(false);
+                            } else if (isSupplierBoardViewer && readyForProductionOpen) {
+                                setInitialTab('timeline');
+                                setInitialTimelineStep(3);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(false);
+                            } else if (sampleReviewStepThreeOpen) {
+                                setInitialTab('timeline');
+                                setInitialTimelineStep(2);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(false);
+                            } else if (sampleReviewStepTwoOpen) {
+                                setInitialTab('timeline');
+                                setInitialTimelineStep(1);
                                 setRequestSampleContext(null);
                                 setOpenModalToSupport(false);
                             } else if (unreadSupplierContext === 'item_specs') {
@@ -22433,7 +24106,7 @@ class N88_RFQ_Admin {
                                 setRequestSampleContext(null);
                                 setOpenModalToSupport(true);
                             } else {
-                                setInitialTab('details');
+                                setInitialTab(shouldOpenTimelineByDefault ? 'timeline' : 'details');
                                 setInitialTimelineStep(null);
                                 setRequestSampleContext(null);
                                 setOpenModalToSupport(false);
@@ -22608,6 +24281,9 @@ class N88_RFQ_Admin {
                                             if (payload.quantity !== undefined) {
                                                 updatedItem.quantity = payload.quantity;
                                             }
+                                            if (payload.title !== undefined) {
+                                                updatedItem.title = payload.title;
+                                            }
                                             if (payload.category !== undefined) {
                                                 updatedItem.category = payload.category;
                                                 updatedItem.item_type = payload.category;
@@ -22644,6 +24320,7 @@ class N88_RFQ_Admin {
                                                 updatedItem.inspiration = payload.inspiration;
                                             }
                                             updatedItem.meta = Object.assign({}, updatedItem.meta || {}, {
+                                                selected_keyword_ids: payload.selected_keyword_ids !== undefined ? payload.selected_keyword_ids : ((updatedItem.meta || {}).selected_keyword_ids),
                                                 rfq_overall_notes: payload.rfq_overall_notes !== undefined ? payload.rfq_overall_notes : ((updatedItem.meta || {}).rfq_overall_notes),
                                                 rfq_fabric_supplied_flag: payload.rfq_fabric_supplied_flag !== undefined ? payload.rfq_fabric_supplied_flag : ((updatedItem.meta || {}).rfq_fabric_supplied_flag),
                                                 rfq_fabric_notes: payload.rfq_fabric_notes !== undefined ? payload.rfq_fabric_notes : ((updatedItem.meta || {}).rfq_fabric_notes),
@@ -23284,7 +24961,7 @@ class N88_RFQ_Admin {
                         var validationStatus = validationState && validationState.sample_status ? String(validationState.sample_status) : '';
                         if (validationStatus === 'sample_requested') return 'Samples Requested';
                         if (validationStatus === 'supplier_submitted' || validationStatus === 'samples_shipped') return 'Samples Shipped';
-                        if (validationStatus === 'samples_received') return 'Samples Received';
+                        if (validationStatus === 'samples_received') return 'Sample Received';
                         if (validationStatus === 'samples_approved') return 'Samples Approved';
                         if (proposalGroupHasSampleRequest(group)) return 'Sample Request Created';
                         if (group && Array.isArray(group.suppliers) && group.suppliers.length) return 'Quoted';

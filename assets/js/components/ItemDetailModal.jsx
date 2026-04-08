@@ -2223,12 +2223,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     // Commit 2.6.1: Check if user is view-only team member
     const isViewOnly = window.n88BoardData?.isViewOnly || false;
     const updateLayout = useBoardStore((state) => state.updateLayout);
-    
-    // Item state (RFQ and bids)
-    const [itemState, setItemState] = React.useState({
+    const initialItemState = React.useMemo(() => ({
         has_rfq: false,
         has_bids: false,
-        has_awarded_bid: false, // Commit 2.4.1 / 3.C.1: track awarded state in modal
+        has_awarded_bid: false,
         bids: [],
         loading: true,
         has_unread_operator_messages: false,
@@ -2239,7 +2237,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         prototype_payment_supplier_id: null,
         prototype_payment_status: null,
         prototype_payment_total_due: null,
-        // Commit 2.3.9.2A: CAD workflow state
         cad_status: null,
         cad_revision_rounds_included: null,
         cad_revision_rounds_used: null,
@@ -2247,14 +2244,28 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         cad_approved_version: null,
         cad_released_to_supplier_at: null,
         cad_current_version: null,
-        // Commit 2.3.9.2B-D: Prototype review state
         prototype_status: null,
         prototype_current_version: null,
         prototype_approved_version: null,
-        prototype_submission: null, // { version, links: [], created_at }
-        direction_keyword_ids: null, // Array of keyword IDs
-        direction_keyword_names: null, // { keyword_id: name } for display
-    });
+        prototype_submission: null,
+        direction_keyword_ids: null,
+        direction_keyword_names: null,
+        workflow_milestones: null,
+        rfq_revision_current: null,
+        revision_changed: false,
+        deposit_status: '',
+        deposit_amount: null,
+        deposit_calculated_at: null,
+        deposit_received_at: null,
+        deposit_receipt_url: '',
+        deposit_sent_note: '',
+        deposit_sent_at: null,
+    }), []);
+    
+    // Item state (RFQ and bids)
+    const [itemState, setItemState] = React.useState(initialItemState);
+    const [loadedSections, setLoadedSections] = React.useState({ summary: false, bids: false, workflow: false });
+    const itemStateRequestRef = React.useRef({});
     
     // Payment Instructions Modal State
     const [showPaymentInstructions, setShowPaymentInstructions] = React.useState(false);
@@ -2479,7 +2490,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             setSelectedStepIndex(0); // Step 1: Payment Confirmed / CAD drafting
             return;
         }
-        if (currentState === 'C' && itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
+        if (currentState === 'C' && itemState.has_bids) {
             setBidsExpanded(true);
             setActiveTab('bids');
         } else {
@@ -2487,7 +2498,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDesignerMessages is defined later; effect correctly runs when action_required/unread/CAD-pending or itemState change
     }, [itemState.loading, currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, item?.action_required, item?.has_unread_operator_messages]);
-    
+
     // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
     React.useEffect(() => {
         if (isOpen && openToDetailsAndSupport) {
@@ -2518,6 +2529,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         return null;
     };
     const itemId = getItemId();
+
+    React.useEffect(() => {
+        if (!isOpen) return;
+        setItemState(initialItemState);
+        setLoadedSections({ summary: false, bids: false, workflow: false });
+        itemStateRequestRef.current = {};
+    }, [isOpen, itemId, initialItemState]);
     
     // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Review and Message so the tab effect can auto-expand it.
     React.useEffect(() => {
@@ -2529,7 +2547,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             if (!hasActionRequired) {
                 setShowDesignerMessageForm(false); // Collapse when not Action Required (CAD-pending is only known after fetch)
             }
-            fetchItemState();
+            fetchItemState('summary');
         }
     }, [isOpen, itemId, item?.action_required, item?.has_unread_operator_messages]);
     
@@ -2541,7 +2559,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     }, [itemState.prototype_submission]);
     
     // Fetch item state from server
-    const fetchItemState = async () => {
+    const fetchItemState = React.useCallback(async (requestedSection) => {
+        const section = requestedSection || (activeTab === 'workflow' ? 'workflow' : (activeTab === 'bids' ? 'bids' : 'summary'));
+        if (itemStateRequestRef.current[section]) {
+            return;
+        }
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
         // Try multiple nonce sources
         let nonce = '';
@@ -2563,9 +2585,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         }
         
         try {
+            itemStateRequestRef.current[section] = true;
             const formData = new FormData();
             formData.append('action', 'n88_get_item_rfq_state');
             formData.append('item_id', String(itemId));
+            formData.append('section', section);
             formData.append('_ajax_nonce', nonce);
             
             const response = await fetch(ajaxUrl, {
@@ -2576,13 +2600,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             const data = await response.json();
             
             if (data.success) {
-                setItemState({
+                const sectionFlags = data.data?.loaded_sections || {};
+                const summaryLoaded = !!sectionFlags.summary || section === 'summary' || section === 'bids' || section === 'workflow';
+                const bidsLoaded = !!sectionFlags.bids || section === 'bids';
+                const workflowLoaded = !!sectionFlags.workflow || section === 'workflow';
+
+                setLoadedSections((prev) => ({
+                    summary: prev.summary || summaryLoaded,
+                    bids: prev.bids || bidsLoaded,
+                    workflow: prev.workflow || workflowLoaded,
+                }));
+
+                setItemState((prev) => ({
+                    ...prev,
                     has_rfq: data.data.has_rfq || false,
                     has_bids: data.data.has_bids || false,
                     has_awarded_bid: !!data.data.has_awarded_bid,
-                    bids: data.data.bids || [],
-                    rfq_revision_current: data.data.rfq_revision_current || null,
-                    revision_changed: data.data.revision_changed || false,
+                    bids: bidsLoaded ? (data.data.bids || []) : prev.bids,
+                    rfq_revision_current: workflowLoaded ? (data.data.rfq_revision_current || null) : prev.rfq_revision_current,
+                    revision_changed: workflowLoaded ? (data.data.revision_changed || false) : prev.revision_changed,
                     has_unread_operator_messages: data.data.has_unread_operator_messages || false,
                     unread_operator_messages: data.data.unread_operator_messages || 0,
                     has_prototype_payment: data.data.has_prototype_payment || false,
@@ -2591,7 +2627,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
                     prototype_payment_status: data.data.prototype_payment_status || null,
                     prototype_payment_total_due: data.data.prototype_payment_total_due || null,
-                    // Commit 2.3.9.2A: CAD workflow state
                     cad_status: data.data.cad_status || null,
                     cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
                     cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
@@ -2599,15 +2634,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
                     cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
                     cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
-                    // Commit 2.3.9.2B-D: Prototype review state
                     prototype_status: data.data.prototype_status || null,
                     prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
                     prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
-                    prototype_submission: data.data.prototype_submission || null,
-                    direction_keyword_ids: data.data.direction_keyword_ids || null,
-                    direction_keyword_names: data.data.direction_keyword_names || null,
-                    workflow_milestones: data.data.workflow_milestones || null,
-                    // Commit 28: Deposit lifecycle
+                    prototype_submission: workflowLoaded ? (data.data.prototype_submission || null) : prev.prototype_submission,
+                    direction_keyword_ids: workflowLoaded ? (data.data.direction_keyword_ids || null) : prev.direction_keyword_ids,
+                    direction_keyword_names: workflowLoaded ? (data.data.direction_keyword_names || null) : prev.direction_keyword_names,
+                    workflow_milestones: workflowLoaded ? (data.data.workflow_milestones || null) : prev.workflow_milestones,
                     deposit_status: data.data.deposit_status || '',
                     deposit_amount: data.data.deposit_amount != null ? data.data.deposit_amount : null,
                     deposit_calculated_at: data.data.deposit_calculated_at || null,
@@ -2615,8 +2648,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     deposit_receipt_url: data.data.deposit_receipt_url || '',
                     deposit_sent_note: data.data.deposit_sent_note || '',
                     deposit_sent_at: data.data.deposit_sent_at || null,
-                    loading: false,
-                });
+                    loading: section === 'summary' ? false : prev.loading,
+                }));
                 // Update board card so status progresses (CAD Requested, Awaiting payment, Payment received, Review CAD, Pending Prototype Video, etc.)
                 const cardUpdates = {};
                 if (data.data.cad_status !== undefined && data.data.cad_status !== null) cardUpdates.cad_status = data.data.cad_status;
@@ -2637,13 +2670,33 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 }
             } else {
                 console.error('Failed to fetch item state:', data.message);
-                setItemState(prev => ({ ...prev, loading: false }));
+                if (section === 'summary') {
+                    setItemState(prev => ({ ...prev, loading: false }));
+                }
             }
         } catch (error) {
             console.error('Error fetching item state:', error);
-            setItemState(prev => ({ ...prev, loading: false }));
+            if (section === 'summary') {
+                setItemState(prev => ({ ...prev, loading: false }));
+            }
+        } finally {
+            delete itemStateRequestRef.current[section];
         }
-    };
+    }, [activeTab, itemId, item?.id, updateLayout]);
+
+    React.useEffect(() => {
+        if (!isOpen || !itemId || itemId <= 0) return;
+        if (activeTab === 'bids' && itemState.has_bids && !loadedSections.bids) {
+            fetchItemState('bids');
+        }
+    }, [isOpen, itemId, activeTab, itemState.has_bids, loadedSections.bids, fetchItemState]);
+
+    React.useEffect(() => {
+        if (!isOpen || !itemId || itemId <= 0) return;
+        if (activeTab === 'workflow' && !loadedSections.workflow) {
+            fetchItemState('workflow');
+        }
+    }, [isOpen, itemId, activeTab, loadedSections.workflow, fetchItemState]);
 
     // Commit 3.A.1: Fetch item timeline when Workflow tab is selected
     const fetchTimeline = React.useCallback(async () => {
@@ -3001,7 +3054,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
 
     // Fetch board projects when modal opens (use n88BoardNonce.nonce - projects/rooms endpoints expect 'n88-rfq-nonce')
     React.useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || !projectMenuOpen) return;
         if (!boardId || Number(boardId) <= 0) return;
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
         const nonce = window.n88BoardNonce?.nonce || window.n88BoardData?.nonce || window.n88?.nonce || '';
@@ -3019,11 +3072,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             })
             .catch(() => setBoardProjects([]))
             .finally(() => setProjectsLoading(false));
-    }, [isOpen, boardId]);
+    }, [isOpen, projectMenuOpen, boardId]);
 
     // Fetch rooms whenever selected project changes (use n88BoardNonce.nonce - rooms endpoint expects 'n88-rfq-nonce')
     React.useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || !projectMenuOpen) return;
         if (!selectedProjectId || selectedProjectId <= 0) {
             setProjectRooms([]);
             setRoomsLoading(false);
@@ -3051,7 +3104,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             })
             .catch(() => { if (roomsFetchProjectIdRef.current === pid) setProjectRooms([]); })
             .finally(() => setRoomsLoading(false));
-    }, [isOpen, selectedProjectId]);
+    }, [isOpen, projectMenuOpen, selectedProjectId]);
 
     const getSelectedProjectName = React.useCallback(() => {
         const pid = Number(selectedProjectId || 0);
@@ -4822,7 +4875,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     >
                                         Project Workflow
                                     </button>
-                                    {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
+                                    {itemState.has_bids && (
                                         <button
                                             onClick={() => setActiveTab('bids')}
                                             style={{
@@ -4838,7 +4891,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 fontFamily: 'monospace',
                                             }}
                                         >
-                                            Proposals Received ({itemState.bids.length})
+                                            Proposals Received{itemState.bids && itemState.bids.length > 0 ? ` (${itemState.bids.length})` : ''}
                                         </button>
                                     )}
                                 </div>
