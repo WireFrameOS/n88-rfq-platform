@@ -32,7 +32,7 @@ const CARD_SIZES = {
  * @param {Function} props.onLayoutChanged - Callback when layout changes
  * @param {number} props.boardId - Board ID for saving item facts
  */
-const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
+const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandlers }) => {
     const bringToFront = useBoardStore((state) => state.bringToFront);
     const updateLayout = useBoardStore((state) => state.updateLayout);
     const setItems = useBoardStore((state) => state.setItems);
@@ -109,6 +109,13 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
         const cadStatus = (item.cad_status || '').toLowerCase() || null;
         const prototypePaymentStatus = (item.prototype_payment_status || '').toLowerCase() || null;
         const hasPaymentReceiptUploaded = truthy(item.has_payment_receipt_uploaded);
+        const sampleStatus = (
+            item.sample_status ||
+            item.validation_state?.sample_status ||
+            item.material_validation?.sample_status ||
+            item.meta?.material_validation?.sample_status ||
+            ''
+        ).toLowerCase();
 
         // Compute awarded state once so it can override Prototype Approved when a bid is awarded
         let hasAwardedBid = truthy(item.has_awarded_bid);
@@ -181,6 +188,25 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
             }
         }
 
+        if (sampleStatus === 'sample_requested') {
+            return { text: 'Sample Material Kit Requested', color: '#2196f3', dot: '#2196f3' };
+        }
+        if (sampleStatus === 'in_preparation') {
+            return { text: 'Preparing Sample Material Kit', color: '#2196f3', dot: '#2196f3' };
+        }
+        if (sampleStatus === 'sample_submitted' || sampleStatus === 'supplier_submitted') {
+            return { text: 'Sample Submitted', color: '#2196f3', dot: '#2196f3' };
+        }
+        if (sampleStatus === 'shipped' || sampleStatus === 'samples_shipped' || sampleStatus === 'in_transit' || sampleStatus === 'delivered') {
+            return { text: 'Sample Shipped', color: '#2196f3', dot: '#2196f3' };
+        }
+        if (sampleStatus === 'samples_received' || sampleStatus === 'under_review') {
+            return { text: 'Samples Received', color: '#2196f3', dot: '#2196f3' };
+        }
+        if (sampleStatus === 'samples_approved') {
+            return { text: 'Samples Approved', color: '#4caf50', dot: '#4caf50' };
+        }
+
         // Priority 3: Bid Awarded — when designer has awarded a bid (and no prototype stage above)
         if (hasAwardedBid) {
             if (inProduction) {
@@ -230,6 +256,14 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
     };
 
     const itemStatus = getItemStatus();
+
+    const openPrimaryModal = () => {
+        if (_modalHandlers && typeof _modalHandlers.open === 'function') {
+            _modalHandlers.open();
+            return;
+        }
+        setIsModalOpen(true);
+    };
 
     // Handle size preset selection
     const handleSizeChange = (size, e) => {
@@ -434,7 +468,7 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
         setTimeout(() => {
             // Final check: verify still not in cooldown or dragging
             if (!dragCooldownActiveRef.current && !isDraggingRef.current) {
-                setIsModalOpen(true);
+                openPrimaryModal();
             }
         }, 100);
     };
@@ -457,7 +491,7 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
         setTimeout(() => {
             // Final check: verify still not in cooldown or dragging
             if (!dragCooldownActiveRef.current && !isDraggingRef.current) {
-                setIsModalOpen(true);
+                openPrimaryModal();
             }
         }, 100);
     };
@@ -721,7 +755,7 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setContextMenuOpen(false);
-                                    setIsModalOpen(true);
+                                    openPrimaryModal();
                                 }}
                                 style={{
                                     display: 'block',

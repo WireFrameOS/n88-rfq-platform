@@ -1152,6 +1152,83 @@ class N88_RFQ_Auth {
         return $selected_entries;
     }
 
+    /**
+     * Normalize grouped sample workflow context saved inside item-level material validation data.
+     *
+     * @param mixed $raw_context Raw batch context.
+     * @return array
+     */
+    private function normalize_material_validation_batch_context( $raw_context ) {
+        $context = is_array( $raw_context ) ? $raw_context : array();
+
+        $normalized = array(
+            'proposal_group_id'      => ! empty( $context['proposal_group_id'] ) ? absint( $context['proposal_group_id'] ) : 0,
+            'address_mode'           => ( isset( $context['address_mode'] ) && 'per_item' === sanitize_key( $context['address_mode'] ) ) ? 'per_item' : 'same',
+            'selected_item_ids'      => array(),
+            'selected_items'         => array(),
+            'shared_address_fields'  => array(),
+            'shared_address'         => '',
+            'item_address_fields'    => array(),
+            'item_addresses'         => array(),
+            'category_group'         => isset( $context['category_group'] ) ? sanitize_text_field( $context['category_group'] ) : '',
+            'requested_by_role'      => isset( $context['requested_by_role'] ) ? sanitize_key( $context['requested_by_role'] ) : '',
+        );
+
+        if ( ! empty( $context['selected_item_ids'] ) && is_array( $context['selected_item_ids'] ) ) {
+            $normalized['selected_item_ids'] = array_values(
+                array_unique(
+                    array_filter(
+                        array_map( 'absint', $context['selected_item_ids'] )
+                    )
+                )
+            );
+        }
+
+        if ( ! empty( $context['selected_items'] ) && is_array( $context['selected_items'] ) ) {
+            foreach ( $context['selected_items'] as $entry ) {
+                if ( ! is_array( $entry ) ) {
+                    continue;
+                }
+                $entry_item_id = ! empty( $entry['item_id'] ) ? absint( $entry['item_id'] ) : 0;
+                if ( ! $entry_item_id ) {
+                    continue;
+                }
+                $normalized['selected_items'][] = array(
+                    'item_id'      => $entry_item_id,
+                    'title'        => isset( $entry['title'] ) ? sanitize_text_field( $entry['title'] ) : '',
+                    'category'     => isset( $entry['category'] ) ? sanitize_text_field( $entry['category'] ) : '',
+                    'sample_types' => isset( $entry['sample_types'] ) && is_array( $entry['sample_types'] )
+                        ? array_values( array_filter( array_map( 'sanitize_text_field', $entry['sample_types'] ) ) )
+                        : array(),
+                );
+                if ( ! in_array( $entry_item_id, $normalized['selected_item_ids'], true ) ) {
+                    $normalized['selected_item_ids'][] = $entry_item_id;
+                }
+            }
+        }
+
+        $shared_address_fields = $this->normalize_structured_address(
+            isset( $context['shared_address_fields'] ) ? $context['shared_address_fields'] : ( isset( $context['shared_address'] ) ? $context['shared_address'] : array() )
+        );
+        $normalized['shared_address_fields'] = $shared_address_fields;
+        $normalized['shared_address']        = $this->format_structured_address( $shared_address_fields, true );
+
+        if ( ! empty( $context['item_address_fields'] ) && is_array( $context['item_address_fields'] ) ) {
+            foreach ( $context['item_address_fields'] as $item_key => $address_fields ) {
+                $address_item_id = absint( $item_key );
+                if ( ! $address_item_id ) {
+                    continue;
+                }
+                $normalized_fields = $this->normalize_structured_address( $address_fields );
+                $normalized['item_address_fields'][ $address_item_id ] = $normalized_fields;
+                $normalized['item_addresses'][ $address_item_id ]      = $this->format_structured_address( $normalized_fields, true );
+            }
+        }
+
+        sort( $normalized['selected_item_ids'] );
+        return $normalized;
+    }
+
     private function render_supplier_media_library_manager( $supplier_id, $context = 'queue' ) {
         $supplier_id     = absint( $supplier_id );
         $context_key     = sanitize_key( $context ? $context : 'queue' );
@@ -2086,6 +2163,50 @@ class N88_RFQ_Auth {
             'item_states'       => $group_items,
             'shared_uploads'    => $shared_uploads,
         );
+    }
+
+    /**
+     * Resolve an existing supplier proposal workspace from a known proposal group.
+     *
+     * @param int $supplier_id Supplier user ID.
+     * @param int $proposal_group_id Proposal group ID.
+     * @return array|WP_Error
+     */
+    private function get_supplier_batch_workspace_by_group( $supplier_id, $proposal_group_id ) {
+        global $wpdb;
+
+        $this->ensure_supplier_proposal_workspace_support();
+
+        $supplier_id       = absint( $supplier_id );
+        $proposal_group_id = absint( $proposal_group_id );
+
+        if ( ! $supplier_id || ! $proposal_group_id ) {
+            return new WP_Error( 'invalid_batch_workspace_group', 'Invalid proposal group.' );
+        }
+
+        $group_items_table = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$group_items_table}'" ) !== $group_items_table ) {
+            return new WP_Error( 'missing_batch_group_items_table', 'Grouped proposal items table is unavailable.' );
+        }
+
+        $item_ids = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT item_id
+                FROM {$group_items_table}
+                WHERE proposal_group_id = %d
+                AND supplier_id = %d
+                ORDER BY id ASC",
+                $proposal_group_id,
+                $supplier_id
+            )
+        );
+
+        $item_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $item_ids ) ) ) );
+        if ( empty( $item_ids ) ) {
+            return new WP_Error( 'empty_batch_workspace_group', 'No items were found for this grouped proposal.' );
+        }
+
+        return $this->get_or_create_supplier_batch_workspace( $supplier_id, $item_ids );
     }
 
     /**
@@ -4047,6 +4168,9 @@ class N88_RFQ_Auth {
                             if ( $has_revision_column ) {
                                 $bid_select_fields .= ", rfq_revision_at_submit";
                             }
+                            if ( $has_bid_meta_json ) {
+                                $bid_select_fields .= ", meta_json";
+                            }
                             
                             $bids = $wpdb->get_results( $wpdb->prepare(
                                 "SELECT {$bid_select_fields}
@@ -4069,14 +4193,31 @@ class N88_RFQ_Auth {
                                 
                                 // Convert bids array to expected format
                                 $bids_formatted = array();
+                                $batch_group_ids = array();
+                                $batch_primary_group_id = 0;
                                 if ( ! empty( $item['bids'] ) && is_array( $item['bids'] ) ) {
                                     foreach ( $item['bids'] as $bid ) {
+                                        $proposal_group_id = 0;
+                                        if ( $has_bid_meta_json && ! empty( $bid['meta_json'] ) ) {
+                                            $bid_meta = json_decode( $bid['meta_json'], true );
+                                            if ( is_array( $bid_meta ) && ! empty( $bid_meta['proposal_group_id'] ) ) {
+                                                $proposal_group_id = absint( $bid_meta['proposal_group_id'] );
+                                            }
+                                        }
+                                        if ( $proposal_group_id > 0 ) {
+                                            $batch_group_ids[ $proposal_group_id ] = $proposal_group_id;
+                                            if ( ! $batch_primary_group_id ) {
+                                                $batch_primary_group_id = $proposal_group_id;
+                                            }
+                                        }
                                         $bids_formatted[] = array(
                                             'status' => $bid['status'],
                                             'revision' => isset( $bid['rfq_revision_at_submit'] ) ? $bid['rfq_revision_at_submit'] : null,
+                                            'proposal_group_id' => $proposal_group_id > 0 ? $proposal_group_id : null,
                                         );
                                     }
                                 }
+                                $batch_group_ids = array_values( array_unique( array_map( 'absint', $batch_group_ids ) ) );
                                 
             $item_meta = ! empty( $item['meta_json'] ) ? json_decode( $item['meta_json'], true ) : array();
             $item_current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : 1;
@@ -4093,6 +4234,8 @@ class N88_RFQ_Auth {
                 'primary_image_id' => $item['primary_image_id'],
                 'owner_user_id' => isset( $item['owner_user_id'] ) ? (int) $item['owner_user_id'] : 0,
                                     'bids' => $bids_formatted,
+                'batch_proposal_group_ids' => $batch_group_ids,
+                'batch_primary_proposal_group_id' => $batch_primary_group_id,
                 'item_current_revision' => $item_current_revision,
             );
             
@@ -4293,9 +4436,12 @@ class N88_RFQ_Auth {
             $validation_sample_status    = isset( $validation_state['sample_status'] ) ? strtolower( (string) $validation_state['sample_status'] ) : '';
             $validation_review_state     = isset( $validation_state['review'] ) && is_array( $validation_state['review'] ) ? $validation_state['review'] : array();
             $validation_commitment_state = isset( $validation_state['commitment'] ) && is_array( $validation_state['commitment'] ) ? $validation_state['commitment'] : array();
-            $validation_samples_approved = ! empty( $validation_review_state['approved_at'] ) || 'samples_approved' === $validation_sample_status;
-            $validation_samples_received = ! empty( $validation_review_state['samples_received_at'] ) || 'samples_received' === $validation_sample_status;
-            $validation_samples_shipped  = in_array( $validation_sample_status, array( 'delivered', 'shipped', 'in_transit' ), true );
+            $validation_samples_approved   = ! empty( $validation_review_state['approved_at'] ) || 'samples_approved' === $validation_sample_status;
+            $validation_samples_received   = ! empty( $validation_review_state['samples_received_at'] ) || 'samples_received' === $validation_sample_status;
+            $validation_sample_requested   = 'sample_requested' === $validation_sample_status;
+            $validation_sample_submitted   = in_array( $validation_sample_status, array( 'sample_submitted', 'supplier_submitted' ), true );
+            $validation_samples_shipped    = in_array( $validation_sample_status, array( 'delivered', 'shipped', 'in_transit', 'samples_shipped' ), true );
+            $validation_samples_preparing  = 'in_preparation' === $validation_sample_status;
             $validation_samples_under_review = 'under_review' === $validation_sample_status;
             $validation_po_uploaded      = ! empty( $validation_commitment_state['po_uploaded_at'] ) || ! empty( $validation_commitment_state['po_file'] ) || ! empty( $validation_commitment_state['po_file_id'] );
             $validation_deposit_status   = isset( $validation_commitment_state['deposit_status'] ) ? sanitize_key( (string) $validation_commitment_state['deposit_status'] ) : '';
@@ -4366,8 +4512,17 @@ class N88_RFQ_Auth {
                 } elseif ( $validation_samples_received ) {
                     $status_label = __( 'Sample Received', 'n88-rfq-platform' );
                     $status_color = '#66aaff';
+                } elseif ( $validation_sample_submitted ) {
+                    $status_label = __( 'Sample Submitted', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
                 } elseif ( $validation_samples_shipped ) {
-                    $status_label = __( 'Samples Shipped', 'n88-rfq-platform' );
+                    $status_label = __( 'Sample Shipped', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
+                } elseif ( $validation_samples_preparing ) {
+                    $status_label = __( 'Preparing Sample Material Kit', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
+                } elseif ( $validation_sample_requested ) {
+                    $status_label = __( 'Sample Material Kit Requested', 'n88-rfq-platform' );
                     $status_color = '#66aaff';
                 } else {
                     $status_label = __( 'No Action Required', 'n88-rfq-platform' );
@@ -4382,8 +4537,17 @@ class N88_RFQ_Auth {
             } elseif ( $validation_samples_received ) {
                 $status_label = __( 'Sample Received', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
+            } elseif ( $validation_sample_submitted ) {
+                $status_label = __( 'Sample Submitted', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
             } elseif ( $validation_samples_shipped ) {
-                $status_label = __( 'Samples Shipped', 'n88-rfq-platform' );
+                $status_label = __( 'Sample Shipped', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $validation_samples_preparing ) {
+                $status_label = __( 'Preparing Sample Material Kit', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $validation_sample_requested ) {
+                $status_label = __( 'Sample Material Kit Requested', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
             } elseif ( $validation_samples_under_review ) {
                 $status_label = __( 'Samples Under Review', 'n88-rfq-platform' );
@@ -4438,7 +4602,9 @@ class N88_RFQ_Auth {
                 $status_label = __( 'CAD received  Pending video', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
             } elseif ( $action_badge === 'submitted' ) {
-                $status_label = __( 'Proposal submitted', 'n88-rfq-platform' );
+                $status_label = ! empty( $item_data['batch_primary_proposal_group_id'] )
+                    ? __( 'Batch Proposal Submitted', 'n88-rfq-platform' )
+                    : __( 'Proposal submitted', 'n88-rfq-platform' );
                 $status_color = '#ff9800'; // orange
             } else {
                 if ( $cad_released && $prototype_status === 'approved' ) {
@@ -4713,8 +4879,12 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'Ready for Production', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'COM Shipped' === $supplier_status_label ) {
                                         $action_button_text = __( 'COM Shipped', 'n88-rfq-platform' ) . ' ->';
-                                    } elseif ( 'Samples Shipped' === $supplier_status_label ) {
+                                    } elseif ( in_array( $supplier_status_label, array( 'Sample Shipped', 'Samples Shipped' ), true ) ) {
                                         $action_button_text = __( 'View Material Sample Shipped', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Sample Submitted' === $supplier_status_label ) {
+                                        $action_button_text = __( 'View Sample Submission', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( in_array( $supplier_status_label, array( 'Sample Material Kit Requested', 'Preparing Sample Material Kit' ), true ) ) {
+                                        $action_button_text = __( 'Upload Material Sample', 'n88-rfq-platform' ) . ' ->';
                                     }
                                 }
                                 $queue_open_tab = '';
@@ -4772,6 +4942,7 @@ class N88_RFQ_Auth {
                                                     data-item-title="<?php echo esc_attr( $item_title ); ?>" 
                                                     data-category="<?php echo esc_attr( $category ); ?>"
                                                     data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
+                                                    data-batch-group-id="<?php echo esc_attr( isset( $item_data['batch_primary_proposal_group_id'] ) ? intval( $item_data['batch_primary_proposal_group_id'] ) : 0 ); ?>"
                                                     data-open-tab="<?php echo esc_attr( $queue_open_tab ); ?>"
                                                     data-open-step="<?php echo esc_attr( $queue_open_step ); ?>">
                                                 [ <?php echo esc_html( preg_replace( '/\s*>\s*$/', '', $action_button_text ) ); ?> ]
@@ -4934,6 +5105,30 @@ class N88_RFQ_Auth {
                 <!-- Batch proposal modal content injected by JavaScript -->
             </div>
         </div>
+
+        <div id="n88-supplier-batch-sample-workflow-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.84); z-index:10007; overflow:auto;">
+            <div style="width:min(640px, calc(100vw - 32px)); margin:48px auto; background:#222; border:1px solid #555; border-radius:14px; box-shadow:0 8px 30px rgba(255,0,101,.22); overflow:hidden;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:18px 20px; border-bottom:1px solid #444; background:#111;">
+                    <div>
+                        <div style="font-size:18px; color:#fff; font-family:monospace; margin-bottom:8px;">Batch Material Sample Workflow</div>
+                        <div id="n88-batch-sample-workflow-selection-count" style="font-size:11px; color:#aaa; font-family:monospace;">0 selected sample items</div>
+                    </div>
+                    <button type="button" id="n88-close-batch-sample-workflow-modal" style="padding:9px 14px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:10px; font-size:11px; font-family:monospace; cursor:pointer;">[ Close ]</button>
+                </div>
+                <div style="padding:20px; display:grid; gap:14px;">
+                    <div style="padding:12px 14px; border:1px solid #333; border-radius:10px; background:#151515; font-size:11px; color:#bbb; font-family:monospace;">
+                        Add files and notes for the grouped sample submission. If you add a tracking number the selected items will move to <strong style="color:#fff;">Sample Shipped</strong>; otherwise they will save as <strong style="color:#fff;">Sample Submitted</strong>.
+                    </div>
+                    <input type="text" id="n88-batch-sample-tracking" placeholder="Tracking number" style="padding:12px 14px; background:#111; color:#fff; border:1px solid #555; border-radius:10px; font-size:12px; font-family:monospace;" />
+                    <textarea id="n88-batch-sample-note" rows="4" placeholder="Notes for selected sample items" style="padding:12px 14px; background:#111; color:#fff; border:1px solid #555; border-radius:10px; font-size:12px; font-family:monospace; resize:vertical;"></textarea>
+                    <input type="file" id="n88-batch-sample-files" multiple style="max-width:100%; color:#ddd;" />
+                    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div id="n88-batch-sample-workflow-status" style="font-size:11px; color:#aaa; font-family:monospace;"></div>
+                        <button type="button" id="n88-batch-sample-submit-btn" style="padding:12px 18px; background:#FF0065; color:#111; border:1px solid #FF0065; border-radius:12px; font-size:13px; font-weight:700; font-family:monospace; cursor:pointer;">[ Submit Selected Samples ]</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         
         <!-- Supplier Image Lightbox (Commit 2.3.5.1) -->
         <div id="n88-supplier-image-lightbox" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.9); z-index: 10004; overflow: hidden; cursor: pointer;" onclick="closeSupplierImageLightbox(event);">
@@ -5051,10 +5246,50 @@ class N88_RFQ_Auth {
                 return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             }
 
+            function formatBatchDateTime(value) {
+                if (!value) {
+                    return '';
+                }
+                var raw = String(value).trim();
+                if (!raw) {
+                    return '';
+                }
+                var normalized = raw.replace(' ', 'T');
+                var date = new Date(normalized);
+                if (isNaN(date.getTime())) {
+                    date = new Date(raw);
+                }
+                if (isNaN(date.getTime())) {
+                    return raw;
+                }
+                return date.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+
             function fetchBatchWorkspace(itemIds) {
                 var formData = new FormData();
                 formData.append('action', 'n88_get_supplier_batch_workspace');
                 formData.append('item_ids', JSON.stringify(itemIds || []));
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_batch_workspace' ); ?>');
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function(response) {
+                    return response.json();
+                });
+            }
+
+            function fetchBatchWorkspaceByGroup(proposalGroupId) {
+                var formData = new FormData();
+                formData.append('action', 'n88_get_supplier_batch_workspace');
+                formData.append('proposal_group_id', String(parseInt(proposalGroupId, 10) || 0));
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_batch_workspace' ); ?>');
                 return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
@@ -5161,6 +5396,7 @@ class N88_RFQ_Auth {
             function setBatchItemState(itemId, state) {
                 var normalized = state || 'not_ready';
                 window.n88SupplierBatchState.itemStates[itemId] = normalized;
+                var itemData = (window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) ? window.n88SupplierBatchState.itemData[itemId] : {};
                 var chips = [
                     document.getElementById('n88-batch-item-state-' + itemId),
                     document.getElementById('n88-batch-item-header-state-' + itemId)
@@ -5171,7 +5407,7 @@ class N88_RFQ_Auth {
                         var bg = '#2a2a2a';
                         var color = '#bbb';
                         if (normalized === 'quoted') {
-                            label = 'Quoted';
+                            label = String(itemData.supplier_status_label || itemData.validation_card_status_text || (itemData.batch_primary_proposal_group_id ? 'Batch Proposal Submitted' : 'Proposal Submitted'));
                             bg = '#032b17';
                             color = '#7dffb1';
                         } else if (normalized === 'not_quoted') {
@@ -5189,6 +5425,322 @@ class N88_RFQ_Auth {
                         chip.style.borderColor = color;
                     }
                 });
+            }
+
+            function getBatchWorkflowItems() {
+                var itemData = window.n88SupplierBatchState.itemData || {};
+                return Object.keys(itemData).map(function(itemId) {
+                    return itemData[itemId];
+                }).filter(Boolean);
+            }
+
+            function getBatchWorkflowActiveStep(items) {
+                items = Array.isArray(items) ? items : getBatchWorkflowItems();
+                var maxStep = -1;
+                items.forEach(function(item) {
+                    var step = parseInt(item && item.supplier_workflow_active_step, 10);
+                    if (!isNaN(step) && step > maxStep) {
+                        maxStep = step;
+                    }
+                });
+                if (maxStep >= 0) return Math.min(5, maxStep);
+                if (items.some(function(item) { return item && item.validation_state && item.validation_state.request && item.validation_state.request.requested_at; })) return 1;
+                if (items.some(function(item) { return item && (item.is_awarded_supplier || item.bid_status === 'awarded'); })) return 2;
+                return 0;
+            }
+
+            function hasBatchWorkflowTimeline(items) {
+                items = Array.isArray(items) ? items : getBatchWorkflowItems();
+                return items.some(function(item) {
+                    return item && (item.bid_status === 'submitted' || item.bid_status === 'awarded');
+                });
+            }
+
+            function getBatchWorkflowSummary(items) {
+                items = Array.isArray(items) ? items : getBatchWorkflowItems();
+                return {
+                    quoted: items.filter(function(item) { return item && (item.bid_status === 'submitted' || item.bid_status === 'awarded'); }).length,
+                    ready: items.filter(function(item) { return item && item.batch_item_state === 'ready'; }).length,
+                    samplesRequested: items.filter(function(item) {
+                        var sampleStatus = item && item.validation_state && item.validation_state.sample_status ? String(item.validation_state.sample_status).toLowerCase() : '';
+                        return sampleStatus === 'sample_requested' || sampleStatus === 'in_preparation';
+                    }).length,
+                    samplesSubmitted: items.filter(function(item) {
+                        var sampleStatus = item && item.validation_state && item.validation_state.sample_status ? String(item.validation_state.sample_status).toLowerCase() : '';
+                        return sampleStatus === 'sample_submitted' || sampleStatus === 'supplier_submitted';
+                    }).length,
+                    samplesShipped: items.filter(function(item) {
+                        var sampleStatus = item && item.validation_state && item.validation_state.sample_status ? String(item.validation_state.sample_status).toLowerCase() : '';
+                        return sampleStatus === 'shipped' || sampleStatus === 'samples_shipped' || sampleStatus === 'in_transit' || sampleStatus === 'delivered';
+                    }).length,
+                    samplesReceived: items.filter(function(item) {
+                        var sampleStatus = item && item.validation_state && item.validation_state.sample_status ? String(item.validation_state.sample_status).toLowerCase() : '';
+                        return sampleStatus === 'samples_received' || sampleStatus === 'under_review' || sampleStatus === 'samples_approved';
+                    }).length,
+                    awarded: items.filter(function(item) { return item && (item.is_awarded_supplier || item.bid_status === 'awarded'); }).length,
+                    officialQuotePending: items.filter(function(item) {
+                        return item && (item.is_awarded_supplier || item.bid_status === 'awarded') && String(item.official_quote_status || '') !== 'submitted';
+                    }).length,
+                    production: items.filter(function(item) {
+                        return item && ((parseInt(item.supplier_workflow_active_step, 10) || 0) >= 3 || String(item.supplier_status_label || '') === 'Ready for Production');
+                    }).length,
+                    quality: items.filter(function(item) {
+                        return item && (parseInt(item.supplier_workflow_active_step, 10) || 0) >= 4;
+                    }).length,
+                    delivery: items.filter(function(item) {
+                        return item && (parseInt(item.supplier_workflow_active_step, 10) || 0) >= 5;
+                    }).length
+                };
+            }
+
+            function getBatchWorkflowPanelHtml(stepIdx, items, summary) {
+                items = Array.isArray(items) ? items : getBatchWorkflowItems();
+                summary = summary || getBatchWorkflowSummary(items);
+                if (stepIdx === 0) {
+                    var step1Items = items.filter(function(item) {
+                        return item && (item.bid_status === 'submitted' || item.bid_status === 'awarded');
+                    });
+                    if (!step1Items.length) {
+                        return '<div style="padding:12px; border:1px solid #333; border-radius:10px; background:#101010; color:#aaa; font-family:monospace; font-size:12px;">Timeline will appear after at least one item proposal is submitted.</div>';
+                    }
+                    return step1Items.map(function(item) {
+                        return renderBatchWorkflowItemAccordion(
+                            'step-0-item-' + item.item_id,
+                            item.title || ('Item #' + item.item_id),
+                            'Status: ' + escapeBatchText(item.bid_status || 'submitted'),
+                            renderBatchSubmittedBidShell(item),
+                            false
+                        );
+                    }).join('');
+                }
+                if (stepIdx === 1) {
+                    var requestCards = buildBatchGroupedSampleRequestCards(items);
+                    if (!requestCards.length) {
+                        return '<div style="padding:12px; border:1px solid #333; border-radius:10px; background:#101010; color:#aaa; font-family:monospace; font-size:12px;">No sample-request activity recorded yet for these batch items.</div>';
+                    }
+                    return '<div style="display:grid; gap:12px;">' +
+                        requestCards.map(function(card, index) {
+                            return renderBatchWorkflowItemAccordion(
+                                'step-1-item-' + index,
+                                card.title || ('Step 02 Item ' + (index + 1)),
+                                card.meta || '',
+                                card.body || '',
+                                false
+                            );
+                        }).join('') +
+                        '<div style="font-size:11px; color:#aaa; font-family:monospace;">If designer requested samples item-wise, each item appears separately. If designer sent one grouped request, a combined box shows item names together.</div>' +
+                    '</div>';
+                }
+                if (stepIdx === 2) {
+                    var awardedItems = items.filter(function(item) {
+                        return item && (item.is_awarded_supplier || item.bid_status === 'awarded');
+                    });
+                    if (!awardedItems.length) {
+                        return '<div style="padding:12px; border:1px solid #333; border-radius:10px; background:#101010; color:#aaa; font-family:monospace; font-size:12px;">No awarded items yet for this batch.</div>';
+                    }
+                    var batchAwardedCount = awardedItems.length;
+                    var batchAwardedTotal = awardedItems.reduce(function(total, item) {
+                        var bidData = item && item.bid_data ? item.bid_data : {};
+                        var lineTotal = 0;
+                        if (bidData.total_price !== null && bidData.total_price !== undefined && String(bidData.total_price) !== '') {
+                            lineTotal += Number(bidData.total_price) || 0;
+                        } else if (bidData.unit_price !== null && bidData.unit_price !== undefined && String(bidData.unit_price) !== '') {
+                            var qty = Number(bidData.item_quantity || item.quantity || 1) || 1;
+                            lineTotal += (Number(bidData.unit_price) || 0) * qty;
+                        }
+                        if (bidData.delivery_cost_usd !== null && bidData.delivery_cost_usd !== undefined && String(bidData.delivery_cost_usd) !== '') {
+                            lineTotal += Number(bidData.delivery_cost_usd) || 0;
+                        }
+                        return total + lineTotal;
+                    }, 0);
+                    return '<div style="display:grid; gap:10px;">' +
+                        '<div style="padding:14px; border:1px solid #FF0065; border-radius:10px; background:#101010; display:grid; gap:6px;">' +
+                            '<div style="font-size:14px; color:#FF0065; font-family:monospace; font-weight:700;">Congratulations - Bid Awarded</div>' +
+                            '<div style="font-size:12px; color:#ddd; font-family:monospace;">Selected batch items are now in grouped commercial commitment flow.</div>' +
+                            '<div style="font-size:11px; color:#aaa; font-family:monospace;">Awarded items: <span style="color:#fff;">' + batchAwardedCount + '</span> | Batch total: <span style="color:#fff;">$' + batchAwardedTotal.toFixed(2) + '</span></div>' +
+                        '</div>' +
+                        awardedItems.map(function(item) {
+                            var officialStatus = item.official_quote_status || 'pending';
+                            var bidData = item && item.bid_data ? item.bid_data : {};
+                            var validationState = item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : {};
+                            var commitment = validationState && validationState.commitment && typeof validationState.commitment === 'object' ? validationState.commitment : {};
+                            var poStatus = ((commitment.po_file && commitment.po_file.url) || commitment.po_uploaded_at) ? 'PO Issued' : 'Awaiting PO';
+                            var depositStatus = commitment.deposit_confirmed_at || ['confirmed', 'paid', 'recorded'].indexOf(String(commitment.deposit_status || '').toLowerCase()) !== -1
+                                ? 'Deposit Confirmed'
+                                : (commitment.deposit_status ? String(commitment.deposit_status).replace(/_/g, ' ') : 'Deposit Pending');
+                            var fabricFlag = String(item.rfq_fabric_supplied_flag || '').toLowerCase();
+                            var comApplicable = !!(
+                                commitment.com_required ||
+                                commitment.com_applicable ||
+                                fabricFlag === 'yes' ||
+                                fabricFlag === '1' ||
+                                fabricFlag === 'true' ||
+                                (bidData.fabric_quantity !== null && bidData.fabric_quantity !== undefined && String(bidData.fabric_quantity).trim() !== '')
+                            );
+                            var comStatus = !comApplicable
+                                ? 'COM Not Required'
+                                : (commitment.com_delivered_at || ['com_delivered', 'received', 'confirmed'].indexOf(String(commitment.com_status || '').toLowerCase()) !== -1
+                                    ? 'COM Received'
+                                    : (commitment.com_status ? String(commitment.com_status).replace(/_/g, ' ') : 'COM Pending'));
+                            var lineTotal = 0;
+                            if (bidData.total_price !== null && bidData.total_price !== undefined && String(bidData.total_price) !== '') {
+                                lineTotal += Number(bidData.total_price) || 0;
+                            } else if (bidData.unit_price !== null && bidData.unit_price !== undefined && String(bidData.unit_price) !== '') {
+                                var qty = Number(bidData.item_quantity || item.quantity || 1) || 1;
+                                lineTotal += (Number(bidData.unit_price) || 0) * qty;
+                            }
+                            if (bidData.delivery_cost_usd !== null && bidData.delivery_cost_usd !== undefined && String(bidData.delivery_cost_usd) !== '') {
+                                lineTotal += Number(bidData.delivery_cost_usd) || 0;
+                            }
+                            var readinessText = (poStatus === 'PO Issued' && depositStatus === 'Deposit Confirmed' && (!comApplicable || comStatus === 'COM Received'))
+                                ? 'Ready for CAD / Production Kickoff'
+                                : 'Step 03 active - waiting for grouped commitment updates';
+                            var detailHtml = '' +
+                                '<div style="display:grid; gap:8px; font-size:12px; color:#ddd; font-family:monospace;">' +
+                                    '<div><span style="color:#fff;">Award Status:</span> Awarded</div>' +
+                                    '<div><span style="color:#fff;">Awarded Scope Total:</span> $' + lineTotal.toFixed(2) + '</div>' +
+                                    '<div><span style="color:#fff;">Official Quote:</span> ' + escapeBatchText(officialStatus) + '</div>' +
+                                    '<div><span style="color:#fff;">PO Status:</span> ' + escapeBatchText(poStatus) + '</div>' +
+                                    '<div><span style="color:#fff;">Deposit Status:</span> ' + escapeBatchText(depositStatus) + '</div>' +
+                                    '<div><span style="color:#fff;">COM / Fabric:</span> ' + escapeBatchText(comStatus) + '</div>' +
+                                    (commitment.com_tracking_number ? '<div><span style="color:#fff;">COM Tracking:</span> ' + escapeBatchText(commitment.com_tracking_number) + '</div>' : '') +
+                                    '<div><span style="color:#fff;">Supplier Status:</span> ' + escapeBatchText(item.supplier_status_label || 'Awarded') + '</div>' +
+                                    '<div><span style="color:#fff;">Readiness:</span> ' + escapeBatchText(readinessText) + '</div>' +
+                                    '<div><span style="color:#fff;">Project:</span> ' + escapeBatchText(item.project_name || 'Project') + '</div>' +
+                                    '<div><span style="color:#fff;">Designer:</span> ' + escapeBatchText(item.designer_name || 'Designer') + '</div>' +
+                                '</div>' +
+                                '<div style="margin-top:12px;">' +
+                                    '<button type="button" onclick="openBatchProposalItemDetail(' + item.item_id + ')" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ View Item ]</button>' +
+                                '</div>';
+                            return renderBatchWorkflowItemAccordion(
+                                'step-2-item-' + item.item_id,
+                                item.title || ('Item #' + item.item_id),
+                                'Official Quote: ' + escapeBatchText(officialStatus),
+                                detailHtml,
+                                false
+                            );
+                        }).join('') +
+                        '<div style="font-size:11px; color:#aaa; font-family:monospace;">Supplier mirror shows only selected awarded items. PO, deposit, COM, and readiness updates will stay synced here as designer progresses Step 03.</div>' +
+                    '</div>';
+                }
+                if (stepIdx === 3) {
+                    return '<div style="display:grid; gap:10px;">' +
+                        '<div style="padding:12px; border:1px solid #333; border-radius:10px; background:#101010; color:#ddd; font-family:monospace; font-size:12px;">Items in production: <strong style="color:#fff;">' + summary.production + '</strong></div>' +
+                        '<div style="font-size:11px; color:#aaa; font-family:monospace;">Production updates stay visible in the batch workspace for all grouped items.</div>' +
+                    '</div>';
+                }
+                if (stepIdx === 4) {
+                    return '<div style="display:grid; gap:10px;">' +
+                        '<div style="padding:12px; border:1px solid #333; border-radius:10px; background:#101010; color:#ddd; font-family:monospace; font-size:12px;">Items in quality review: <strong style="color:#fff;">' + summary.quality + '</strong></div>' +
+                        '<div style="font-size:11px; color:#aaa; font-family:monospace;">Quality and packing milestones remain grouped here.</div>' +
+                    '</div>';
+                }
+                return '<div style="display:grid; gap:10px;">' +
+                    '<div style="padding:12px; border:1px solid #333; border-radius:10px; background:#101010; color:#ddd; font-family:monospace; font-size:12px;">Items in delivery: <strong style="color:#fff;">' + summary.delivery + '</strong></div>' +
+                    '<div style="font-size:11px; color:#aaa; font-family:monospace;">Delivery stage progress can now be tracked from the same batch modal.</div>' +
+                '</div>';
+            }
+
+            function updateBatchWorkflowHeaderCta(stepIdx, items, summary) {
+                var wrap = document.getElementById('n88-batch-workflow-header-cta');
+                if (!wrap) return;
+                items = Array.isArray(items) ? items : getBatchWorkflowItems();
+                summary = summary || getBatchWorkflowSummary(items);
+                var selectedSampleCount = getSelectedBatchSampleItemIds().length;
+                var html = '';
+                if (stepIdx === 0) {
+                    html = '<button type="button" data-batch-workflow-cta="submit_all" style="padding:12px 18px; background:#FF0065; color:#111; border:1px solid #FF0065; border-radius:12px; font-size:13px; font-weight:700; font-family:monospace; cursor:pointer;">[ Submit All Quoted ]</button>';
+                } else if (stepIdx === 1) {
+                    html = '<button type="button" data-batch-workflow-cta="sample_workflow" ' + (selectedSampleCount ? '' : 'disabled') + ' style="padding:12px 18px; background:#FF0065; color:#111; border:1px solid #FF0065; border-radius:12px; font-size:13px; font-weight:700; font-family:monospace; cursor:' + (selectedSampleCount ? 'pointer' : 'not-allowed') + '; opacity:' + (selectedSampleCount ? '1' : '.45') + ';">[ Submit Material Samples ]</button>';
+                } else if (stepIdx === 2 && summary.awarded > 0) {
+                    html = '<button type="button" data-batch-workflow-cta="focus_awarded" style="padding:12px 18px; background:#1a1a1a; color:#FF0065; border:1px solid #FF0065; border-radius:12px; font-size:13px; font-weight:700; font-family:monospace; cursor:pointer;">[ Review Awarded Items ]</button>';
+                } else {
+                    html = '<div style="padding:10px 14px; border:1px solid #333; border-radius:12px; color:#aaa; font-size:11px; font-family:monospace;">Batch workflow live for this step.</div>';
+                }
+                wrap.innerHTML = html;
+            }
+
+            function renderBatchWorkflowItemAccordion(key, title, metaText, bodyHtml, isOpenByDefault) {
+                var isOpen = !!isOpenByDefault;
+                return '' +
+                    '<div class="n88-batch-workflow-item-accordion" data-accordion-key="' + escapeBatchText(key) + '" style="border:1px solid #333; border-radius:10px; overflow:hidden; background:#101010;">' +
+                        '<button type="button" class="n88-batch-workflow-item-toggle" data-accordion-key="' + escapeBatchText(key) + '" style="width:100%; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 16px; background:#111; border:none; border-bottom:' + (isOpen ? '1px solid #222' : 'none') + '; color:#ddd; text-align:left; cursor:pointer;">' +
+                            '<div style="min-width:0;">' +
+                                '<div style="font-size:13px; color:#fff; font-family:monospace; font-weight:700; margin-bottom:4px;">' + escapeBatchText(title || 'Item') + '</div>' +
+                                (metaText ? '<div style="font-size:11px; color:#999; font-family:monospace;">' + metaText + '</div>' : '') +
+                            '</div>' +
+                            '<span class="n88-batch-workflow-item-indicator" style="color:#FF0065; font-family:monospace; font-size:12px; flex-shrink:0;">' + (isOpen ? '[-]' : '[+]') + '</span>' +
+                        '</button>' +
+                        '<div class="n88-batch-workflow-item-body" data-accordion-body="' + escapeBatchText(key) + '" style="display:' + (isOpen ? 'block' : 'none') + '; padding:14px;">' + bodyHtml + '</div>' +
+                    '</div>';
+            }
+
+            function setBatchWorkflowStep(stepIdx) {
+                stepIdx = parseInt(stepIdx, 10);
+                if (isNaN(stepIdx)) stepIdx = 0;
+                var timelineWrap = document.getElementById('n88-batch-workflow-timeline');
+                if (timelineWrap) timelineWrap.setAttribute('data-active-step', String(stepIdx));
+                Array.prototype.slice.call(document.querySelectorAll('[data-batch-workflow-step-btn]')).forEach(function(btn) {
+                    var isActive = parseInt(btn.getAttribute('data-batch-workflow-step-btn'), 10) === stepIdx;
+                    var circle = btn.querySelector('.n88-batch-workflow-step-circle');
+                    var label = btn.querySelector('.n88-batch-workflow-step-label');
+                    if (circle) {
+                        circle.style.borderColor = isActive ? '#FF0065' : '#555';
+                        circle.style.background = isActive ? '#FF0065' : '#333';
+                        circle.style.color = isActive ? '#111' : '#aaa';
+                    }
+                    if (label) label.style.color = isActive ? '#FF0065' : '#888';
+                });
+                Array.prototype.slice.call(document.querySelectorAll('[data-batch-workflow-step-panel]')).forEach(function(panel) {
+                    panel.style.display = parseInt(panel.getAttribute('data-batch-workflow-step-panel'), 10) === stepIdx ? 'block' : 'none';
+                });
+                updateBatchWorkflowHeaderCta(stepIdx);
+            }
+
+            function renderBatchWorkflowTimeline(items) {
+                items = Array.isArray(items) ? items : getBatchWorkflowItems();
+                if (!hasBatchWorkflowTimeline(items)) {
+                    return '';
+                }
+                var summary = getBatchWorkflowSummary(items);
+                var activeStep = getBatchWorkflowActiveStep(items);
+                var labels = ['Proposal Submitted', 'Design Evaluation', 'Award Decision', 'Production', 'Quality Review & Packing', 'Delivery'];
+                var descriptions = [
+                    'Batch proposal submission and draft readiness.',
+                    'Material sample request and supplier sample updates.',
+                    'Awarded items and pre-production commitments.',
+                    'Production-stage progress across the batch.',
+                    'Quality review and packing milestones.',
+                    'Delivery-stage tracking across the batch.'
+                ];
+                var html = '<div id="n88-batch-workflow-timeline" data-active-step="' + activeStep + '" style="margin:0 20px 16px; padding:18px; border:1px solid #333; border-radius:12px; background:#0b0b0b;">';
+                html += '<div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-bottom:16px;">';
+                html += '<div><div style="font-size:14px; color:#FF0065; font-family:monospace; font-weight:700; margin-bottom:6px;">Batch Workflow Timeline</div><div style="font-size:11px; color:#999; font-family:monospace;">Single-item supplier workflow ka grouped batch view. Active step CTA header me sync hota hai.</div></div>';
+                html += '<div id="n88-batch-workflow-header-cta" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"></div>';
+                html += '</div>';
+                html += '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0; margin-bottom:18px;">';
+                labels.forEach(function(label, idx) {
+                    var isActive = idx === activeStep;
+                    html += '<button type="button" data-batch-workflow-step-btn="' + idx + '" style="flex:1; display:flex; flex-direction:column; align-items:center; min-width:0; padding:4px; cursor:pointer; background:none; border:none; font:inherit;">';
+                    html += '<div class="n88-batch-workflow-step-circle" style="width:30px; height:30px; border-radius:50%; border:2px solid ' + (isActive ? '#FF0065' : '#555') + '; background:' + (isActive ? '#FF0065' : '#333') + '; color:' + (isActive ? '#111' : '#aaa') + '; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-bottom:6px;">' + (idx + 1) + '</div>';
+                    html += '<div class="n88-batch-workflow-step-label" style="font-size:10px; color:' + (isActive ? '#FF0065' : '#888') + '; text-align:center; line-height:1.2; max-width:82px;">' + escapeBatchText(label) + '</div>';
+                    html += '</button>';
+                    if (idx < labels.length - 1) {
+                        html += '<div style="flex:0 0 20px; align-self:center; height:2px; background:#555; margin-bottom:24px;"></div>';
+                    }
+                });
+                html += '</div>';
+                labels.forEach(function(label, idx) {
+                    html += '<div data-batch-workflow-step-panel="' + idx + '" style="display:' + (idx === activeStep ? 'block' : 'none') + '; padding:16px; border:1px solid #333; border-radius:10px; background:#111; margin-bottom:' + (idx === labels.length - 1 ? '0' : '12px') + ';">';
+                    html += '<div style="min-width:0; margin-bottom:12px;">';
+                    html += '<div style="font-size:14px; color:#FF0065; font-family:monospace; font-weight:700; margin-bottom:4px;">Step ' + (idx + 1) + ' - ' + escapeBatchText(label) + '</div>';
+                    html += '<div style="font-size:11px; color:#bbb; font-family:monospace;">' + escapeBatchText(descriptions[idx]) + '</div>';
+                    html += '</div>';
+                    html += getBatchWorkflowPanelHtml(idx, items, summary);
+                    html += '</div>';
+                });
+                html += '</div>';
+                return html;
             }
 
             function isBatchEmbeddedForm(itemId) {
@@ -5410,14 +5962,175 @@ class N88_RFQ_Auth {
                         '<span style="padding:4px 8px; border:1px solid #ffb37d; border-radius:999px; color:#ffb37d;">Not Quoted: ' + counts.not_quoted + '</span>';
                 }
                 refreshBatchSharedUploads();
+                refreshBatchSampleSelectionUI();
+            }
+
+            function getSelectedBatchSampleItemIds() {
+                var selectedIds = [];
+                Array.prototype.slice.call(document.querySelectorAll('.n88-batch-sample-select:checked')).forEach(function(input) {
+                    var groupIds = String(input.getAttribute('data-group-item-ids') || '').split(',').map(function(rawId) {
+                        return parseInt(String(rawId).trim(), 10) || 0;
+                    }).filter(function(itemId) {
+                        return itemId > 0;
+                    });
+                    if (groupIds.length) {
+                        selectedIds = selectedIds.concat(groupIds);
+                        return;
+                    }
+                    var itemId = parseInt(input.getAttribute('data-item-id'), 10) || 0;
+                    if (itemId > 0) {
+                        selectedIds.push(itemId);
+                    }
+                });
+                return selectedIds.filter(function(itemId, index, arr) {
+                    return arr.indexOf(itemId) === index;
+                });
+            }
+
+            function refreshBatchSampleSelectionUI() {
+                var selectedIds = getSelectedBatchSampleItemIds();
+                var countEl = document.getElementById('n88-batch-sample-selected-count');
+                if (countEl) {
+                    countEl.textContent = selectedIds.length + ' sample item' + (selectedIds.length === 1 ? '' : 's') + ' selected';
+                }
+                var workflowTimeline = document.getElementById('n88-batch-workflow-timeline');
+                if (workflowTimeline) {
+                    updateBatchWorkflowHeaderCta(parseInt(workflowTimeline.getAttribute('data-active-step') || '0', 10) || 0);
+                }
+            }
+
+            function openBatchSampleWorkflowModal() {
+                var selectedIds = getSelectedBatchSampleItemIds();
+                if (!selectedIds.length) {
+                    alert('Select at least one requested sample item first.');
+                    return;
+                }
+                var modal = document.getElementById('n88-supplier-batch-sample-workflow-modal');
+                var countEl = document.getElementById('n88-batch-sample-workflow-selection-count');
+                var statusEl = document.getElementById('n88-batch-sample-workflow-status');
+                var trackingField = document.getElementById('n88-batch-sample-tracking');
+                var noteField = document.getElementById('n88-batch-sample-note');
+                var filesField = document.getElementById('n88-batch-sample-files');
+                if (countEl) {
+                    countEl.textContent = selectedIds.length + ' selected sample item' + (selectedIds.length === 1 ? '' : 's');
+                }
+                if (statusEl) {
+                    statusEl.textContent = '';
+                    statusEl.style.color = '#aaa';
+                }
+                if (trackingField) trackingField.value = '';
+                if (noteField) noteField.value = '';
+                if (filesField) filesField.value = '';
+                if (modal) {
+                    modal.style.display = 'block';
+                }
+            }
+
+            function closeBatchSampleWorkflowModal() {
+                var modal = document.getElementById('n88-supplier-batch-sample-workflow-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                }
+            }
+
+            function applyBatchSampleUpdateToSelectedItems() {
+                var selectedIds = getSelectedBatchSampleItemIds();
+                if (!selectedIds.length) {
+                    alert('Select at least one requested sample item first.');
+                    return;
+                }
+                var trackingField = document.getElementById('n88-batch-sample-tracking');
+                var noteField = document.getElementById('n88-batch-sample-note');
+                var filesField = document.getElementById('n88-batch-sample-files');
+                var statusTarget = document.getElementById('n88-batch-sample-workflow-status');
+                var applyBtn = document.getElementById('n88-batch-sample-submit-btn');
+                var trackingNumber = trackingField ? String(trackingField.value || '').trim() : '';
+                var note = noteField ? String(noteField.value || '').trim() : '';
+                var files = filesField && filesField.files ? Array.prototype.slice.call(filesField.files) : [];
+                var sampleStatus = trackingNumber ? 'shipped' : 'sample_submitted';
+                var ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+                var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                var workspace = window.n88SupplierBatchState.workspace || {};
+                var activeItemId = parseInt(window.n88SupplierBatchState.activeItemId, 10) || selectedIds[0];
+
+                if (statusTarget) {
+                    statusTarget.textContent = 'Submitting grouped sample workflow...';
+                    statusTarget.style.color = '#aaa';
+                }
+                if (applyBtn) {
+                    applyBtn.disabled = true;
+                    applyBtn.textContent = '[ Submitting... ]';
+                }
+
+                var successes = 0;
+                var failures = [];
+                var chain = Promise.resolve();
+                selectedIds.forEach(function(itemId) {
+                    chain = chain.then(function() {
+                        var formData = new FormData();
+                        formData.append('action', 'n88_supplier_submit_material_samples');
+                        formData.append('item_id', String(itemId));
+                        formData.append('sample_status', sampleStatus);
+                        formData.append('tracking_number', trackingNumber);
+                        formData.append('note', note);
+                        formData.append('_ajax_nonce', nonce);
+                        files.forEach(function(file) {
+                            formData.append('sample_files[]', file);
+                        });
+                        return fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        }).then(function(response) {
+                            return response.json();
+                        }).then(function(result) {
+                            if (result && result.success) {
+                                successes++;
+                                if (window.n88SupplierBatchState.itemData[itemId] && result.data && result.data.validation_state) {
+                                    window.n88SupplierBatchState.itemData[itemId].validation_state = result.data.validation_state;
+                                    window.n88SupplierBatchState.itemData[itemId].validation_card_status_text = result.data.validation_state.card_status_text || '';
+                                    window.n88SupplierBatchState.itemData[itemId].supplier_status_label = result.data.validation_state.card_status_text || window.n88SupplierBatchState.itemData[itemId].supplier_status_label || '';
+                                }
+                                return;
+                            }
+                            failures.push('Item #' + itemId + ': ' + ((result && result.data && result.data.message) ? result.data.message : 'Update failed.'));
+                        }).catch(function(error) {
+                            failures.push('Item #' + itemId + ': ' + (error && error.message ? error.message : 'Update failed.'));
+                        });
+                    });
+                });
+
+                chain.finally(function() {
+                    if (statusTarget) {
+                        if (successes > 0) {
+                            statusTarget.textContent = (successes === 1 ? '1 item updated.' : (successes + ' items updated.')) + (failures.length ? ' Some failed.' : '');
+                            statusTarget.style.color = failures.length ? '#ffb37d' : '#7dffb1';
+                        } else {
+                            statusTarget.textContent = failures.length ? failures.join(' ') : 'No sample items were updated.';
+                            statusTarget.style.color = '#ff8a8a';
+                        }
+                    }
+                    if (applyBtn) {
+                        applyBtn.disabled = false;
+                        applyBtn.textContent = '[ Submit Selected Samples ]';
+                    }
+                    if (successes > 0 && !failures.length) {
+                        closeBatchSampleWorkflowModal();
+                    }
+                    if (workspace.proposal_group_id) {
+                        openBatchProposalModalForGroup(workspace.proposal_group_id, activeItemId);
+                    }
+                });
             }
 
             function getBatchSampleStateLabel(item) {
                 var validationState = item && item.validation_state ? item.validation_state : {};
                 var sampleStatus = validationState && validationState.sample_status ? String(validationState.sample_status).toLowerCase() : '';
-                if (sampleStatus === 'sample_requested') return 'Samples Requested';
-                if (sampleStatus === 'supplier_submitted' || sampleStatus === 'samples_shipped') return 'Samples Shipped';
-                if (sampleStatus === 'samples_received') return 'Samples Received';
+                if (sampleStatus === 'sample_requested') return 'Sample Material Kit Requested';
+                if (sampleStatus === 'in_preparation') return 'Preparing Sample Material Kit';
+                if (sampleStatus === 'sample_submitted' || sampleStatus === 'supplier_submitted') return 'Sample Submitted';
+                if (sampleStatus === 'samples_shipped' || sampleStatus === 'shipped' || sampleStatus === 'in_transit' || sampleStatus === 'delivered') return 'Sample Shipped';
+                if (sampleStatus === 'under_review' || sampleStatus === 'samples_received') return 'Samples Received';
                 if (sampleStatus === 'samples_approved') return 'Samples Approved';
                 return 'No Samples Requested';
             }
@@ -5441,7 +6154,9 @@ class N88_RFQ_Auth {
                 if (workflowStep >= 4) return 'In Production';
                 if (workflowStep >= 2) return 'In CAD';
                 if (item && (item.is_awarded_supplier || item.bid_status === 'awarded')) return 'Awarded';
-                if (item && item.bid_status === 'submitted') return 'Proposal Submitted';
+                if (item && item.bid_status === 'submitted') {
+                    return (parseInt(item.batch_primary_proposal_group_id, 10) || 0) > 0 ? 'Batch Proposal Submitted' : 'Proposal Submitted';
+                }
                 if (item && item.batch_item_state === 'ready') return 'Ready to Submit';
                 if (item && item.batch_quote_decision === 'skip') return 'Not Quoted';
                 return 'Not Ready';
@@ -5455,46 +6170,538 @@ class N88_RFQ_Auth {
                 if (items.some(function(item) { return item && (item.is_awarded_supplier || item.bid_status === 'awarded'); })) return 'Awarded';
                 if (items.some(function(item) {
                     var sampleStatus = item && item.validation_state && item.validation_state.sample_status ? String(item.validation_state.sample_status).toLowerCase() : '';
-                    return sampleStatus === 'sample_requested' || sampleStatus === 'supplier_submitted' || sampleStatus === 'samples_shipped' || sampleStatus === 'samples_received' || sampleStatus === 'samples_approved';
+                    return sampleStatus === 'sample_requested' || sampleStatus === 'in_preparation' || sampleStatus === 'sample_submitted' || sampleStatus === 'supplier_submitted' || sampleStatus === 'samples_shipped' || sampleStatus === 'shipped' || sampleStatus === 'in_transit' || sampleStatus === 'samples_received' || sampleStatus === 'samples_approved';
                 })) return 'Samples In Progress';
+                if (items.some(function(item) {
+                    return item && item.bid_status === 'submitted' && (parseInt(item.batch_primary_proposal_group_id, 10) || 0) > 0;
+                })) return 'Batch Proposal Submitted';
                 if (items.some(function(item) { return item && item.bid_status === 'submitted'; })) return 'Proposal Submitted';
                 return 'Draft In Progress';
             }
 
-            function renderBatchItemGrid(items) {
-                items = Array.isArray(items) ? items : [];
-                if (!items.length) {
-                    return '<div style="padding:16px; border:1px dashed #444; border-radius:12px; color:#999; font-family:monospace;">No items in this batch yet.</div>';
+            function getBatchSampleRequestContext(item) {
+                var validationState = item && item.validation_state ? item.validation_state : {};
+                var requestState = validationState && validationState.request ? validationState.request : {};
+                var batchContext = requestState && requestState.batch_context ? requestState.batch_context : {};
+                if (!batchContext || typeof batchContext !== 'object') {
+                    batchContext = {};
                 }
-                return '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">' + items.map(function(item) {
-                    var itemId = item.item_id;
-                    var imageUrl = item.primary_image_url || item.image_url || '';
-                    var unitPrice = item && item.bid_data && item.bid_data.unit_price !== null && item.bid_data.unit_price !== undefined && String(item.bid_data.unit_price) !== '' ? '$' + Number(item.bid_data.unit_price).toFixed(2) : 'Not quoted';
-                    var subtotal = item && item.bid_data && item.bid_data.total_price ? ('$' + Number(item.bid_data.total_price).toFixed(2)) : 'Not quoted';
-                    var sampleState = getBatchSampleStateLabel(item);
-                    var awardState = getBatchAwardStateLabel(item);
-                    var workflowState = getBatchWorkflowStateLabel(item);
-                    return '' +
-                        '<div style="border:1px solid #333; border-radius:12px; background:#111; overflow:hidden; display:flex; flex-direction:column;">' +
-                            (imageUrl ? '<img src="' + escapeBatchText(imageUrl) + '" alt="" style="width:100%; height:148px; object-fit:cover; border-bottom:1px solid #333;" />' : '<div style="height:148px; display:flex; align-items:center; justify-content:center; border-bottom:1px solid #333; color:#666; font-family:monospace;">No Image</div>') +
-                            '<div style="padding:14px; display:flex; flex-direction:column; gap:8px; flex:1;">' +
-                                '<div style="font-size:14px; color:#fff; font-family:monospace;">' + escapeBatchText(item.title || ('Item #' + itemId)) + '</div>' +
-                                '<div style="font-size:11px; color:#999; font-family:monospace;">' + escapeBatchText(item.category || '-') + ' | Qty: ' + escapeBatchText(item.quantity || '-') + '</div>' +
-                                '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11px; font-family:monospace;">' +
-                                    '<div style="padding:8px; border:1px solid #2c2c2c; border-radius:8px; color:#ddd;"><div style="color:#777; margin-bottom:4px;">Unit Price</div><div>' + escapeBatchText(unitPrice) + '</div></div>' +
-                                    '<div style="padding:8px; border:1px solid #2c2c2c; border-radius:8px; color:#ddd;"><div style="color:#777; margin-bottom:4px;">Subtotal</div><div>' + escapeBatchText(subtotal) + '</div></div>' +
-                                '</div>' +
-                                '<div style="display:flex; flex-wrap:wrap; gap:6px; font-size:10px; font-family:monospace;">' +
-                                    '<span style="padding:4px 8px; border:1px solid #555; border-radius:999px; color:#d8d8d8;">' + escapeBatchText(sampleState) + '</span>' +
-                                    '<span style="padding:4px 8px; border:1px solid #555; border-radius:999px; color:#d8d8d8;">' + escapeBatchText(awardState) + '</span>' +
-                                    '<span style="padding:4px 8px; border:1px solid #555; border-radius:999px; color:#d8d8d8;">' + escapeBatchText(workflowState) + '</span>' +
-                                '</div>' +
-                                '<div style="margin-top:auto; display:flex; justify-content:flex-end;">' +
-                                    '<button type="button" onclick="toggleBatchProposalAccordion(' + itemId + ', true)" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ View Item ]</button>' +
-                                '</div>' +
-                            '</div>' +
+                return batchContext;
+            }
+
+            function getBatchSampleShippingAddressLabel(item) {
+                var validationState = item && item.validation_state ? item.validation_state : {};
+                var requestState = validationState && validationState.request ? validationState.request : {};
+                var batchContext = getBatchSampleRequestContext(item);
+                var itemId = parseInt(item && item.item_id, 10) || 0;
+                var addressMode = batchContext && batchContext.address_mode === 'per_item' ? 'per_item' : 'same';
+                if (addressMode === 'per_item') {
+                    if (batchContext.item_addresses && batchContext.item_addresses[itemId]) {
+                        return String(batchContext.item_addresses[itemId]);
+                    }
+                    return requestState && requestState.shipping_address ? String(requestState.shipping_address) : '';
+                }
+                if (batchContext && batchContext.shared_address) {
+                    return String(batchContext.shared_address);
+                }
+                return requestState && requestState.shipping_address ? String(requestState.shipping_address) : '';
+            }
+
+            function renderBatchFileGallery(files, emptyLabel) {
+                files = Array.isArray(files) ? files : [];
+                if (!files.length) {
+                    return emptyLabel ? '<div style="font-size:11px; color:#777; font-family:monospace;">' + escapeBatchText(emptyLabel) + '</div>' : '';
+                }
+                function resolveFileUrl(file) {
+                    if (!file || typeof file !== 'object') return '';
+                    return file.url || file.file_url || file.media_url || file.material_image_url || file.thumbnail_url || file.thumb_url || '';
+                }
+                function resolveFileLabel(file, idx) {
+                    if (!file || typeof file !== 'object') return 'File ' + (idx + 1);
+                    return file.name || file.file_name || file.title || file.label || ('File ' + (idx + 1));
+                }
+                var imageFiles = files.filter(function(file) {
+                    var url = String(resolveFileUrl(file) || '');
+                    return /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)(\?.*)?$/i.test(url);
+                });
+                var html = '';
+                if (imageFiles.length) {
+                    html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:8px; margin-top:8px;">';
+                    html += imageFiles.map(function(file, idx) {
+                        var url = String(resolveFileUrl(file) || '').replace(/"/g, '&quot;');
+                        var label = resolveFileLabel(file, idx);
+                        return '<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="display:block; text-decoration:none;">' +
+                            '<img src="' + url + '" alt="' + escapeBatchText(label) + '" style="width:100%; height:96px; object-fit:cover; border-radius:8px; border:1px solid #333; background:#0b0b0b;" />' +
+                        '</a>';
+                    }).join('');
+                    html += '</div>';
+                }
+                html += '<div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">';
+                html += files.map(function(file, idx) {
+                    var url = String(resolveFileUrl(file) || '').replace(/"/g, '&quot;');
+                    var label = resolveFileLabel(file, idx);
+                    return url
+                        ? '<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="padding:6px 10px; border:1px solid #333; border-radius:999px; background:#0d0d0d; color:#7dc3ff; font-size:11px; text-decoration:none; font-family:monospace;">' + escapeBatchText(label) + '</a>'
+                        : '<span style="padding:6px 10px; border:1px solid #333; border-radius:999px; background:#0d0d0d; color:#ccc; font-size:11px; font-family:monospace;">' + escapeBatchText(label) + '</span>';
+                }).join('');
+                html += '</div>';
+                return html;
+            }
+
+            function renderBatchSampleRequestSummary(item, options) {
+                var validationState = item && item.validation_state ? item.validation_state : {};
+                var requestState = validationState && validationState.request ? validationState.request : {};
+                if (!requestState || !requestState.requested_at) {
+                    return '';
+                }
+                options = options && typeof options === 'object' ? options : {};
+                var batchContext = getBatchSampleRequestContext(item);
+                var addressMode = batchContext && batchContext.address_mode === 'per_item' ? 'Per-item address' : 'Same address for batch';
+                var selectedItems = batchContext && Array.isArray(batchContext.selected_items) ? batchContext.selected_items : [];
+                var selectedItemsText = selectedItems.length ? selectedItems.map(function(entry) {
+                    var title = entry && entry.title ? String(entry.title) : '';
+                    return title || ('Item #' + String((entry && entry.item_id) || ''));
+                }).filter(Boolean).join(', ') : '';
+                var shippingAddress = getBatchSampleShippingAddressLabel(item);
+                var sampleTypes = requestState && Array.isArray(requestState.sample_types) ? requestState.sample_types.filter(Boolean) : [];
+                var selectedMaterials = requestState && Array.isArray(requestState.selected_materials) ? requestState.selected_materials : [];
+                var referenceFiles = requestState && Array.isArray(requestState.reference_files) ? requestState.reference_files : [];
+                var groupItemIds = Array.isArray(options.groupItemIds) ? options.groupItemIds.filter(Boolean) : [];
+                var headerTitle = options.title || ('Batch Material Sample Request - ' + (item.title || ('Item #' + item.item_id)));
+                var submissionSummary = getBatchSampleSubmissionSummary(item);
+                var showGroupedShipmentToggle = !submissionSummary;
+                var html = '';
+                html += '<div style="margin-top:14px; padding:14px; border:1px solid #333; border-radius:10px; background:#101010;">';
+                html += '<div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px;">';
+                html += '<div style="font-size:12px; color:#FF0065; font-family:monospace; font-weight:700;">' + escapeBatchText(headerTitle) + '</div>';
+                if (showGroupedShipmentToggle) {
+                    html += '<label style="display:inline-flex; align-items:center; gap:10px; padding:8px 12px; border:1px solid #FF0065; border-radius:999px; background:rgba(255,0,101,.08); font-size:13px; color:#fff; font-family:monospace; font-weight:700; cursor:pointer;">';
+                    html += '<input type="checkbox" class="n88-batch-sample-select" data-item-id="' + item.item_id + '"' + (groupItemIds.length ? ' data-group-item-ids="' + escapeBatchText(groupItemIds.join(',')) + '"' : '') + ' style="accent-color:#FF0065; width:18px; height:18px;" />';
+                    html += '<span>Select For Grouped Shipment</span>';
+                    html += '</label>';
+                }
+                html += '</div>';
+                html += '<div style="display:grid; gap:6px; font-size:11px; color:#ccc; font-family:monospace;">';
+                html += '<div><span style="color:#fff;">Status:</span> ' + escapeBatchText(getBatchSampleStateLabel(item)) + '</div>';
+                html += '<div><span style="color:#fff;">Requested:</span> ' + escapeBatchText(formatBatchDateTime(requestState.requested_at) || requestState.requested_at) + '</div>';
+                html += '<div><span style="color:#fff;">Address Mode:</span> ' + escapeBatchText(addressMode) + '</div>';
+                if (sampleTypes.length) html += '<div><span style="color:#fff;">Sample Types:</span> ' + escapeBatchText(sampleTypes.join(', ')) + '</div>';
+                if (selectedItemsText) html += '<div><span style="color:#fff;">Batch Items:</span> ' + escapeBatchText(selectedItemsText) + '</div>';
+                if (requestState.instructions) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Notes:</span> ' + escapeBatchText(requestState.instructions) + '</div>';
+                if (shippingAddress) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Ship To:</span> ' + escapeBatchText(shippingAddress) + '</div>';
+                if (selectedMaterials.length) {
+                    html += '<div style="margin-top:4px;"><span style="color:#fff;">Selected Media / Materials:</span></div>';
+                    html += '<div style="display:grid; gap:8px; margin-top:8px;">';
+                    html += selectedMaterials.map(function(material, idx) {
+                        var materialLabelParts = [];
+                        if (material && material.material_name) materialLabelParts.push(material.material_name);
+                        if (material && material.title) materialLabelParts.push(material.title);
+                        if (material && material.material_code) materialLabelParts.push(material.material_code);
+                        if (material && material.material_type) materialLabelParts.push(material.material_type);
+                        if (material && material.library_group) materialLabelParts.push(String(material.library_group).replace(/_/g, ' '));
+                        var materialImage = (material && (material.material_image_url || material.thumbnail_url || material.media_url)) ? (material.material_image_url || material.thumbnail_url || material.media_url) : '';
+                        return '<div style="display:flex; gap:10px; align-items:center; padding:8px; border:1px solid #2c2c2c; border-radius:8px; background:#0d0d0d;">' +
+                            (materialImage ? '<img src="' + escapeBatchText(materialImage) + '" alt="" style="width:54px; height:54px; object-fit:cover; border-radius:6px; border:1px solid #333;" />' : '') +
+                            '<div style="font-size:11px; color:#ddd;">' + escapeBatchText(materialLabelParts.length ? materialLabelParts.join(' - ') : ('Selected Material ' + (idx + 1))) + '</div>' +
                         '</div>';
-                }).join('') + '</div>';
+                    }).join('');
+                    html += '</div>';
+                }
+                if (referenceFiles.length) {
+                    html += '<div style="margin-top:4px;"><span style="color:#fff;">References:</span></div>';
+                    html += renderBatchFileGallery(referenceFiles);
+                }
+                if (submissionSummary) {
+                    html += '<div style="margin-top:14px; padding-top:14px; border-top:1px solid #262626;">';
+                    html += '<div style="font-size:12px; color:#FF0065; font-family:monospace; font-weight:700; margin-bottom:8px;">Sample Submission Update</div>';
+                    html += '<div style="display:grid; gap:6px; font-size:11px; color:#ccc; font-family:monospace;">';
+                    html += '<div><span style="color:#fff;">Status:</span> ' + escapeBatchText(submissionSummary.status) + '</div>';
+                    if (submissionSummary.updatedAt) html += '<div><span style="color:#fff;">Submitted:</span> ' + escapeBatchText(formatBatchDateTime(submissionSummary.updatedAt) || submissionSummary.updatedAt) + '</div>';
+                    if (submissionSummary.trackingNumber) html += '<div><span style="color:#fff;">Tracking #:</span> ' + escapeBatchText(submissionSummary.trackingNumber) + '</div>';
+                    if (submissionSummary.note) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Supplier Notes:</span> ' + escapeBatchText(submissionSummary.note) + '</div>';
+                    if (submissionSummary.receivedAt) html += '<div><span style="color:#fff;">Designer Received:</span> ' + escapeBatchText(formatBatchDateTime(submissionSummary.receivedAt) || submissionSummary.receivedAt) + '</div>';
+                    if (submissionSummary.approvedAt) html += '<div><span style="color:#fff;">Designer Approved:</span> ' + escapeBatchText(formatBatchDateTime(submissionSummary.approvedAt) || submissionSummary.approvedAt) + '</div>';
+                    if (submissionSummary.reviewNotes) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Designer Notes:</span> ' + escapeBatchText(submissionSummary.reviewNotes) + '</div>';
+                    if (submissionSummary.files && submissionSummary.files.length) {
+                        html += '<div style="margin-top:4px;"><span style="color:#fff;">Submitted Sample Files:</span></div>';
+                        html += renderBatchFileGallery(submissionSummary.files);
+                    }
+                    if (submissionSummary.approvedImages && submissionSummary.approvedImages.length) {
+                        html += '<div style="margin-top:4px;"><span style="color:#fff;">Approved Images:</span></div>';
+                        html += renderBatchFileGallery(submissionSummary.approvedImages);
+                    }
+                    html += '</div></div>';
+                    if (submissionSummary.isApproved) {
+                        html += '<div style="margin-top:14px; padding:14px; border:1px solid rgba(125,255,177,0.35); border-radius:10px; background:linear-gradient(180deg, rgba(18,44,28,0.95) 0%, rgba(11,26,18,0.98) 100%);">';
+                        html += '<div style="font-size:12px; color:#7dffb1; font-family:monospace; font-weight:700; margin-bottom:10px;">Designer Approved Samples</div>';
+                        html += '<div style="display:grid; gap:8px; font-size:11px; color:#dfffe9; font-family:monospace;">';
+                        if (submissionSummary.approvedAt) html += '<div><span style="color:#fff;">Approved At:</span> ' + escapeBatchText(formatBatchDateTime(submissionSummary.approvedAt) || submissionSummary.approvedAt) + '</div>';
+                        if (submissionSummary.approvedMaterialCodes && submissionSummary.approvedMaterialCodes.length) html += '<div><span style="color:#fff;">Approved Materials:</span> ' + escapeBatchText(submissionSummary.approvedMaterialCodes.join(', ')) + '</div>';
+                        if (submissionSummary.approvedFinishCodes && submissionSummary.approvedFinishCodes.length) html += '<div><span style="color:#fff;">Approved Finishes:</span> ' + escapeBatchText(submissionSummary.approvedFinishCodes.join(', ')) + '</div>';
+                        html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Designer Instructions:</span> ' + escapeBatchText(submissionSummary.reviewNotes || 'No extra designer instructions provided.') + '</div>';
+                        html += '</div>';
+                        html += '</div>';
+                    }
+                }
+                html += '</div></div>';
+                return html;
+            }
+
+            function getBatchSampleSubmissionSummary(item) {
+                var validationState = item && item.validation_state ? item.validation_state : {};
+                var supplierState = validationState && validationState.supplier ? validationState.supplier : {};
+                var reviewState = validationState && validationState.review ? validationState.review : {};
+                var sampleStatus = validationState && validationState.sample_status ? String(validationState.sample_status).toLowerCase() : '';
+                if (!sampleStatus || sampleStatus === 'sample_requested') {
+                    return null;
+                }
+                return {
+                    status: getBatchSampleStateLabel(item),
+                    updatedAt: supplierState.updated_at || '',
+                    trackingNumber: supplierState.tracking_number || '',
+                    note: supplierState.note || '',
+                    files: supplierState && Array.isArray(supplierState.files) ? supplierState.files : [],
+                    receivedAt: reviewState.samples_received_at || '',
+                    approvedAt: reviewState.approved_at || '',
+                    approvedImages: reviewState && Array.isArray(reviewState.approved_sample_images) ? reviewState.approved_sample_images : [],
+                    reviewNotes: reviewState.notes || '',
+                    approvedMaterialCodes: reviewState && Array.isArray(reviewState.approved_material_codes) ? reviewState.approved_material_codes : [],
+                    approvedFinishCodes: reviewState && Array.isArray(reviewState.approved_finish_codes) ? reviewState.approved_finish_codes : [],
+                    isApproved: sampleStatus === 'samples_approved'
+                };
+            }
+
+            function buildBatchGroupedSampleRequestCards(items) {
+                var grouped = {};
+                (items || []).forEach(function(item) {
+                    var validationState = item && item.validation_state ? item.validation_state : {};
+                    var requestState = validationState && validationState.request ? validationState.request : {};
+                    if (!requestState || !requestState.requested_at) {
+                        return;
+                    }
+                    var batchContext = getBatchSampleRequestContext(item);
+                    var selectedItemIds = batchContext && Array.isArray(batchContext.selected_item_ids) ? batchContext.selected_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(Boolean).sort(function(a, b) { return a - b; }) : [];
+                    var key = selectedItemIds.length ? ('group:' + selectedItemIds.join('-') + ':' + String(requestState.requested_at || '')) : ('item:' + String(item.item_id));
+                    if (!grouped[key]) {
+                        grouped[key] = {
+                            items: [],
+                            itemNames: [],
+                            requestState: requestState,
+                            batchContext: batchContext,
+                            representative: item
+                        };
+                    }
+                    grouped[key].items.push(item);
+                    grouped[key].itemNames.push(item.title || ('Item #' + item.item_id));
+                });
+                return Object.keys(grouped).map(function(key) {
+                    var entry = grouped[key];
+                    var rep = entry.representative;
+                    var groupItemIds = entry.items.map(function(groupItem) {
+                        return parseInt(groupItem && groupItem.item_id, 10) || 0;
+                    }).filter(Boolean);
+                    var cardTitle = entry.items.length > 1
+                        ? ('Batch Material Sample Request - ' + entry.itemNames.join(', '))
+                        : ('Batch Material Sample Request - ' + entry.itemNames[0]);
+                    var baseHtml = renderBatchSampleRequestSummary(rep, {
+                        title: cardTitle,
+                        groupItemIds: groupItemIds
+                    });
+                    if (!baseHtml) {
+                        return null;
+                    }
+                    return {
+                        title: cardTitle,
+                        meta: (entry.items.length > 1 ? 'Combined items: ' : 'Item: ') + escapeBatchText(entry.itemNames.join(', ')),
+                        body: baseHtml
+                    };
+                }).filter(Boolean);
+            }
+
+            function buildBatchGroupedSampleSubmissionCards(items) {
+                var grouped = {};
+                (items || []).forEach(function(item) {
+                    var summary = getBatchSampleSubmissionSummary(item);
+                    if (!summary) {
+                        return;
+                    }
+                    var keyParts = [
+                        summary.status || '',
+                        summary.updatedAt || '',
+                        summary.trackingNumber || '',
+                        summary.note || '',
+                        (summary.files || []).map(function(file) { return String((file && file.url) || ''); }).join('|'),
+                        summary.receivedAt || '',
+                        summary.approvedAt || '',
+                        summary.reviewNotes || ''
+                    ];
+                    var key = keyParts.join('::');
+                    if (!grouped[key]) {
+                        grouped[key] = {
+                            items: [],
+                            itemNames: [],
+                            summary: summary
+                        };
+                    }
+                    grouped[key].items.push(item);
+                    grouped[key].itemNames.push(item.title || ('Item #' + item.item_id));
+                });
+                return Object.keys(grouped).map(function(key) {
+                    var entry = grouped[key];
+                    var summary = entry.summary;
+                    var html = '<div style="padding:14px; border:1px solid #333; border-radius:10px; background:#101010;">';
+                    html += '<div style="display:grid; gap:6px; font-size:11px; color:#ccc; font-family:monospace;">';
+                    html += '<div><span style="color:#fff;">Status:</span> ' + escapeBatchText(summary.status) + '</div>';
+                    if (summary.updatedAt) html += '<div><span style="color:#fff;">Submitted:</span> ' + escapeBatchText(formatBatchDateTime(summary.updatedAt) || summary.updatedAt) + '</div>';
+                    if (summary.trackingNumber) html += '<div><span style="color:#fff;">Tracking #:</span> ' + escapeBatchText(summary.trackingNumber) + '</div>';
+                    if (summary.note) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Supplier Notes:</span> ' + escapeBatchText(summary.note) + '</div>';
+                    if (summary.receivedAt) html += '<div><span style="color:#fff;">Designer Received:</span> ' + escapeBatchText(formatBatchDateTime(summary.receivedAt) || summary.receivedAt) + '</div>';
+                    if (summary.approvedAt) html += '<div><span style="color:#fff;">Designer Approved:</span> ' + escapeBatchText(formatBatchDateTime(summary.approvedAt) || summary.approvedAt) + '</div>';
+                    if (summary.reviewNotes) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">Designer Notes:</span> ' + escapeBatchText(summary.reviewNotes) + '</div>';
+                    if (summary.files && summary.files.length) {
+                        html += '<div><span style="color:#fff;">Sample Files:</span> ' + summary.files.map(function(file, idx) {
+                            var url = file && file.url ? String(file.url).replace(/"/g, '&quot;') : '';
+                            var label = file && file.name ? file.name : ('Sample File ' + (idx + 1));
+                            return url ? ('<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="color:#7dc3ff; text-decoration:none;">' + escapeBatchText(label) + '</a>') : escapeBatchText(label);
+                        }).join(', ') + '</div>';
+                    }
+                    if (summary.approvedImages && summary.approvedImages.length) {
+                        html += '<div><span style="color:#fff;">Approved Images:</span> ' + summary.approvedImages.map(function(file, idx) {
+                            var url = file && file.url ? String(file.url).replace(/"/g, '&quot;') : '';
+                            var label = file && file.name ? file.name : ('Approved Image ' + (idx + 1));
+                            return url ? ('<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="color:#7dc3ff; text-decoration:none;">' + escapeBatchText(label) + '</a>') : escapeBatchText(label);
+                        }).join(', ') + '</div>';
+                    }
+                    html += '</div></div>';
+                    return {
+                        title: 'Sample Submission Update',
+                        meta: (entry.items.length > 1 ? 'Combined items: ' : 'Item: ') + escapeBatchText(entry.itemNames.join(', ')),
+                        body: html
+                    };
+                }).filter(Boolean);
+            }
+
+            function renderBatchSubmittedBidShell(item) {
+                if (!item || !item.item_id) {
+                    return '';
+                }
+                var effectiveBidStatus = item.bid_status || ((item.bid_data && item.bid_data.bid_status) ? item.bid_data.bid_status : '');
+                if ((effectiveBidStatus !== 'submitted' && effectiveBidStatus !== 'awarded') || item.has_revision_mismatch) {
+                    return '';
+                }
+                var bidData = item.bid_data || {};
+                var submittedAt = bidData && bidData.created_at ? String(bidData.created_at) : '';
+                var submittedAtLabel = formatBatchDateTime(submittedAt);
+                var fabricSuppliedFlag = String(
+                    item.rfq_fabric_supplied_flag
+                    || item.fabric_supplied_flag
+                    || item.fabric_supplied
+                    || ''
+                ).toLowerCase();
+                var showFabricQuantity = fabricSuppliedFlag === 'yes' || fabricSuppliedFlag === '1' || fabricSuppliedFlag === 'true';
+                var fabricQuantity = '';
+                if (bidData && bidData.fabric_quantity !== null && bidData.fabric_quantity !== undefined) {
+                    fabricQuantity = String(bidData.fabric_quantity).trim();
+                }
+                var unitPrice = (bidData && bidData.unit_price !== null && bidData.unit_price !== undefined && String(bidData.unit_price) !== '') ? Number(bidData.unit_price) : null;
+                var totalPrice = (bidData && bidData.total_price !== null && bidData.total_price !== undefined && String(bidData.total_price) !== '') ? Number(bidData.total_price) : null;
+                var itemQuantity = (bidData && bidData.item_quantity !== null && bidData.item_quantity !== undefined && String(bidData.item_quantity) !== '') ? Number(bidData.item_quantity) : null;
+                var leadTime = '';
+                if (bidData && bidData.production_lead_time) {
+                    leadTime = String(bidData.production_lead_time);
+                } else if (bidData && bidData.production_lead_time_text) {
+                    leadTime = String(bidData.production_lead_time_text);
+                } else if (bidData && bidData.lead_time_weeks) {
+                    leadTime = String(bidData.lead_time_weeks) + ' weeks';
+                }
+                var stepCompletedAt = submittedAtLabel;
+                if (item.workflow_milestones && item.workflow_milestones.step1) {
+                    var workflowStep1 = item.workflow_milestones.step1;
+                    stepCompletedAt = formatBatchDateTime(workflowStep1.completed_at || workflowStep1.submitted_at || workflowStep1.cad_requested_at || submittedAt) || submittedAtLabel;
+                }
+                var videoLinks = [];
+                var bidPhotos = [];
+                var smartAltData = bidData ? bidData.smart_alternatives_suggestion : null;
+
+                function normalizeBatchTextValue(value) {
+                    if (value === null || value === undefined) return '';
+                    return String(value);
+                }
+                function formatBatchCurrency(value) {
+                    var parsed = Number(value);
+                    if (!isFinite(parsed)) return '';
+                    return '$' + parsed.toFixed(2);
+                }
+                function formatBatchYesNo(value) {
+                    if (value === true) return 'Yes';
+                    if (value === false) return 'No';
+                    var normalized = String(value || '').toLowerCase();
+                    if (normalized === 'yes' || normalized === '1' || normalized === 'true') return 'Yes';
+                    if (normalized === 'no' || normalized === '0' || normalized === 'false') return 'No';
+                    return '';
+                }
+                function normalizeBatchFileUrl(entry) {
+                    if (!entry) return '';
+                    if (typeof entry === 'string') return entry;
+                    if (entry.url) return entry.url;
+                    if (entry.file_url) return entry.file_url;
+                    if (entry.src) return entry.src;
+                    return '';
+                }
+                function normalizeBatchLabel(value, fallback) {
+                    var text = normalizeBatchTextValue(value).trim();
+                    return text || fallback;
+                }
+
+                if (bidData && Array.isArray(bidData.video_links)) {
+                    bidData.video_links.forEach(function(link, index) {
+                        var normalizedLink = '';
+                        if (typeof link === 'string') {
+                            normalizedLink = link;
+                        } else if (link && typeof link === 'object') {
+                            normalizedLink = link.url || link.link || link.value || '';
+                        }
+                        if (normalizedLink) {
+                            videoLinks.push({
+                                url: normalizedLink,
+                                label: normalizeBatchLabel((link && link.label) || (link && link.title), 'Video Link ' + (index + 1))
+                            });
+                        }
+                    });
+                }
+
+                if (bidData && Array.isArray(bidData.bid_photos)) {
+                    bidData.bid_photos.forEach(function(photo, index) {
+                        var photoUrl = normalizeBatchFileUrl(photo);
+                        if (photoUrl) {
+                            bidPhotos.push({
+                                url: photoUrl,
+                                label: normalizeBatchLabel((photo && photo.file_name) || (photo && photo.title), 'Bid Photo ' + (index + 1))
+                            });
+                        }
+                    });
+                }
+
+                if (typeof smartAltData === 'string' && smartAltData) {
+                    try {
+                        smartAltData = JSON.parse(smartAltData);
+                    } catch (e) {
+                        smartAltData = null;
+                    }
+                }
+
+                var html = '';
+                html += '<div style="padding:14px; background:#111; border:1px solid #FF0065; border-radius:10px;">';
+                html += '<div style="font-size:13px; color:#FF0065; font-family:monospace; font-weight:600; margin-bottom:10px;">' + escapeBatchText(item.title || ('Item #' + item.item_id)) + '</div>';
+                if (stepCompletedAt) {
+                    html += '<div style="font-size:11px; color:#ccc; margin-bottom:10px; font-family:monospace;">Completed: ' + escapeBatchText(stepCompletedAt) + '</div>';
+                }
+                html += '<div style="padding:14px; border:1px solid #333; border-radius:8px; background:#0b0b0b; color:#ddd;">';
+                html += '<div style="font-size:15px; font-weight:600; color:#FF0065; margin-bottom:8px;">Your Submitted Bid</div>';
+                if (submittedAtLabel) {
+                    html += '<div style="font-size:11px; color:#888; margin-bottom:10px; font-family:monospace;">Submitted at: ' + escapeBatchText(submittedAtLabel) + '</div>';
+                }
+                html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">';
+                if (unitPrice !== null && isFinite(unitPrice)) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Unit Price</div><div style="font-size:13px; color:#FF0065; font-weight:600;">' + escapeBatchText(formatBatchCurrency(unitPrice)) + '</div></div>';
+                }
+                if (totalPrice !== null && isFinite(totalPrice)) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Total Price</div><div style="font-size:13px; color:#FF0065; font-weight:600;">' + escapeBatchText(formatBatchCurrency(totalPrice)) + '</div></div>';
+                }
+                if (itemQuantity !== null && isFinite(itemQuantity) && itemQuantity > 0) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Quantity</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(String(itemQuantity)) + '</div></div>';
+                }
+                if (leadTime) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Production Lead Time</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(leadTime) + '</div></div>';
+                }
+                html += '</div>';
+
+                html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">';
+                if (bidData && (bidData.prototype_timeline || bidData.prototype_timeline_option)) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Prototype Timeline</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(String(bidData.prototype_timeline || bidData.prototype_timeline_option)) + '</div></div>';
+                }
+                if (bidData && bidData.prototype_cost !== null && bidData.prototype_cost !== undefined && String(bidData.prototype_cost) !== '') {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Prototype Cost</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(formatBatchCurrency(bidData.prototype_cost)) + '</div></div>';
+                }
+                if (bidData && bidData.material_included) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Material Included</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(String(bidData.material_included).replace(/_/g, ' ')) + '</div></div>';
+                }
+                if (showFabricQuantity || fabricQuantity) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Fabric Quantity</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(fabricQuantity || 'Not provided') + '</div></div>';
+                }
+                if (bidData && bidData.sample_required) {
+                    html += '<div style="padding:10px; background:#161616; border:1px solid #333; border-radius:8px;"><div style="font-size:10px; color:#888; margin-bottom:4px;">Sample Required</div><div style="font-size:13px; color:#fff;">' + escapeBatchText(formatBatchYesNo(bidData.sample_required) || String(bidData.sample_required)) + '</div></div>';
+                }
+                html += '</div>';
+
+                html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:12px;">';
+                html += '<div style="padding:12px; background:#161616; border:1px solid #333; border-radius:8px;">';
+                html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Video Links</div>';
+                if (videoLinks.length) {
+                    html += '<div style="display:flex; flex-direction:column; gap:6px;">';
+                    videoLinks.forEach(function(link) {
+                        html += '<a href="' + String(link.url).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065; text-decoration:none; font-size:12px; word-break:break-word;">' + escapeBatchText(link.label) + '</a>';
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<div style="font-size:12px; color:#888;">None</div>';
+                }
+                html += '</div>';
+                html += '<div style="padding:12px; background:#161616; border:1px solid #333; border-radius:8px;">';
+                html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Bid Photos</div>';
+                if (bidPhotos.length) {
+                    html += '<div style="display:flex; gap:8px; flex-wrap:wrap;">';
+                    bidPhotos.forEach(function(photo) {
+                        html += '<a href="' + String(photo.url).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display:block;">';
+                        html += '<img src="' + String(photo.url).replace(/"/g, '&quot;') + '" alt="' + escapeBatchText(photo.label) + '" style="width:80px; height:80px; object-fit:cover; border-radius:4px; border:1px solid #333;" />';
+                        html += '</a>';
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<div style="font-size:12px; color:#888;">None</div>';
+                }
+                html += '</div>';
+                html += '</div>';
+
+                if (bidData && bidData.proposal_notes) {
+                    html += '<div style="margin-bottom:12px; padding:12px; background:#161616; border:1px solid #333; border-radius:8px;">';
+                    html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Proposal Notes</div>';
+                    html += '<div style="font-size:12px; color:#fff; white-space:pre-wrap; line-height:1.5;">' + escapeBatchText(String(bidData.proposal_notes)) + '</div>';
+                    html += '</div>';
+                }
+
+                if (smartAltData && typeof smartAltData === 'object') {
+                    var comparisonPoints = Array.isArray(smartAltData.comparison_points) ? smartAltData.comparison_points.filter(Boolean) : [];
+                    html += '<div style="margin-bottom:12px; padding:12px; background:#161616; border:1px solid #333; border-radius:8px;">';
+                    html += '<div style="font-size:11px; color:#C8C8C8; font-weight:600; margin-bottom:8px;">Smart Alternative Suggestion</div>';
+                    if (smartAltData.category) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Category:</strong> ' + escapeBatchText(String(smartAltData.category)) + '</div>';
+                    if (smartAltData.from || smartAltData.to) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Suggestion:</strong> ' + escapeBatchText(String(smartAltData.from || '')) + (smartAltData.from && smartAltData.to ? ' -> ' : '') + escapeBatchText(String(smartAltData.to || '')) + '</div>';
+                    if (comparisonPoints.length) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Comparison Points:</strong> ' + escapeBatchText(comparisonPoints.join(', ')) + '</div>';
+                    if (smartAltData.price_impact) html += '<div style="font-size:12px; color:#fff; margin-bottom:4px;"><strong style="color:#C8C8C8;">Price Impact:</strong> ' + escapeBatchText(String(smartAltData.price_impact)) + '</div>';
+                    if (smartAltData.lead_time_impact) html += '<div style="font-size:12px; color:#fff;"><strong style="color:#C8C8C8;">Lead Time Impact:</strong> ' + escapeBatchText(String(smartAltData.lead_time_impact)) + '</div>';
+                    html += '</div>';
+                }
+
+                html += '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">';
+                html += '<div style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border-radius:4px; font-size:11px; font-weight:600; font-family:monospace;">' + (effectiveBidStatus === 'awarded' ? 'Bid Awarded' : 'Bid Already Submitted') + '</div>';
+                if (effectiveBidStatus !== 'awarded') {
+                    html += '<button type="button" onclick="withdrawBid(' + item.item_id + ')" style="padding:8px 12px; background:#dc3545; color:#fff; border:none; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">Withdraw Bid</button>';
+                }
+                html += '</div>';
+                html += '</div>';
+                html += '</div>';
+                return html;
+            }
+
+            function openBatchProposalItemDetail(itemId) {
+                itemId = parseInt(itemId, 10) || 0;
+                if (!itemId) {
+                    return;
+                }
+                closeBatchProposalModal();
+                if (typeof openBidModal === 'function') {
+                    openBidModal(itemId, '__full__');
+                }
             }
 
             function toggleBatchProposalAccordion(itemId, forceOpen) {
@@ -5564,6 +6771,10 @@ class N88_RFQ_Auth {
 
             function getBatchQuotedItemIds() {
                 return Object.keys(window.n88SupplierBatchState.itemData || {}).filter(function(itemId) {
+                    var host = document.getElementById('n88-batch-form-host-' + itemId);
+                    if (!host) {
+                        return false;
+                    }
                     var choice = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"]:checked');
                     return !choice || choice.value !== 'skip';
                 });
@@ -5783,6 +6994,8 @@ class N88_RFQ_Auth {
                     fabricSuppliedText = item.rfq_fabric_supplied_flag;
                 }
                 var quoteDecision = item.batch_quote_decision === 'skip' ? 'skip' : 'quote';
+                var submittedBidShellHtml = renderBatchSubmittedBidShell(item);
+                var hasSubmittedBidShell = !!(submittedBidShellHtml && String(submittedBidShellHtml).trim());
                 var images = [];
                 if (item.primary_image_url) {
                     images.push(item.primary_image_url);
@@ -5847,9 +7060,12 @@ class N88_RFQ_Auth {
                                 '<div style="font-size:12px; color:#ccc; font-family:monospace;">Category: ' + escapeBatchText(item.category || '-') + ' | Qty: ' + escapeBatchText(item.quantity || '-') + ' | Dims: ' + escapeBatchText(dimsText) + '</div>' +
                                 '<div style="font-size:11px; color:#999; font-family:monospace; margin-top:6px;">Keywords: ' + escapeBatchText(keywordsText) + '</div>' +
                             '</div>' +
-                            '<div id="n88-batch-item-state-' + itemId + '" style="padding:6px 10px; border:1px solid #999; border-radius:999px; font-size:11px; font-family:monospace;">Not Ready</div>' +
+                            '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
+                                '<button type="button" onclick="openBatchProposalItemDetail(' + itemId + ')" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ View Item ]</button>' +
+                                '<div id="n88-batch-item-state-' + itemId + '" style="padding:6px 10px; border:1px solid #999; border-radius:999px; font-size:11px; font-family:monospace;">Not Ready</div>' +
+                            '</div>' +
                         '</div>' +
-                        '<div style="margin-bottom:16px; padding:14px; border:1px solid #555; border-radius:10px; background:#111;">' +
+                        (hasSubmittedBidShell ? '' : '<div style="margin-bottom:16px; padding:14px; border:1px solid #555; border-radius:10px; background:#111;">' +
                             '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Item Decision</div>' +
                             '<div style="display:flex; gap:18px; flex-wrap:wrap;">' +
                                 '<label style="display:inline-flex; gap:8px; align-items:center; color:#fff; font-family:monospace; cursor:pointer;">' +
@@ -5862,7 +7078,7 @@ class N88_RFQ_Auth {
                                 '</label>' +
                             '</div>' +
                             '<div id="n88-batch-skip-note-' + itemId + '" style="display:' + (quoteDecision === 'skip' ? 'block' : 'none') + '; margin-top:10px; color:#ffb37d; font-size:11px; font-family:monospace;">This item will be recorded as Not Quoted for this supplier.</div>' +
-                        '</div>' +
+                        '</div>') +
                         '<div style="display:grid; grid-template-columns:minmax(360px, 420px) minmax(0, 1fr); gap:18px; align-items:start;">' +
                             '<div style="padding:14px; border:1px solid #555; border-radius:10px; background:#111;">' +
                                 '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Item summary</div>' +
@@ -5879,16 +7095,19 @@ class N88_RFQ_Auth {
                                 '<div style="margin-top:14px;">' + supportSectionHTML + '</div>' +
                                 galleryHtml +
                             '</div>' +
-                            '<div id="n88-batch-form-host-' + itemId + '" style="min-width:0; padding:14px; border:1px solid #555; border-radius:10px; background:#111;"><div style="padding:24px; color:#aaa; font-family:monospace; text-align:center;">Loading proposal form...</div></div>' +
+                            (hasSubmittedBidShell
+                                ? '<div style="min-width:0; padding:16px; border:1px solid #333; border-radius:10px; background:#111; color:#aaa; font-size:12px; font-family:monospace;">Proposal already submitted for this item. Step 01 timeline above shows the complete submitted bid box.</div>'
+                                : '<div id="n88-batch-form-host-' + itemId + '" style="min-width:0; padding:14px; border:1px solid #555; border-radius:10px; background:#111;"><div style="padding:24px; color:#aaa; font-family:monospace; text-align:center;">Loading proposal form...</div></div>') +
                         '</div>' +
                     '</div>' +
                     '</div>';
             }
 
-            function renderBatchProposalModal(items) {
+            function renderBatchProposalModal(items, anchorItemId) {
                 var modal = document.getElementById('n88-supplier-batch-proposal-modal');
                 var content = document.getElementById('n88-supplier-batch-proposal-modal-content');
                 var workspace = window.n88SupplierBatchState.workspace || {};
+                anchorItemId = parseInt(anchorItemId, 10) || 0;
                 if (!modal || !content) {
                     return;
                 }
@@ -5899,7 +7118,7 @@ class N88_RFQ_Auth {
                 }).length;
                 var awardedCount = items.filter(function(item) { return getBatchAwardStateLabel(item) === 'Awarded'; }).length;
                 var batchStatus = getBatchModalStatusLabel(items);
-                var itemGridHtml = renderBatchItemGrid(items);
+                var hasTimeline = hasBatchWorkflowTimeline(items);
                 var panelsHtml = '';
                 items.forEach(function(item) {
                     panelsHtml += renderBatchItemPanel(item);
@@ -5919,13 +7138,10 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom:8px;">Batch Header</div>' +
                         '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>Batch: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Quoted Items: ' + quotedCount + '</span><span>Batch Status: ' + escapeBatchText(batchStatus) + '</span><span>Sample Items: ' + sampleSelectedCount + '</span><span>Awarded Items: ' + awardedCount + '</span></div>' +
                     '</div>' +
-                    '<div style="padding:16px 20px; border-bottom:1px solid #333; background:#151515;">' +
-                        '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Grouped Item Grid</div>' +
-                        itemGridHtml +
-                    '</div>' +
-                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Use View Item to jump into item-level truth while keeping this batch modal as the grouped command center.</div>' +
-                    '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>' +
-                    '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
+                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">' + (hasTimeline ? 'Use View Item on any batch item to open its single-item detail modal.' : 'Submit item proposals first. Timeline will appear after at least one item proposal is submitted.') + '</div>' +
+                    renderBatchWorkflowTimeline(items) +
+                    (hasTimeline ? '' : '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>') +
+                    (hasTimeline ? '' : '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
                         '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch actions</div>' +
                         '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Choose files</div>' +
                         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">' +
@@ -5936,7 +7152,13 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;"></div>' +
                         '<div id="n88-batch-shared-upload-list"></div>' +
-                    '</div>';
+                        (hasTimeline ? '<div style="margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
+                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Batch Material Sample Workflow</div>' +
+                            '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Use the sample checkboxes inside requested items, then launch the header button to submit one grouped sample workflow update.</div>' +
+                            '<div id="n88-batch-sample-selected-count" style="font-size:11px; color:#ddd; font-family:monospace; margin-bottom:10px;">0 sample items selected</div>' +
+                            '<div style="font-size:11px; color:#7dc3ff; font-family:monospace;">Selected items will open in a separate modal for tracking number, notes, files, and final sample submission.</div>' +
+                        '</div>' : '') +
+                    '</div>');
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
 
@@ -5955,7 +7177,10 @@ class N88_RFQ_Auth {
                 });
                 refreshBatchSummary();
                 refreshBatchSharedUploads();
-                toggleBatchProposalAccordion(items[0].item_id, true);
+                if (hasTimeline && document.getElementById('n88-batch-workflow-timeline')) {
+                    setBatchWorkflowStep(getBatchWorkflowActiveStep(items));
+                }
+                toggleBatchProposalAccordion(anchorItemId || items[0].item_id, true);
             }
 
             function closeBatchProposalModal() {
@@ -5964,11 +7189,23 @@ class N88_RFQ_Auth {
                     modal.style.display = 'none';
                     document.body.style.overflow = '';
                 }
+                closeBatchSampleWorkflowModal();
             }
 
             function openBatchProposalModal() {
                 var selected = Object.keys(window.n88SupplierBatchState.selectedItems || {});
                 if (!selected.length) {
+                    alert('Select at least one item first.');
+                    return;
+                }
+                openBatchProposalModalForSelection(selected, 0);
+            }
+
+            function openBatchProposalModalForSelection(itemIds, proposalGroupId, anchorItemId) {
+                itemIds = Array.isArray(itemIds) ? itemIds.map(function(itemId) { return parseInt(itemId, 10) || 0; }).filter(function(itemId) { return itemId > 0; }) : [];
+                proposalGroupId = parseInt(proposalGroupId, 10) || 0;
+                anchorItemId = parseInt(anchorItemId, 10) || 0;
+                if (!itemIds.length && !proposalGroupId) {
                     alert('Select at least one item first.');
                     return;
                 }
@@ -5979,9 +7216,11 @@ class N88_RFQ_Auth {
                     modal.style.display = 'block';
                     document.body.style.overflow = 'hidden';
                 }
-                var workspacePromise = fetchBatchWorkspace(selected);
-                var itemDetailsPromise = Promise.all(selected.map(function(itemId) {
-                    return fetchSupplierItemDetails(itemId).then(function(res) {
+                var workspacePromise = proposalGroupId > 0
+                    ? fetchBatchWorkspaceByGroup(proposalGroupId)
+                    : fetchBatchWorkspace(itemIds);
+                var itemDetailsPromise = Promise.all(itemIds.map(function(itemId) {
+                    return fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(res) {
                         if (!res.success || !res.data) {
                             throw new Error((res.data && res.data.message) || ('Failed to load item #' + itemId));
                         }
@@ -6005,6 +7244,11 @@ class N88_RFQ_Auth {
                         var savedState = (workspaceResult.data.item_states && (workspaceResult.data.item_states[itemId] || workspaceResult.data.item_states[String(itemId)])) || {};
                         item.batch_quote_decision = savedState.quote_decision || 'quote';
                         item.batch_item_state = savedState.item_state || ((item.bid_status === 'submitted' || item.bid_status === 'awarded') ? 'quoted' : 'not_ready');
+                        item.batch_primary_proposal_group_id = parseInt(item.batch_primary_proposal_group_id, 10) || proposalGroupId || parseInt(workspaceResult.data.proposal_group_id, 10) || 0;
+                        item.batch_proposal_group_ids = Array.isArray(item.batch_proposal_group_ids) ? item.batch_proposal_group_ids : [];
+                        if (item.batch_primary_proposal_group_id > 0 && item.batch_proposal_group_ids.indexOf(item.batch_primary_proposal_group_id) === -1) {
+                            item.batch_proposal_group_ids.push(item.batch_primary_proposal_group_id);
+                        }
                         item.rfq_reference = workspaceResult.data.rfq_reference || item.rfq_reference;
                         if (!item.project_name && workspaceResult.data.project_name) {
                             item.project_name = workspaceResult.data.project_name;
@@ -6014,11 +7258,34 @@ class N88_RFQ_Auth {
                         }
                         return item;
                     });
-                    renderBatchProposalModal(items);
+                    renderBatchProposalModal(items, anchorItemId);
                 }).catch(function(error) {
                     if (content) {
                         content.innerHTML = '<div style="padding:40px; text-align:center; color:#ff8a8a; font-family:monospace;">' + escapeBatchText(error.message || error) + '</div>';
                     }
+                });
+            }
+
+            function openBatchProposalModalForGroup(proposalGroupId, anchorItemId) {
+                proposalGroupId = parseInt(proposalGroupId, 10) || 0;
+                anchorItemId = parseInt(anchorItemId, 10) || 0;
+                if (!proposalGroupId) {
+                    if (anchorItemId) {
+                        openBidModal(anchorItemId);
+                    }
+                    return;
+                }
+                fetchBatchWorkspaceByGroup(proposalGroupId).then(function(workspaceResult) {
+                    if (!workspaceResult || !workspaceResult.success || !workspaceResult.data || !Array.isArray(workspaceResult.data.item_ids) || !workspaceResult.data.item_ids.length) {
+                        throw new Error((workspaceResult && workspaceResult.data && workspaceResult.data.message) ? workspaceResult.data.message : 'Failed to resolve grouped proposal workspace.');
+                    }
+                    openBatchProposalModalForSelection(workspaceResult.data.item_ids, proposalGroupId, anchorItemId);
+                }).catch(function(error) {
+                    if (anchorItemId) {
+                        openBidModal(anchorItemId);
+                        return;
+                    }
+                    alert(error && error.message ? error.message : 'Failed to open grouped proposal workspace.');
                 });
             }
 
@@ -12894,7 +14161,17 @@ class N88_RFQ_Auth {
                         }
                         
                         if (preferredTab) {
+                            var batchGroupId = parseInt(this.getAttribute('data-batch-group-id') || '0', 10) || 0;
+                            if (batchGroupId > 0) {
+                                openBatchProposalModalForGroup(batchGroupId, itemId);
+                                return;
+                            }
                             openBidModal(itemId, preferredTab, preferredStep);
+                            return;
+                        }
+                        var batchGroupId = parseInt(this.getAttribute('data-batch-group-id') || '0', 10) || 0;
+                        if (batchGroupId > 0) {
+                            openBatchProposalModalForGroup(batchGroupId, itemId);
                             return;
                         }
                         openBidModal(itemId, null, preferredStep);
@@ -12944,6 +14221,64 @@ class N88_RFQ_Auth {
                         openBatchProposalModal();
                     });
                 }
+
+                document.addEventListener('change', function(e) {
+                    if (e.target && e.target.classList && e.target.classList.contains('n88-batch-sample-select')) {
+                        refreshBatchSampleSelectionUI();
+                    }
+                });
+
+                document.addEventListener('click', function(e) {
+                    var workflowStepBtn = e.target && e.target.closest ? e.target.closest('[data-batch-workflow-step-btn]') : null;
+                    if (workflowStepBtn) {
+                        e.preventDefault();
+                        setBatchWorkflowStep(workflowStepBtn.getAttribute('data-batch-workflow-step-btn'));
+                    } else {
+                        var workflowItemToggle = e.target && e.target.closest ? e.target.closest('.n88-batch-workflow-item-toggle') : null;
+                        if (workflowItemToggle) {
+                            e.preventDefault();
+                            var accordionKey = workflowItemToggle.getAttribute('data-accordion-key') || '';
+                            var accordionWrap = workflowItemToggle.closest('.n88-batch-workflow-item-accordion');
+                            var indicator = accordionWrap ? accordionWrap.querySelector('.n88-batch-workflow-item-indicator') : null;
+                            var body = accordionWrap ? accordionWrap.querySelector('[data-accordion-body="' + accordionKey + '"]') : null;
+                            var isOpen = !!(body && body.style.display !== 'none');
+                            if (body) {
+                                body.style.display = isOpen ? 'none' : 'block';
+                            }
+                            workflowItemToggle.style.borderBottom = isOpen ? 'none' : '1px solid #222';
+                            if (indicator) {
+                                indicator.textContent = isOpen ? '[+]' : '[-]';
+                            }
+                            return;
+                        }
+                        var workflowCta = e.target && e.target.closest ? e.target.closest('[data-batch-workflow-cta]') : null;
+                        if (workflowCta) {
+                            e.preventDefault();
+                            var action = workflowCta.getAttribute('data-batch-workflow-cta');
+                            if (action === 'submit_all') {
+                                runBatchProposalAction('submit');
+                            } else if (action === 'sample_workflow') {
+                                openBatchSampleWorkflowModal();
+                            } else if (action === 'focus_awarded') {
+                                var awardedItem = getBatchWorkflowItems().find(function(item) {
+                                    return item && (item.is_awarded_supplier || item.bid_status === 'awarded');
+                                });
+                                if (awardedItem) {
+                                    toggleBatchProposalAccordion(awardedItem.item_id, true);
+                                }
+                            }
+                        } else if (e.target && e.target.id === 'n88-open-batch-sample-workflow-modal') {
+                            e.preventDefault();
+                            openBatchSampleWorkflowModal();
+                        } else if (e.target && e.target.id === 'n88-batch-sample-submit-btn') {
+                            e.preventDefault();
+                            applyBatchSampleUpdateToSelectedItems();
+                        } else if (e.target && e.target.id === 'n88-close-batch-sample-workflow-modal') {
+                            e.preventDefault();
+                            closeBatchSampleWorkflowModal();
+                        }
+                    }
+                });
                  
                 // Close modal on backdrop click (edge panels or wrapper)
                 var modal = document.getElementById('n88-supplier-bid-modal');
@@ -12970,6 +14305,14 @@ class N88_RFQ_Auth {
                     batchModal.addEventListener('click', function(e) {
                         if (e.target === batchModal) {
                             closeBatchProposalModal();
+                        }
+                    });
+                }
+                var batchSampleWorkflowModal = document.getElementById('n88-supplier-batch-sample-workflow-modal');
+                if (batchSampleWorkflowModal) {
+                    batchSampleWorkflowModal.addEventListener('click', function(e) {
+                        if (e.target === batchSampleWorkflowModal) {
+                            closeBatchSampleWorkflowModal();
                         }
                     });
                 }
@@ -13089,6 +14432,7 @@ class N88_RFQ_Auth {
             window.openBatchProposalModal = openBatchProposalModal;
             window.closeBatchProposalModal = closeBatchProposalModal;
             window.toggleBatchProposalAccordion = toggleBatchProposalAccordion;
+            window.openBatchProposalItemDetail = openBatchProposalItemDetail;
             window.n88BatchProposalRefreshItemState = refreshSingleBatchItemState;
             window.submitOfficialQuotePDF = function(form, itemId, bidId) {
                 try {
@@ -17118,8 +18462,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
         }
 
-        $item_ids  = isset( $_POST['item_ids'] ) ? $_POST['item_ids'] : array();
-        $workspace = $this->get_or_create_supplier_batch_workspace( $current_user->ID, $item_ids );
+        $proposal_group_id = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $item_ids          = isset( $_POST['item_ids'] ) ? $_POST['item_ids'] : array();
+        $workspace         = $proposal_group_id > 0
+            ? $this->get_supplier_batch_workspace_by_group( $current_user->ID, $proposal_group_id )
+            : $this->get_or_create_supplier_batch_workspace( $current_user->ID, $item_ids );
 
         if ( is_wp_error( $workspace ) ) {
             wp_send_json_error( array( 'message' => $workspace->get_error_message() ) );
@@ -17718,6 +19065,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        $batch_context = $this->normalize_material_validation_batch_context(
+            isset( $request['batch_context'] ) ? $request['batch_context'] : array()
+        );
+
         $payment_status = isset( $request['payment_status'] ) ? sanitize_key( $request['payment_status'] ) : '';
         $payment_mode   = isset( $request['payment_mode'] ) ? sanitize_key( $request['payment_mode'] ) : '';
         $supplier_id    = isset( $validation['supplier_id'] ) ? absint( $validation['supplier_id'] ) : ( isset( $request['supplier_id'] ) ? absint( $request['supplier_id'] ) : 0 );
@@ -17782,14 +19133,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         } elseif ( $sample_status === 'samples_received' ) {
             $card_status_text  = 'Samples Received';
             $card_status_color = '#2196f3';
+        } elseif ( in_array( $sample_status, array( 'sample_submitted', 'supplier_submitted' ), true ) ) {
+            $card_status_text  = 'Sample Submitted';
+            $card_status_color = '#2196f3';
         } elseif ( in_array( $sample_status, array( 'under_review', 'delivered', 'shipped', 'in_transit' ), true ) ) {
-            $card_status_text  = 'Samples Shipped';
+            $card_status_text  = 'Sample Shipped';
             $card_status_color = '#2196f3';
         } elseif ( $sample_status === 'in_preparation' ) {
-            $card_status_text  = 'Samples In Preparation';
+            $card_status_text  = 'Preparing Sample Material Kit';
             $card_status_color = '#2196f3';
         } elseif ( $sample_status === 'sample_requested' ) {
-            $card_status_text  = 'Samples Requested';
+            $card_status_text  = 'Sample Material Kit Requested';
             $card_status_color = '#2196f3';
         }
 
@@ -17817,6 +19171,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     isset( $request['selected_material_refs'] ) ? $request['selected_material_refs'] : array(),
                     isset( $request['selected_material_ids'] ) ? $request['selected_material_ids'] : array()
                 ),
+                'batch_context'         => $batch_context,
                 'reference_files'       => $this->get_validation_attachment_entries( isset( $request['reference_file_ids'] ) ? $request['reference_file_ids'] : array() ),
                 'requested_at'          => isset( $request['requested_at'] ) ? $request['requested_at'] : null,
                 'payment_submitted_at'  => isset( $request['payment_submitted_at'] ) ? $request['payment_submitted_at'] : null,
@@ -20736,6 +22091,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $selected_material_refs = isset( $_POST['selected_supplier_media_refs'] ) ? array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['selected_supplier_media_refs'] ) ) ) ) ) : array();
         $selected_material_ids  = isset( $_POST['selected_supplier_material_ids'] ) ? array_values( array_unique( array_filter( array_map( 'absint', (array) wp_unslash( $_POST['selected_supplier_material_ids'] ) ) ) ) ) : array();
         $approve_without_samples = ! empty( $_POST['approve_without_samples'] );
+        $batch_context_json      = isset( $_POST['batch_context_json'] ) ? wp_unslash( $_POST['batch_context_json'] ) : '';
+        $batch_context           = array();
+
+        if ( $batch_context_json ) {
+            $decoded_batch_context = json_decode( $batch_context_json, true );
+            if ( is_array( $decoded_batch_context ) ) {
+                $batch_context = $this->normalize_material_validation_batch_context( $decoded_batch_context );
+            }
+        }
 
         if ( empty( $selected_material_ids ) && ! empty( $selected_material_refs ) ) {
             foreach ( $selected_material_refs as $selected_material_ref ) {
@@ -20820,6 +22184,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'requested_by'           => (int) $current_user->ID,
             'payment_submitted_at'   => null,
             'payment_proof_file_ids' => array(),
+            'batch_context'          => $batch_context,
         );
         $validation['supplier']          = isset( $validation['supplier'] ) && is_array( $validation['supplier'] ) ? $validation['supplier'] : array();
         $validation['review']            = $approve_without_samples ? array(
@@ -21015,11 +22380,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'No active sample request assigned to this supplier.' ) );
         }
 
-        $status          = sanitize_key( wp_unslash( $_POST['sample_status'] ?? 'shipped' ) );
+        $status          = sanitize_key( wp_unslash( $_POST['sample_status'] ?? '' ) );
         $tracking_number = sanitize_text_field( wp_unslash( $_POST['tracking_number'] ?? '' ) );
         $note            = sanitize_textarea_field( wp_unslash( $_POST['note'] ?? '' ) );
-        if ( ! in_array( $status, array( 'shipped', 'in_transit', 'delivered', 'under_review' ), true ) ) {
-            $status = 'shipped';
+        if ( ! in_array( $status, array( 'in_preparation', 'sample_submitted', 'shipped', 'in_transit', 'delivered', 'under_review', 'samples_shipped' ), true ) ) {
+            $status = $tracking_number ? 'shipped' : 'sample_submitted';
         }
 
         $existing_ids = isset( $validation['supplier']['sample_file_ids'] ) && is_array( $validation['supplier']['sample_file_ids'] ) ? $validation['supplier']['sample_file_ids'] : array();
@@ -21059,8 +22424,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'Failed to save supplier sample submission.' ) );
         }
 
+        $success_message = 'Samples sent successfully.';
+        if ( 'in_preparation' === $status ) {
+            $success_message = 'Samples marked in preparation.';
+        } elseif ( 'sample_submitted' === $status ) {
+            $success_message = 'Samples submitted successfully.';
+        } elseif ( in_array( $status, array( 'shipped', 'in_transit', 'samples_shipped' ), true ) ) {
+            $success_message = 'Samples marked shipped.';
+        }
+
         wp_send_json_success( array(
-            'message'          => 'Samples sent successfully.',
+            'message'          => $success_message,
             'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
         ) );
     }
