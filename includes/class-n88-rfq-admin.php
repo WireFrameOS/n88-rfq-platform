@@ -24746,6 +24746,9 @@ class N88_RFQ_Admin {
                     var _batchCommitmentDepositSupplierNameState = React.useState('');
                     var batchCommitmentDepositSupplierName = _batchCommitmentDepositSupplierNameState[0];
                     var setBatchCommitmentDepositSupplierName = _batchCommitmentDepositSupplierNameState[1];
+                    var _batchCommitmentDepositAmountState = React.useState('');
+                    var batchCommitmentDepositAmount = _batchCommitmentDepositAmountState[0];
+                    var setBatchCommitmentDepositAmount = _batchCommitmentDepositAmountState[1];
                     var _batchCommitmentDepositReceiptsState = React.useState([]);
                     var batchCommitmentDepositReceipts = _batchCommitmentDepositReceiptsState[0];
                     var setBatchCommitmentDepositReceipts = _batchCommitmentDepositReceiptsState[1];
@@ -25107,6 +25110,20 @@ class N88_RFQ_Admin {
                         var parsed = parseBatchCurrencyValue(value);
                         return '$' + parsed.toFixed(2);
                     };
+                    var formatBoardCanvasDateTime = function(value) {
+                        if (!value) {
+                            return '';
+                        }
+                        try {
+                            var date = new Date(value);
+                            if (isNaN(date.getTime())) {
+                                return String(value);
+                            }
+                            return date.toLocaleString();
+                        } catch (error) {
+                            return String(value);
+                        }
+                    };
                     var getProposalGroupCommitmentRow = function(group) {
                         var item = group && group.item ? group.item : {};
                         var validationState = getProposalGroupValidationState(group);
@@ -25165,6 +25182,8 @@ class N88_RFQ_Admin {
                             suggestedDeposit: suggestedDeposit,
                             officialQuoteStatus: officialQuoteStatus || 'pending',
                             comApplicable: comApplicable,
+                            poFile: commitmentState.po_file && typeof commitmentState.po_file === 'object' ? commitmentState.po_file : null,
+                            poUploadedAt: commitmentState.po_uploaded_at || null,
                             hasPo: poReady,
                             hasDeposit: depositReady,
                             hasCom: comReady,
@@ -25194,6 +25213,52 @@ class N88_RFQ_Admin {
                             grandTotal: 0,
                             depositTotal: 0
                         });
+                    };
+                    var applyGroupedCommitmentPatch = function(rowIds, patchBuilder) {
+                        rowIds = Array.isArray(rowIds) ? rowIds.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; }) : [];
+                        if (!rowIds.length || typeof patchBuilder !== 'function') {
+                            return;
+                        }
+                        setProposalItems(function(prevItems) {
+                            return (prevItems || []).map(function(entry) {
+                                var item = entry && entry.item ? entry.item : null;
+                                var itemId = toNumericItemId(item && item.id);
+                                if (!(itemId > 0) || rowIds.indexOf(itemId) === -1) {
+                                    return entry;
+                                }
+                                var nextEntry = Object.assign({}, entry || {});
+                                var nextState = Object.assign({}, getDefaultProposalState(), nextEntry.state || {});
+                                var nextValidationState = Object.assign({}, nextState.validation_state || {});
+                                var nextCommitment = Object.assign({}, (nextValidationState.commitment && typeof nextValidationState.commitment === 'object') ? nextValidationState.commitment : {});
+                                var patch = patchBuilder(itemId, nextCommitment, nextEntry) || {};
+                                nextValidationState.commitment = Object.assign({}, nextCommitment, patch);
+                                nextState.validation_state = nextValidationState;
+                                nextEntry.state = nextState;
+                                return nextEntry;
+                            });
+                        });
+                    };
+                    var allocateGroupedDepositAmounts = function(rows, batchAmount) {
+                        rows = Array.isArray(rows) ? rows : [];
+                        var totalAmount = parseBatchCurrencyValue(batchAmount);
+                        if (!(totalAmount > 0) || !rows.length) {
+                            return {};
+                        }
+                        var weightTotal = rows.reduce(function(sum, row) {
+                            return sum + Math.max(parseBatchCurrencyValue(row.suggestedDeposit), 0);
+                        }, 0);
+                        if (!(weightTotal > 0)) {
+                            weightTotal = rows.length;
+                        }
+                        var remaining = parseFloat(totalAmount.toFixed(2));
+                        var allocations = {};
+                        rows.forEach(function(row, index) {
+                            var weight = weightTotal === rows.length ? 1 : Math.max(parseBatchCurrencyValue(row.suggestedDeposit), 0);
+                            var amount = index === rows.length - 1 ? remaining : parseFloat(((totalAmount * weight) / weightTotal).toFixed(2));
+                            remaining = parseFloat((remaining - amount).toFixed(2));
+                            allocations[row.itemId] = amount;
+                        });
+                        return allocations;
                     };
                     var refreshGroupedProposalItems = function() {
                         var candidateItems = (proposalItems || []).map(function(entry) {
@@ -26684,13 +26749,17 @@ class N88_RFQ_Admin {
                         var awardedRows = buildGroupedCommitmentRows().filter(function(row) { return row.isAwarded; });
                         if (!awardedRows.length) {
                             setBatchCommitmentDepositSupplierName('');
+                            setBatchCommitmentDepositAmount('');
                             return;
                         }
                         var firstSupplierName = awardedRows[0] && awardedRows[0].supplierName ? String(awardedRows[0].supplierName) : '';
                         if (firstSupplierName && !batchCommitmentDepositSupplierName) {
                             setBatchCommitmentDepositSupplierName(firstSupplierName);
                         }
-                    }, [proposalItemGroups, batchCommitmentDepositSupplierName]);
+                        if (!batchCommitmentDepositAmount) {
+                            setBatchCommitmentDepositAmount(String(sumGroupedCommitmentRows(awardedRows).depositTotal.toFixed(2)));
+                        }
+                    }, [proposalItemGroups, batchCommitmentDepositSupplierName, batchCommitmentDepositAmount]);
                     var proposalItemsStillLoading = false;
                     React.useEffect(function() {
                         var proposalCandidates = (items || []).filter(function(it) {
@@ -27372,6 +27441,10 @@ class N88_RFQ_Admin {
                                 var allRequiredComReady = !comApplicableRows.length || comApplicableRows.every(function(row) { return row.hasCom; });
                                 var readyForExecutionRows = awardedRows.filter(function(row) { return row.isReadyForExecution; });
                                 var awardedSupplierName = awardedRows.length && awardedRows[0].supplierName ? awardedRows[0].supplierName : proposalBatchSummary.counterpartyLabel;
+                                var uploadedPoRow = awardedRows.find(function(row) { return row.poFile && row.poFile.url; }) || null;
+                                var uploadedPoUrl = uploadedPoRow && uploadedPoRow.poFile && uploadedPoRow.poFile.url ? uploadedPoRow.poFile.url : '';
+                                var uploadedPoName = uploadedPoUrl ? uploadedPoUrl.split('/').pop().split('?')[0] : 'PO attachment';
+                                var uploadedPoAt = uploadedPoRow && uploadedPoRow.poUploadedAt ? uploadedPoRow.poUploadedAt : '';
                                 return React.createElement('div', { style: { marginBottom: '18px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', overflow: 'hidden' } },
                                     React.createElement('div', { style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: '#303030', display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' } },
                                         React.createElement('div', null,
@@ -27412,10 +27485,6 @@ class N88_RFQ_Admin {
                                             React.createElement('div', { style: { padding: '10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a' } },
                                                 React.createElement('div', { style: { fontSize: '10px', color: '#aaa', textTransform: 'uppercase' } }, 'Grand Total'),
                                                 React.createElement('div', { style: { fontSize: '15px', color: boardCanvasGreenAccent, fontWeight: '700' } }, formatBatchCommitmentCurrency(awardedTotals.grandTotal))
-                                            ),
-                                            React.createElement('div', { style: { padding: '10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a' } },
-                                                React.createElement('div', { style: { fontSize: '10px', color: '#aaa', textTransform: 'uppercase' } }, 'Deposit Total'),
-                                                React.createElement('div', { style: { fontSize: '15px', color: '#fff', fontWeight: '700' } }, formatBatchCommitmentCurrency(awardedTotals.depositTotal))
                                             )
                                         ) : null,
                                         awardedRows.length ? React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#242424', display: 'grid', gap: '10px' } },
@@ -27432,35 +27501,61 @@ class N88_RFQ_Admin {
                                         awardedRows.length ? React.createElement('div', { style: { display: 'grid', gap: '12px' } },
                                             React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#242424', display: 'grid', gap: '10px' } },
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, 'Batch PO Upload'),
-                                                React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, allAwardedHavePo ? 'PO issued for all selected awarded items.' : 'Upload one grouped PO file and the same PO state will be written onto all selected awarded items.'),
-                                                React.createElement('input', { ref: batchCommitmentPoInputRef, type: 'file', disabled: batchCommitmentSubmitting || allAwardedHavePo, onChange: function(e) { setBatchCommitmentPoFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); }, style: { fontSize: '11px', color: '#fff', opacity: allAwardedHavePo ? 0.6 : 1 } }),
-                                                batchCommitmentPoFile ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasGreenAccent } }, batchCommitmentPoFile.name) : null,
-                                                React.createElement('button', {
-                                                    type: 'button',
-                                                    disabled: batchCommitmentSubmitting || allAwardedHavePo || !batchCommitmentPoFile,
-                                                    onClick: function() {
-                                                        setBatchCommitmentSubmitting(true);
-                                                        setBatchCommitmentMessage('');
-                                                        setBatchCommitmentError('');
-                                                        submitGroupedCommitmentAction(awardedRows, 'n88_upload_validation_po', function() { return {}; }, function() {
-                                                            return { po_file: batchCommitmentPoFile };
-                                                        }, 'nonce_get_item_rfq_state')
-                                                            .then(function(result) {
-                                                                setBatchCommitmentMessage('PO uploaded for ' + result.successes + ' awarded item' + (result.successes === 1 ? '' : 's') + '.');
-                                                                if (batchCommitmentPoInputRef.current) batchCommitmentPoInputRef.current.value = '';
-                                                                setBatchCommitmentPoFile(null);
-                                                                if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
-                                                                return refreshGroupedProposalItems();
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, allAwardedHavePo ? 'PO uploaded for all selected awarded items.' : 'Upload one grouped PO file and the same PO state will be written onto all selected awarded items.'),
+                                                allAwardedHavePo ? React.createElement(React.Fragment, null,
+                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+                                                        React.createElement('div', { style: { padding: '6px 10px', borderRadius: '999px', background: 'rgba(78,196,94,0.12)', border: '1px solid ' + boardCanvasGreenAccent, color: boardCanvasGreenAccent, fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' } }, 'PO Uploaded'),
+                                                        uploadedPoAt ? React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, 'Uploaded: ' + formatBoardCanvasDateTime(uploadedPoAt)) : null
+                                                    ),
+                                                    React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a' } },
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'Attached PO Preview'),
+                                                        uploadedPoUrl ? React.createElement('a', { href: uploadedPoUrl, target: '_blank', rel: 'noopener noreferrer', style: { color: boardCanvasGreenAccent, textDecoration: 'none', fontSize: '12px', wordBreak: 'break-word' } }, uploadedPoName) : React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, 'PO file is attached to the awarded items.')
+                                                    ),
+                                                    React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'PO Issued For'),
+                                                        React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                            awardedRows.map(function(row) {
+                                                                return React.createElement('div', { key: 'po-awarded-item-' + row.itemId, style: { padding: '7px 10px', borderRadius: '999px', border: '1px solid ' + boardCanvasGreenAccent, background: 'rgba(78,196,94,0.12)', color: '#fff', fontSize: '11px', fontWeight: '600' } }, row.title);
                                                             })
-                                                            .catch(function(error) {
-                                                                setBatchCommitmentError(error && error.message ? error.message : 'Failed to upload batch PO.');
-                                                            })
-                                                            .finally(function() {
-                                                                setBatchCommitmentSubmitting(false);
-                                                            });
-                                                    },
-                                                    style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchCommitmentSubmitting || allAwardedHavePo || !batchCommitmentPoFile) ? 'not-allowed' : 'pointer', opacity: (batchCommitmentSubmitting || allAwardedHavePo || !batchCommitmentPoFile) ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
-                                                }, allAwardedHavePo ? 'PO Uploaded' : (batchCommitmentSubmitting ? 'Uploading...' : 'Upload Batch PO'))
+                                                        )
+                                                    )
+                                                ) : React.createElement(React.Fragment, null,
+                                                    React.createElement('input', { ref: batchCommitmentPoInputRef, type: 'file', disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentPoFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); }, style: { fontSize: '11px', color: '#fff' } }),
+                                                    batchCommitmentPoFile ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasGreenAccent } }, batchCommitmentPoFile.name) : null,
+                                                    React.createElement('button', {
+                                                        type: 'button',
+                                                        disabled: batchCommitmentSubmitting || !batchCommitmentPoFile,
+                                                        onClick: function() {
+                                                            setBatchCommitmentSubmitting(true);
+                                                            setBatchCommitmentMessage('');
+                                                            setBatchCommitmentError('');
+                                                            submitGroupedCommitmentAction(awardedRows, 'n88_upload_validation_po', function() { return {}; }, function() {
+                                                                return { po_file: batchCommitmentPoFile };
+                                                            }, 'nonce_get_item_rfq_state')
+                                                                .then(function(result) {
+                                                                    var optimisticPoFile = batchCommitmentPoFile ? { id: 0, url: URL.createObjectURL(batchCommitmentPoFile) } : null;
+                                                                    applyGroupedCommitmentPatch(awardedRows.map(function(row) { return row.itemId; }), function() {
+                                                                        return {
+                                                                            po_uploaded_at: new Date().toISOString(),
+                                                                            po_file: optimisticPoFile
+                                                                        };
+                                                                    });
+                                                                    setBatchCommitmentMessage('PO uploaded for ' + result.successes + ' awarded item' + (result.successes === 1 ? '' : 's') + '.');
+                                                                    if (batchCommitmentPoInputRef.current) batchCommitmentPoInputRef.current.value = '';
+                                                                    setBatchCommitmentPoFile(null);
+                                                                    if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
+                                                                    return refreshGroupedProposalItems();
+                                                                })
+                                                                .catch(function(error) {
+                                                                    setBatchCommitmentError(error && error.message ? error.message : 'Failed to upload batch PO.');
+                                                                })
+                                                                .finally(function() {
+                                                                    setBatchCommitmentSubmitting(false);
+                                                                });
+                                                        },
+                                                        style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchCommitmentSubmitting || !batchCommitmentPoFile) ? 'not-allowed' : 'pointer', opacity: (batchCommitmentSubmitting || !batchCommitmentPoFile) ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
+                                                    }, batchCommitmentSubmitting ? 'Uploading...' : 'Upload Batch PO')
+                                                )
                                             ),
                                             allAwardedHavePo ? React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#242424', display: 'grid', gap: '10px' } },
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, 'Batch Deposit'),
@@ -27472,23 +27567,32 @@ class N88_RFQ_Admin {
                                                     ),
                                                     React.createElement('div', { style: { padding: '10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a' } },
                                                         React.createElement('div', { style: { fontSize: '10px', color: '#aaa', textTransform: 'uppercase' } }, 'Deposit Amount'),
-                                                        React.createElement('div', { style: { fontSize: '15px', color: boardCanvasGreenAccent, fontWeight: '700' } }, formatBatchCommitmentCurrency(awardedTotals.depositTotal))
+                                                        allAwardedHaveDeposit ? React.createElement('div', { style: { fontSize: '15px', color: boardCanvasGreenAccent, fontWeight: '700' } }, formatBatchCommitmentCurrency(parseBatchCurrencyValue(batchCommitmentDepositAmount || awardedTotals.depositTotal))) : React.createElement('input', { type: 'number', min: '0', step: '0.01', value: batchCommitmentDepositAmount, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentDepositAmount(e.target.value); }, placeholder: awardedTotals.depositTotal.toFixed(2), style: { width: '100%', marginTop: '6px', padding: '9px 10px', background: '#111', color: boardCanvasGreenAccent, border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '14px', fontWeight: '700', boxSizing: 'border-box' } })
                                                     )
                                                 ),
-                                                React.createElement('input', { type: 'text', value: batchCommitmentDepositSupplierName, disabled: batchCommitmentSubmitting || allAwardedHaveDeposit, onChange: function(e) { setBatchCommitmentDepositSupplierName(e.target.value); }, placeholder: 'Supplier / payee name', style: { width: '100%', padding: '10px 12px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' } }),
-                                                React.createElement('input', { ref: batchCommitmentDepositInputRef, type: 'file', multiple: true, disabled: batchCommitmentSubmitting || allAwardedHaveDeposit, onChange: function(e) { setBatchCommitmentDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff', opacity: allAwardedHaveDeposit ? 0.6 : 1 } }),
-                                                batchCommitmentDepositReceipts.length ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasGreenAccent } }, batchCommitmentDepositReceipts.map(function(file) { return file.name; }).join(', ')) : null,
-                                                React.createElement('button', {
+                                                allAwardedHaveDeposit ? React.createElement(React.Fragment, null,
+                                                    React.createElement('div', { style: { padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a', display: 'grid', gap: '8px' } },
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'Deposit Details'),
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#d8d8d8' } }, 'Supplier / Payee: ' + (batchCommitmentDepositSupplierName || awardedSupplierName || 'Selected supplier')),
+                                                        React.createElement('div', { style: { fontSize: '11px', color: boardCanvasGreenAccent, fontWeight: '700' } }, 'Deposit Confirmed')
+                                                    )
+                                                ) : React.createElement(React.Fragment, null,
+                                                    React.createElement('input', { type: 'text', value: batchCommitmentDepositSupplierName, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentDepositSupplierName(e.target.value); }, placeholder: 'Supplier / payee name', style: { width: '100%', padding: '10px 12px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' } }),
+                                                    React.createElement('input', { ref: batchCommitmentDepositInputRef, type: 'file', multiple: true, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }),
+                                                    batchCommitmentDepositReceipts.length ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasGreenAccent } }, batchCommitmentDepositReceipts.map(function(file) { return file.name; }).join(', ')) : null
+                                                ),
+                                                allAwardedHaveDeposit ? null : React.createElement('button', {
                                                     type: 'button',
-                                                    disabled: batchCommitmentSubmitting || allAwardedHaveDeposit || !batchCommitmentDepositSupplierName,
+                                                    disabled: batchCommitmentSubmitting || !batchCommitmentDepositSupplierName || !(parseBatchCurrencyValue(batchCommitmentDepositAmount) > 0),
                                                     onClick: function() {
+                                                        var allocatedDepositAmounts = allocateGroupedDepositAmounts(awardedRows, batchCommitmentDepositAmount);
                                                         setBatchCommitmentSubmitting(true);
                                                         setBatchCommitmentMessage('');
                                                         setBatchCommitmentError('');
                                                         submitGroupedCommitmentAction(awardedRows, 'n88_submit_validation_deposit', function(row) {
                                                             return {
                                                                 deposit_supplier_name: batchCommitmentDepositSupplierName,
-                                                                deposit_amount: row.suggestedDeposit
+                                                                deposit_amount: allocatedDepositAmounts[row.itemId] || 0
                                                             };
                                                         }, function() {
                                                             return {
@@ -27496,6 +27600,13 @@ class N88_RFQ_Admin {
                                                             };
                                                         }, 'nonce_get_item_rfq_state')
                                                             .then(function(result) {
+                                                                applyGroupedCommitmentPatch(awardedRows.map(function(row) { return row.itemId; }), function(itemId) {
+                                                                    return {
+                                                                        deposit_amount: allocatedDepositAmounts[itemId] || 0,
+                                                                        deposit_status: 'confirmed',
+                                                                        deposit_confirmed_at: new Date().toISOString()
+                                                                    };
+                                                                });
                                                                 setBatchCommitmentMessage('Deposit recorded for ' + result.successes + ' awarded item' + (result.successes === 1 ? '' : 's') + '.');
                                                                 if (batchCommitmentDepositInputRef.current) batchCommitmentDepositInputRef.current.value = '';
                                                                 setBatchCommitmentDepositReceipts([]);
@@ -27509,17 +27620,25 @@ class N88_RFQ_Admin {
                                                                 setBatchCommitmentSubmitting(false);
                                                             });
                                                     },
-                                                    style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchCommitmentSubmitting || allAwardedHaveDeposit || !batchCommitmentDepositSupplierName) ? 'not-allowed' : 'pointer', opacity: (batchCommitmentSubmitting || allAwardedHaveDeposit || !batchCommitmentDepositSupplierName) ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
-                                                }, allAwardedHaveDeposit ? 'Deposit Confirmed' : (batchCommitmentSubmitting ? 'Saving...' : 'Save Batch Deposit'))
+                                                    style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchCommitmentSubmitting || !batchCommitmentDepositSupplierName || !(parseBatchCurrencyValue(batchCommitmentDepositAmount) > 0)) ? 'not-allowed' : 'pointer', opacity: (batchCommitmentSubmitting || !batchCommitmentDepositSupplierName || !(parseBatchCurrencyValue(batchCommitmentDepositAmount) > 0)) ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
+                                                }, batchCommitmentSubmitting ? 'Saving...' : 'Save Batch Deposit')
                                             ) : null,
                                             allAwardedHavePo && allAwardedHaveDeposit && comApplicableRows.length ? React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#242424', display: 'grid', gap: '10px' } },
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, 'Batch COM / Fabric'),
                                                 React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', lineHeight: 1.6 } }, allRequiredComReady ? 'COM has been completed for the applicable awarded item scope.' : 'Use one tracking number for this grouped shipment. Supplier batch modal will mirror the same COM in-transit state per selected awarded item.'),
                                                 React.createElement('div', { style: { padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a', whiteSpace: 'pre-wrap', fontSize: '11px', color: '#fff', lineHeight: 1.6 } }, 'WireFrame (OS)\nWireFrame COM Receiving Address\n3520 W. Orange Ave\nAnaheim, CA 92804\nUnited States'),
-                                                React.createElement('input', { type: 'text', value: batchCommitmentComTrackingNumber, disabled: batchCommitmentSubmitting || allRequiredComReady, onChange: function(e) { setBatchCommitmentComTrackingNumber(e.target.value); }, placeholder: 'COM tracking number', style: { width: '100%', padding: '10px 12px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' } }),
-                                                React.createElement('button', {
+                                                allRequiredComReady ? React.createElement('div', { style: { padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a', display: 'grid', gap: '8px' } },
+                                                    React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'COM Shipment Details'),
+                                                    React.createElement('div', { style: { fontSize: '11px', color: '#d8d8d8' } }, 'Tracking: ' + (batchCommitmentComTrackingNumber || comApplicableRows.map(function(row) { return row.commitmentState && row.commitmentState.com_tracking_number ? row.commitmentState.com_tracking_number : ''; }).filter(function(value) { return !!value; })[0] || 'Saved')),
+                                                    React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                        comApplicableRows.map(function(row) {
+                                                            return React.createElement('div', { key: 'com-item-' + row.itemId, style: { padding: '7px 10px', borderRadius: '999px', border: '1px solid ' + boardCanvasGreenAccent, background: 'rgba(78,196,94,0.12)', color: '#fff', fontSize: '11px', fontWeight: '600' } }, row.title);
+                                                        })
+                                                    )
+                                                ) : React.createElement('input', { type: 'text', value: batchCommitmentComTrackingNumber, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentComTrackingNumber(e.target.value); }, placeholder: 'COM tracking number', style: { width: '100%', padding: '10px 12px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' } }),
+                                                allRequiredComReady ? null : React.createElement('button', {
                                                     type: 'button',
-                                                    disabled: batchCommitmentSubmitting || allRequiredComReady || !batchCommitmentComTrackingNumber,
+                                                    disabled: batchCommitmentSubmitting || !batchCommitmentComTrackingNumber,
                                                     onClick: function() {
                                                         setBatchCommitmentSubmitting(true);
                                                         setBatchCommitmentMessage('');
@@ -27539,6 +27658,14 @@ class N88_RFQ_Admin {
                                                             };
                                                         }, function() { return {}; }, 'nonce_get_item_rfq_state')
                                                             .then(function(result) {
+                                                                applyGroupedCommitmentPatch(comApplicableRows.map(function(row) { return row.itemId; }), function() {
+                                                                    return {
+                                                                        com_required: '1',
+                                                                        com_status: 'com_in_transit',
+                                                                        com_tracking_number: batchCommitmentComTrackingNumber,
+                                                                        com_shipped_at: new Date().toISOString()
+                                                                    };
+                                                                });
                                                                 setBatchCommitmentMessage('COM shipment recorded for ' + result.successes + ' applicable awarded item' + (result.successes === 1 ? '' : 's') + '.');
                                                                 if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
                                                                 return refreshGroupedProposalItems();
@@ -27550,8 +27677,8 @@ class N88_RFQ_Admin {
                                                                 setBatchCommitmentSubmitting(false);
                                                             });
                                                     },
-                                                    style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchCommitmentSubmitting || allRequiredComReady || !batchCommitmentComTrackingNumber) ? 'not-allowed' : 'pointer', opacity: (batchCommitmentSubmitting || allRequiredComReady || !batchCommitmentComTrackingNumber) ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
-                                                }, allRequiredComReady ? 'COM Completed' : (batchCommitmentSubmitting ? 'Saving...' : 'Mark Batch COM Shipped'))
+                                                    style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchCommitmentSubmitting || !batchCommitmentComTrackingNumber) ? 'not-allowed' : 'pointer', opacity: (batchCommitmentSubmitting || !batchCommitmentComTrackingNumber) ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
+                                                }, batchCommitmentSubmitting ? 'Saving...' : 'Mark Batch COM Shipped')
                                             ) : null,
                                             awardedRows.length ? React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: readyForExecutionRows.length === awardedRows.length ? 'rgba(255,0,101,0.08)' : '#242424', display: 'grid', gap: '8px' } },
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, readyForExecutionRows.length === awardedRows.length ? 'Ready For Next Execution Step' : 'Grouped Readiness'),
@@ -27572,8 +27699,11 @@ class N88_RFQ_Admin {
                                 var itemLabel = currentItem.title || ('Item ' + currentItemId);
                                 var isAnchorItem = proposalContext && proposalContext.anchorItemId && proposalContext.anchorItemId === currentItemId;
                                 var currentValidationState = getProposalGroupValidationState(group);
+                                var currentCommitmentRow = getProposalGroupCommitmentRow(group);
                                 var hasSampleRequest = proposalGroupHasSampleRequest(group);
-                                var currentGroupStatus = getProposalGroupStatusText(group);
+                                var currentGroupStatus = currentCommitmentRow && currentCommitmentRow.isAwarded
+                                    ? (currentCommitmentRow.isReadyForExecution ? 'Ready for Production' : (currentCommitmentRow.hasCom ? 'COM Shipped' : (currentCommitmentRow.hasDeposit ? 'Deposit Confirmed' : (currentCommitmentRow.hasPo ? 'PO Uploaded' : 'Project Awarded'))))
+                                    : getProposalGroupStatusText(group);
                                 var itemStateLoading = !!(group && group.state && group.state.is_loading);
                                 return React.createElement('div', { id: 'n88-batch-proposal-anchor-item-' + currentItemId, key: 'proposal-item-' + currentItemId, style: { marginBottom: '18px', border: isAnchorItem ? '1px solid #FF0065' : '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', background: isAnchorItem ? '#33212a' : '#2a2a2a', boxShadow: isAnchorItem ? '0 0 0 2px rgba(255,0,101,0.18)' : 'none' } },
                                     React.createElement('div', { style: { padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', background: '#2f2f2f' } },
