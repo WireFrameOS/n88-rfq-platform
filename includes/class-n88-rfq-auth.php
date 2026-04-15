@@ -5990,8 +5990,14 @@ class N88_RFQ_Auth {
             function refreshBatchSampleSelectionUI() {
                 var selectedIds = getSelectedBatchSampleItemIds();
                 var countEl = document.getElementById('n88-batch-sample-selected-count');
+                var openBtn = document.getElementById('n88-open-batch-sample-workflow-modal');
                 if (countEl) {
                     countEl.textContent = selectedIds.length + ' sample item' + (selectedIds.length === 1 ? '' : 's') + ' selected';
+                }
+                if (openBtn) {
+                    openBtn.disabled = !selectedIds.length;
+                    openBtn.style.opacity = selectedIds.length ? '1' : '.45';
+                    openBtn.style.cursor = selectedIds.length ? 'pointer' : 'not-allowed';
                 }
                 var workflowTimeline = document.getElementById('n88-batch-workflow-timeline');
                 if (workflowTimeline) {
@@ -6693,6 +6699,97 @@ class N88_RFQ_Auth {
                 return html;
             }
 
+            function renderBatchAwardCommitmentSummary(item) {
+                if (!item || !item.item_id) {
+                    return '';
+                }
+                var validationState = item.validation_state || {};
+                var commitment = validationState && validationState.commitment ? validationState.commitment : {};
+                var awardState = getBatchAwardStateLabel(item);
+                var awardTimestamp = item.award_timestamp || '';
+                var officialStatus = item.official_quote_status || 'pending';
+                var poFile = commitment && commitment.po_file ? commitment.po_file : null;
+                var poUploadedAt = commitment && commitment.po_uploaded_at ? commitment.po_uploaded_at : '';
+                var depositStatus = commitment && commitment.deposit_status ? String(commitment.deposit_status) : '';
+                var depositAmount = commitment && commitment.deposit_amount !== undefined && commitment.deposit_amount !== null ? commitment.deposit_amount : null;
+                var depositAt = commitment && commitment.deposit_confirmed_at ? commitment.deposit_confirmed_at : (item.deposit_sent_at || '');
+                var depositFiles = commitment && Array.isArray(commitment.deposit_receipt_files) ? commitment.deposit_receipt_files : [];
+                var depositFileUrl = depositFiles.length ? (depositFiles[0].url || '') : (item.deposit_receipt_url || '');
+                var comStatus = commitment && commitment.com_status ? String(commitment.com_status) : '';
+                var comTrackingNumber = commitment && commitment.com_tracking_number ? commitment.com_tracking_number : '';
+                var comDeliveryAddress = commitment && commitment.com_delivery_address ? commitment.com_delivery_address : '';
+                var comShippedAt = commitment && commitment.com_shipped_at ? commitment.com_shipped_at : '';
+                var comDeliveredAt = commitment && commitment.com_delivered_at ? commitment.com_delivered_at : '';
+                var comRequired = !!(commitment && (commitment.com_required || commitment.com_applicable || comStatus || comTrackingNumber || comDeliveryAddress));
+                var showComConfirm = comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit';
+                var depositLabel = 'Pending';
+
+                if (depositStatus === 'sent_by_designer') {
+                    depositLabel = 'Submitted by Designer';
+                } else if (depositStatus === 'confirmed' || depositStatus === 'paid' || depositStatus === 'recorded') {
+                    depositLabel = 'Confirmed';
+                } else if (depositStatus === 'received') {
+                    depositLabel = 'Received';
+                } else if (depositStatus) {
+                    depositLabel = depositStatus.replace(/_/g, ' ');
+                }
+
+                var comLabel = 'Pending';
+                if (!comRequired) {
+                    comLabel = 'Not Required';
+                } else if (comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit') {
+                    comLabel = 'In Transit';
+                } else if (comStatus === 'com_delivered' || comStatus === 'received' || comStatus === 'confirmed') {
+                    comLabel = 'Received';
+                } else if (comStatus) {
+                    comLabel = comStatus.replace(/_/g, ' ');
+                }
+
+                var html = '';
+                html += '<div style="margin-top:14px; padding:14px; border:1px solid #333; border-radius:10px; background:#101010;">';
+                html += '<div style="font-size:12px; color:#FF0065; font-family:monospace; font-weight:700; margin-bottom:10px;">Award / Commitment Details</div>';
+                html += '<div style="display:grid; gap:6px; font-size:11px; color:#ccc; font-family:monospace;">';
+                html += '<div><span style="color:#fff;">Award Status:</span> ' + escapeBatchText(awardState) + '</div>';
+                if (awardTimestamp) html += '<div><span style="color:#fff;">Awarded At:</span> ' + escapeBatchText(formatBatchDateTime(awardTimestamp) || awardTimestamp) + '</div>';
+                html += '<div><span style="color:#fff;">Official Quote:</span> ' + escapeBatchText(String(officialStatus).replace(/_/g, ' ')) + '</div>';
+                html += '<div><span style="color:#fff;">PO:</span> ' + (poFile && poFile.url ? '<a href="' + String(poFile.url).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:#7dc3ff; text-decoration:none;">Open uploaded PO</a>' : 'Not uploaded yet') + '</div>';
+                if (poUploadedAt) html += '<div><span style="color:#fff;">PO Uploaded At:</span> ' + escapeBatchText(formatBatchDateTime(poUploadedAt) || poUploadedAt) + '</div>';
+                html += '<div><span style="color:#fff;">Deposit:</span> ' + escapeBatchText(depositLabel) + '</div>';
+                if (depositAmount !== null && depositAmount !== undefined && String(depositAmount) !== '') html += '<div><span style="color:#fff;">Deposit Amount:</span> $' + escapeBatchText(Number(depositAmount).toFixed(2)) + '</div>';
+                if (depositAt) html += '<div><span style="color:#fff;">Deposit Updated:</span> ' + escapeBatchText(formatBatchDateTime(depositAt) || depositAt) + '</div>';
+                if (depositFileUrl) html += '<div><span style="color:#fff;">Deposit Proof:</span> <a href="' + String(depositFileUrl).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:#7dc3ff; text-decoration:none;">View file</a></div>';
+                html += '<div><span style="color:#fff;">COM:</span> ' + escapeBatchText(comLabel) + '</div>';
+                if (comTrackingNumber) html += '<div><span style="color:#fff;">COM Tracking:</span> ' + escapeBatchText(comTrackingNumber) + '</div>';
+                if (comDeliveryAddress) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">COM Delivery Address:</span> ' + escapeBatchText(comDeliveryAddress) + '</div>';
+                if (comShippedAt) html += '<div><span style="color:#fff;">COM Shipped At:</span> ' + escapeBatchText(formatBatchDateTime(comShippedAt) || comShippedAt) + '</div>';
+                if (comDeliveredAt) html += '<div><span style="color:#fff;">COM Received At:</span> ' + escapeBatchText(formatBatchDateTime(comDeliveredAt) || comDeliveredAt) + '</div>';
+                html += '</div>';
+                if (showComConfirm) {
+                    html += '<div style="margin-top:12px;"><button type="button" data-n88-com-received-btn="' + item.item_id + '" onclick="n88SupplierMarkComReceived(' + item.item_id + ')" style="padding:8px 12px; background:#FF0065; color:#000; border:none; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:monospace;">[ Confirm COM Received ]</button></div>';
+                }
+                html += '</div>';
+                return html;
+            }
+
+            function renderBatchPostSubmitDetailStack(item) {
+                var sections = [];
+                var submittedBidShellHtml = renderBatchSubmittedBidShell(item);
+                if (submittedBidShellHtml) {
+                    sections.push(submittedBidShellHtml);
+                }
+                var sampleRequestHtml = renderBatchSampleRequestSummary(item);
+                if (sampleRequestHtml) {
+                    sections.push(sampleRequestHtml);
+                }
+                if (item && (item.bid_status === 'submitted' || item.bid_status === 'awarded' || item.is_awarded_supplier)) {
+                    sections.push(renderBatchAwardCommitmentSummary(item));
+                }
+                if (!sections.length) {
+                    return '<div style="min-width:0; padding:16px; border:1px solid #333; border-radius:10px; background:#111; color:#aaa; font-size:12px; font-family:monospace;">Proposal details will appear here after submission.</div>';
+                }
+                return '<div style="min-width:0; display:grid; gap:14px;">' + sections.join('') + '</div>';
+            }
+
             function openBatchProposalItemDetail(itemId) {
                 itemId = parseInt(itemId, 10) || 0;
                 if (!itemId) {
@@ -6980,6 +7077,14 @@ class N88_RFQ_Auth {
                     }
                 }
                 var keywordsText = item.keywords && item.keywords.length ? item.keywords.join(', ') : 'None';
+                var formatPreferredDeliveryDate = function(value) {
+                    var raw = String(value || '').trim();
+                    if (!raw) return '';
+                    var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    if (m) return m[2] + '/' + m[3] + '/' + m[1];
+                    return raw;
+                };
+                var preferredDeliveryDateText = formatPreferredDeliveryDate(item.preferred_delivery_date || '');
                 var deliveryText = '-';
                 if (item.delivery_country || item.delivery_postal_code) {
                     deliveryText = (item.delivery_country || '') + (item.delivery_postal_code ? (' ' + item.delivery_postal_code) : '');
@@ -7086,6 +7191,7 @@ class N88_RFQ_Auth {
                                     '<div><strong style="color:#fff;">Project:</strong> ' + escapeBatchText(item.project_name || 'Unassigned') + '</div>' +
                                     '<div><strong style="color:#fff;">Designer:</strong> ' + escapeBatchText(item.designer_name || 'Designer') + '</div>' +
                                     '<div><strong style="color:#fff;">Delivery:</strong> ' + escapeBatchText(deliveryText) + '</div>' +
+                                    (preferredDeliveryDateText ? '<div><strong style="color:#fff;">Preferred Delivery Date:</strong> ' + escapeBatchText(preferredDeliveryDateText) + '</div>' : '') +
                                     '<div><strong style="color:#fff;">Category:</strong> ' + escapeBatchText(item.category || '-') + '</div>' +
                                     '<div><strong style="color:#fff;">Dims:</strong> ' + escapeBatchText(dimsText) + '</div>' +
                                     '<div><strong style="color:#fff;">Fabric Supplied:</strong> ' + escapeBatchText(fabricSuppliedText) + '</div>' +
@@ -7096,7 +7202,7 @@ class N88_RFQ_Auth {
                                 galleryHtml +
                             '</div>' +
                             (hasSubmittedBidShell
-                                ? '<div style="min-width:0; padding:16px; border:1px solid #333; border-radius:10px; background:#111; color:#aaa; font-size:12px; font-family:monospace;">Proposal already submitted for this item. Step 01 timeline above shows the complete submitted bid box.</div>'
+                                ? renderBatchPostSubmitDetailStack(item)
                                 : '<div id="n88-batch-form-host-' + itemId + '" style="min-width:0; padding:14px; border:1px solid #555; border-radius:10px; background:#111;"><div style="padding:24px; color:#aaa; font-family:monospace; text-align:center;">Loading proposal form...</div></div>') +
                         '</div>' +
                     '</div>' +
@@ -7118,7 +7224,6 @@ class N88_RFQ_Auth {
                 }).length;
                 var awardedCount = items.filter(function(item) { return getBatchAwardStateLabel(item) === 'Awarded'; }).length;
                 var batchStatus = getBatchModalStatusLabel(items);
-                var hasTimeline = hasBatchWorkflowTimeline(items);
                 var panelsHtml = '';
                 items.forEach(function(item) {
                     panelsHtml += renderBatchItemPanel(item);
@@ -7138,10 +7243,9 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom:8px;">Batch Header</div>' +
                         '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>Batch: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Quoted Items: ' + quotedCount + '</span><span>Batch Status: ' + escapeBatchText(batchStatus) + '</span><span>Sample Items: ' + sampleSelectedCount + '</span><span>Awarded Items: ' + awardedCount + '</span></div>' +
                     '</div>' +
-                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">' + (hasTimeline ? 'Use View Item on any batch item to open its single-item detail modal.' : 'Submit item proposals first. Timeline will appear after at least one item proposal is submitted.') + '</div>' +
-                    renderBatchWorkflowTimeline(items) +
-                    (hasTimeline ? '' : '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>') +
-                    (hasTimeline ? '' : '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
+                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Use View Item on any batch item to open its single-item detail modal. Submitted proposal, sample, award, PO, deposit, and COM updates stay inline inside each item panel.</div>' +
+                    '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>' +
+                    '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
                         '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch actions</div>' +
                         '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Choose files</div>' +
                         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">' +
@@ -7152,13 +7256,14 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;"></div>' +
                         '<div id="n88-batch-shared-upload-list"></div>' +
-                        (hasTimeline ? '<div style="margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
+                        '<div style="margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
                             '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Batch Material Sample Workflow</div>' +
-                            '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Use the sample checkboxes inside requested items, then launch the header button to submit one grouped sample workflow update.</div>' +
+                            '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Use the sample checkboxes inside requested items, then submit one grouped sample workflow update from here.</div>' +
                             '<div id="n88-batch-sample-selected-count" style="font-size:11px; color:#ddd; font-family:monospace; margin-bottom:10px;">0 sample items selected</div>' +
+                            '<button type="button" id="n88-open-batch-sample-workflow-modal" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer; margin-bottom:10px;">[ Submit Material Samples ]</button>' +
                             '<div style="font-size:11px; color:#7dc3ff; font-family:monospace;">Selected items will open in a separate modal for tracking number, notes, files, and final sample submission.</div>' +
-                        '</div>' : '') +
-                    '</div>');
+                        '</div>' +
+                    '</div>';
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
 
@@ -7177,9 +7282,6 @@ class N88_RFQ_Auth {
                 });
                 refreshBatchSummary();
                 refreshBatchSharedUploads();
-                if (hasTimeline && document.getElementById('n88-batch-workflow-timeline')) {
-                    setBatchWorkflowStep(getBatchWorkflowActiveStep(items));
-                }
                 toggleBatchProposalAccordion(anchorItemId || items[0].item_id, true);
             }
 
@@ -7219,23 +7321,37 @@ class N88_RFQ_Auth {
                 var workspacePromise = proposalGroupId > 0
                     ? fetchBatchWorkspaceByGroup(proposalGroupId)
                     : fetchBatchWorkspace(itemIds);
-                var itemDetailsPromise = Promise.all(itemIds.map(function(itemId) {
-                    return fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(res) {
-                        if (!res.success || !res.data) {
-                            throw new Error((res.data && res.data.message) || ('Failed to load item #' + itemId));
-                        }
-                        return {
-                            itemId: itemId,
-                            item: res.data
-                        };
-                    });
-                }));
-                Promise.all([workspacePromise, itemDetailsPromise]).then(function(results) {
-                    var workspaceResult = results[0];
-                    var itemResults = results[1];
+                workspacePromise.then(function(workspaceResult) {
                     if (!workspaceResult.success || !workspaceResult.data) {
                         throw new Error((workspaceResult.data && workspaceResult.data.message) || 'Failed to prepare grouped proposal workspace.');
                     }
+                    var resolvedItemIds = itemIds.length
+                        ? itemIds.slice()
+                        : (Array.isArray(workspaceResult.data.item_ids) ? workspaceResult.data.item_ids : []);
+                    resolvedItemIds = resolvedItemIds.map(function(itemId) {
+                        return parseInt(itemId, 10) || 0;
+                    }).filter(function(itemId) {
+                        return itemId > 0;
+                    });
+                    return Promise.all(resolvedItemIds.map(function(itemId) {
+                        return fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(res) {
+                            if (!res.success || !res.data) {
+                                throw new Error((res.data && res.data.message) || ('Failed to load item #' + itemId));
+                            }
+                            return {
+                                itemId: itemId,
+                                item: res.data
+                            };
+                        });
+                    })).then(function(itemResults) {
+                        return {
+                            workspaceResult: workspaceResult,
+                            itemResults: itemResults
+                        };
+                    });
+                }).then(function(results) {
+                    var workspaceResult = results.workspaceResult;
+                    var itemResults = results.itemResults;
                     window.n88SupplierBatchState.workspace = workspaceResult.data;
                     window.n88SupplierBatchState.sharedUploads = workspaceResult.data.shared_uploads || [];
                     var items = itemResults.map(function(entry) {
@@ -7275,18 +7391,7 @@ class N88_RFQ_Auth {
                     }
                     return;
                 }
-                fetchBatchWorkspaceByGroup(proposalGroupId).then(function(workspaceResult) {
-                    if (!workspaceResult || !workspaceResult.success || !workspaceResult.data || !Array.isArray(workspaceResult.data.item_ids) || !workspaceResult.data.item_ids.length) {
-                        throw new Error((workspaceResult && workspaceResult.data && workspaceResult.data.message) ? workspaceResult.data.message : 'Failed to resolve grouped proposal workspace.');
-                    }
-                    openBatchProposalModalForSelection(workspaceResult.data.item_ids, proposalGroupId, anchorItemId);
-                }).catch(function(error) {
-                    if (anchorItemId) {
-                        openBidModal(anchorItemId);
-                        return;
-                    }
-                    alert(error && error.message ? error.message : 'Failed to open grouped proposal workspace.');
-                });
+                openBatchProposalModalForSelection([], proposalGroupId, anchorItemId);
             }
 
             // Filter persistence via URL query parameters (M5)
@@ -8361,6 +8466,7 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '-') + '</span></div>' +
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Designer:</strong> <span style="color: #FF0065;">' + (item.designer_name || '-') + '</span></div>' +
                         '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '-') + (item.delivery_postal_code ? ' ' + (item.delivery_postal_code || '') : '') + '</span></div>' +
+                        ((item.preferred_delivery_date && String(item.preferred_delivery_date).trim()) ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Preferred Delivery Date:</strong> <span style="color: #fff;">' + String(item.preferred_delivery_date).replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1') + '</span></div>' : '') +
                         (item.rfq_fabric_supplied_flag ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Fabric Supplied:</strong> <span style="color: #fff;">' + (((String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'yes') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === '1') || (String(item.rfq_fabric_supplied_flag || '').toLowerCase() === 'true')) ? 'YES' : 'NO') + '</span></div>' : '') +
                         (item.rfq_fabric_notes && String(item.rfq_fabric_notes).trim() && String(item.rfq_fabric_notes).trim() !== '-' ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Fabric Notes:</strong> <span style="color: #fff; white-space: pre-wrap;">' + String(item.rfq_fabric_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
                         (hasItemDescription ? ('<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Description:</strong></div>' +
@@ -11035,11 +11141,18 @@ class N88_RFQ_Auth {
                     }
                     
                     // Format delivery location
+                    var preferredDeliveryDateText = String(item.preferred_delivery_date || '').trim();
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(preferredDeliveryDateText)) {
+                        preferredDeliveryDateText = preferredDeliveryDateText.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
+                    }
                     var deliveryText = '';
                     if (item.delivery_country && item.delivery_postal_code) {
                         deliveryText = item.delivery_country + ' ' + item.delivery_postal_code;
                     } else if (item.delivery_country) {
                         deliveryText = item.delivery_country;
+                    }
+                    if (preferredDeliveryDateText) {
+                        deliveryText += (deliveryText ? ' | ' : '') + 'Preferred: ' + preferredDeliveryDateText;
                     }
                     
                     // Format item title with category
@@ -17827,6 +17940,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'timeline_type' => isset( $meta['timeline_type'] ) ? sanitize_text_field( $meta['timeline_type'] ) : null,
                 'delivery_country' => $delivery_context ? sanitize_text_field( $delivery_context['delivery_country_code'] ) : null,
                 'delivery_postal_code' => $delivery_context && ! empty( $delivery_context['delivery_postal_code'] ) ? sanitize_text_field( $delivery_context['delivery_postal_code'] ) : null,
+                'preferred_delivery_date' => isset( $meta['preferred_delivery_date'] ) ? sanitize_text_field( $meta['preferred_delivery_date'] ) : null,
                 'shipping_mode_label' => $shipping_mode_label,
                 'rfq_fabric_supplied_flag' => isset( $meta['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( $meta['rfq_fabric_supplied_flag'] ) : null,
                 'rfq_fabric_notes' => isset( $meta['rfq_fabric_notes'] ) ? sanitize_textarea_field( $meta['rfq_fabric_notes'] ) : null,
@@ -18391,6 +18505,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'timeline_type' => isset( $meta['timeline_type'] ) ? sanitize_text_field( $meta['timeline_type'] ) : null,
             'delivery_country' => $delivery_context ? sanitize_text_field( $delivery_context['delivery_country_code'] ) : null,
             'delivery_postal_code' => $delivery_context && ! empty( $delivery_context['delivery_postal_code'] ) ? sanitize_text_field( $delivery_context['delivery_postal_code'] ) : null,
+            'preferred_delivery_date' => isset( $meta['preferred_delivery_date'] ) ? sanitize_text_field( $meta['preferred_delivery_date'] ) : null,
             'shipping_mode_label' => $shipping_mode_label,
             // COMMIT 3.C.3: Fabric supplied and fabric notes (supplier read-only)
             'rfq_fabric_supplied_flag' => isset( $meta['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( $meta['rfq_fabric_supplied_flag'] ) : null,

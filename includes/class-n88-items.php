@@ -344,6 +344,9 @@ class N88_Items {
         if ( isset( $_POST['delivery_postal'] ) ) {
             $meta_json['delivery_postal'] = sanitize_text_field( wp_unslash( $_POST['delivery_postal'] ) );
         }
+        if ( isset( $_POST['preferred_delivery_date'] ) ) {
+            $meta_json['preferred_delivery_date'] = sanitize_text_field( wp_unslash( $_POST['preferred_delivery_date'] ) );
+        }
         if ( isset( $_POST['rfq_overall_notes'] ) ) {
             $meta_json['rfq_overall_notes'] = substr(
                 sanitize_textarea_field( (string) wp_unslash( $_POST['rfq_overall_notes'] ) ),
@@ -1833,6 +1836,9 @@ class N88_Items {
         
         if ( isset( $payload['delivery_postal'] ) ) {
             $meta['delivery_postal'] = sanitize_text_field( $payload['delivery_postal'] );
+        }
+        if ( array_key_exists( 'preferred_delivery_date', $payload ) ) {
+            $meta['preferred_delivery_date'] = sanitize_text_field( (string) $payload['preferred_delivery_date'] );
         }
         
         // COMMIT 3.C.3: RFQ evidence – overall notes, fabric supplied, fabric notes

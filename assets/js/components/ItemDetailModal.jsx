@@ -2323,6 +2323,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [deliveryPostal, setDeliveryPostal] = React.useState(
         item.delivery_postal || item.meta?.delivery_postal || ''
     );
+    const [preferredDeliveryDate, setPreferredDeliveryDate] = React.useState(
+        item.preferred_delivery_date || item.meta?.preferred_delivery_date || ''
+    );
     
     // Keywords state - load from item meta
     const [keywords, setKeywords] = React.useState(
@@ -3375,6 +3378,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             if (parsedMeta.delivery_postal !== undefined) {
                 setDeliveryPostal(parsedMeta.delivery_postal || '');
             }
+            if (parsedMeta.preferred_delivery_date !== undefined) {
+                setPreferredDeliveryDate(parsedMeta.preferred_delivery_date || '');
+            }
             // COMMIT 3.C.3: RFQ overall notes, fabric supplied, fabric notes
             if (parsedMeta.rfq_overall_notes !== undefined) setRfqOverallNotes(parsedMeta.rfq_overall_notes || '');
             if (parsedMeta.rfq_fabric_supplied_flag === 'yes' || parsedMeta.rfq_fabric_supplied_flag === 'no') setFabricSupplied(parsedMeta.rfq_fabric_supplied_flag);
@@ -3743,6 +3749,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 smart_alternatives_note: notesValue,
                 delivery_country: deliveryCountry,
                 delivery_postal: deliveryPostal,
+                preferred_delivery_date: preferredDeliveryDate,
                 rfq_overall_notes: rfqOverallNotes.slice(0, 100),
                 rfq_fabric_supplied_flag: fabricSupplied,
                 rfq_fabric_notes: fabricSupplied === 'yes' ? fabricNotes : '',
@@ -4044,6 +4051,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         if (!deliveryCountry) return null;
         const parts = [deliveryCountry];
         if (deliveryPostal) parts.push(deliveryPostal);
+        if (preferredDeliveryDate) parts.push(`Preferred: ${preferredDeliveryDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1')}`);
         return parts.join(' ');
     };
     
@@ -4200,6 +4208,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 dimension_unit: unit,
                 delivery_country: deliveryCountry.toUpperCase().trim(),
                 delivery_postal: deliveryPostal.trim(),
+                preferred_delivery_date: preferredDeliveryDate.trim(),
             }];
             
             const formData = new FormData();
@@ -4274,6 +4283,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         smart_alternatives_note: notesValue,
                         delivery_country: deliveryCountry,
                         delivery_postal: deliveryPostal,
+                        preferred_delivery_date: preferredDeliveryDate,
                         rfq_overall_notes: rfqOverallNotes.slice(0, 100),
                         rfq_fabric_supplied_flag: fabricSupplied,
                         rfq_fabric_notes: fabricSupplied === 'yes' ? fabricNotes : '',
@@ -5853,6 +5863,27 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         </div>
                                     )}
                                 </div>
+
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Preferred Delivery Date
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={preferredDeliveryDate}
+                                                    onChange={(e) => setPreferredDeliveryDate(e.target.value)}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                />
+                                            </div>
                                             
                                             {/* Inspiration / References / Sketch Drawings (inside RFQ form) – COMMIT 3.C.3 */}
                                             <div style={{ marginBottom: '12px' }}>
