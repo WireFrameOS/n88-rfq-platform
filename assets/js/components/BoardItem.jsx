@@ -203,6 +203,9 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
         if (sampleStatus === 'samples_received' || sampleStatus === 'under_review') {
             return { text: 'Samples Received', color: '#2196f3', dot: '#2196f3' };
         }
+        if (sampleStatus === 'samples_approved' && hasAwardedBid) {
+            return { text: 'Project Awarded', color: '#00ff00', dot: '#00ff00' };
+        }
         if (sampleStatus === 'samples_approved') {
             return { text: 'Samples Approved', color: '#4caf50', dot: '#4caf50' };
         }

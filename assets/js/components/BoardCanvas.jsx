@@ -34,6 +34,8 @@ const useDebouncedSave = window.N88StudioOS?.useDebouncedSave || (() => {
 const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
     const items = useBoardStore((state) => state.items);
     const updateLayout = useBoardStore((state) => state.updateLayout);
+    const boardStatusRequestRef = React.useRef(null);
+    const boardStatusCacheRef = React.useRef({ boardId: 0, rows: [], fetchedAt: 0 });
     
     // Use Zustand's store getter to avoid stale state
     const getItems = React.useCallback(
@@ -44,41 +46,70 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
     // Initialize debounced save hook
     const { triggerSave, saveNow, unsynced, clearUnsynced } = useDebouncedSave(boardId || 0, getItems);
 
-    // Refresh board item status (CAD requested, payment, etc.) so designer card updates without full reload
+    // Refresh lightweight board item status so designer cards update without full reload
     const refreshBoardItemsStatus = React.useCallback(() => {
-        if (!boardId || boardId <= 0 || typeof updateLayout !== 'function') return;
+        if (!boardId || boardId <= 0 || typeof updateLayout !== 'function') return Promise.resolve([]);
+        if (boardStatusRequestRef.current) return boardStatusRequestRef.current;
+        const now = Date.now();
+        if (
+            boardStatusCacheRef.current.boardId === boardId &&
+            Array.isArray(boardStatusCacheRef.current.rows) &&
+            boardStatusCacheRef.current.rows.length > 0 &&
+            (now - boardStatusCacheRef.current.fetchedAt) < 4000
+        ) {
+            boardStatusCacheRef.current.rows.forEach(function (row) {
+                if (row.id && typeof updateLayout === 'function') {
+                    updateLayout(row.id, {
+                        has_awarded_bid: row.has_awarded_bid,
+                        has_unread_operator_messages: row.has_unread_operator_messages,
+                        has_unread_supplier_messages: row.has_unread_supplier_messages,
+                        unread_supplier_messages: row.unread_supplier_messages,
+                        action_required: row.action_required,
+                        step456_status_text: row.step456_status_text,
+                        step456_status_color: row.step456_status_color,
+                    });
+                }
+            });
+            return Promise.resolve(boardStatusCacheRef.current.rows);
+        }
         const nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_board_items_status) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
-        if (!nonce) return;
+        if (!nonce) return Promise.resolve([]);
         const formData = new FormData();
         formData.append('action', 'n88_get_board_items_status');
         formData.append('board_id', String(boardId));
         formData.append('_ajax_nonce', nonce);
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
-        fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
+        boardStatusRequestRef.current = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (data.success && data.data && Array.isArray(data.data.items)) {
+                    boardStatusCacheRef.current = {
+                        boardId: boardId,
+                        rows: data.data.items,
+                        fetchedAt: Date.now(),
+                    };
                     data.data.items.forEach(function (row) {
                         if (row.id && typeof updateLayout === 'function') {
                             updateLayout(row.id, {
-                                has_prototype_payment: row.has_prototype_payment,
-                                prototype_payment_status: row.prototype_payment_status,
-                                cad_status: row.cad_status,
-                                cad_current_version: row.cad_current_version,
-                                prototype_status: row.prototype_status,
-                                has_prototype_video_submitted: row.has_prototype_video_submitted,
-                                has_payment_receipt_uploaded: row.has_payment_receipt_uploaded,
                                 has_awarded_bid: row.has_awarded_bid,
                                 has_unread_operator_messages: row.has_unread_operator_messages,
+                                has_unread_supplier_messages: row.has_unread_supplier_messages,
+                                unread_supplier_messages: row.unread_supplier_messages,
                                 action_required: row.action_required,
                                 step456_status_text: row.step456_status_text,
                                 step456_status_color: row.step456_status_color,
                             });
                         }
                     });
+                    return data.data.items;
                 }
+                return [];
             })
-            .catch(function () {});
+            .catch(function () { return []; })
+            .finally(function () {
+                boardStatusRequestRef.current = null;
+            });
+        return boardStatusRequestRef.current;
     }, [boardId, updateLayout]);
 
     // On mount: refresh status after a short delay (catches stale initial HTML)

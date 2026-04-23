@@ -126,9 +126,368 @@ class N88_Items {
     public function __construct() {
         // Register AJAX endpoints (logged-in users only)
         add_action( 'wp_ajax_n88_create_item', array( $this, 'ajax_create_item' ) );
+        add_action( 'wp_ajax_n88_create_items_batch', array( $this, 'ajax_create_items_batch' ) );
         add_action( 'wp_ajax_n88_update_item', array( $this, 'ajax_update_item' ) );
         add_action( 'wp_ajax_n88_save_item_facts', array( $this, 'ajax_save_item_facts' ) );
         add_action( 'wp_ajax_n88_upload_inspiration_image', array( $this, 'ajax_upload_inspiration_image' ) );
+    }
+
+    /**
+     * AJAX: Create multiple items in one request.
+     */
+    public function ajax_create_items_batch() {
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'You must be logged in to create items.' ), 401 );
+        }
+
+        $user_id = get_current_user_id();
+        $items_json = isset( $_POST['items_json'] ) ? wp_unslash( $_POST['items_json'] ) : '[]';
+        $items = json_decode( $items_json, true );
+        if ( ! is_array( $items ) || empty( $items ) ) {
+            wp_send_json_error( array( 'message' => 'No items were provided.' ), 400 );
+        }
+        if ( count( $items ) > 50 ) {
+            wp_send_json_error( array( 'message' => 'Maximum 50 items are allowed per batch.' ), 400 );
+        }
+
+        require_once( ABSPATH . 'wp-admin/includes/file.php' );
+        require_once( ABSPATH . 'wp-admin/includes/media.php' );
+        require_once( ABSPATH . 'wp-admin/includes/image.php' );
+
+        $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif' );
+        $mimes = array(
+            'jpg|jpeg|jpe' => 'image/jpeg',
+            'gif' => 'image/gif',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
+        );
+
+        $uploaded_attachment_ids = array();
+        if ( ! empty( $_FILES['batch_image_files'] ) && ! empty( $_FILES['batch_image_files']['name'] ) ) {
+            $names = (array) $_FILES['batch_image_files']['name'];
+            foreach ( array_keys( $names ) as $i ) {
+                $file = array(
+                    'name'     => $_FILES['batch_image_files']['name'][ $i ],
+                    'type'     => isset( $_FILES['batch_image_files']['type'][ $i ] ) ? $_FILES['batch_image_files']['type'][ $i ] : '',
+                    'tmp_name' => isset( $_FILES['batch_image_files']['tmp_name'][ $i ] ) ? $_FILES['batch_image_files']['tmp_name'][ $i ] : '',
+                    'error'    => isset( $_FILES['batch_image_files']['error'][ $i ] ) ? (int) $_FILES['batch_image_files']['error'][ $i ] : UPLOAD_ERR_NO_FILE,
+                    'size'     => isset( $_FILES['batch_image_files']['size'][ $i ] ) ? (int) $_FILES['batch_image_files']['size'][ $i ] : 0,
+                );
+                if ( $file['error'] !== UPLOAD_ERR_OK || empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
+                    $uploaded_attachment_ids[] = 0;
+                    continue;
+                }
+                $file_type = wp_check_filetype( $file['name'] );
+                if ( ! in_array( strtolower( (string) $file_type['ext'] ), $allowed_types, true ) ) {
+                    $uploaded_attachment_ids[] = 0;
+                    continue;
+                }
+                $upload = wp_handle_upload( $file, array( 'test_form' => false, 'mimes' => $mimes ) );
+                if ( isset( $upload['error'] ) ) {
+                    $uploaded_attachment_ids[] = 0;
+                    continue;
+                }
+                $attachment = array(
+                    'post_mime_type' => $upload['type'],
+                    'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
+                    'post_content'   => '',
+                    'post_status'    => 'inherit',
+                );
+                $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                if ( $attach_id && ! is_wp_error( $attach_id ) ) {
+                    $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                    wp_update_attachment_metadata( $attach_id, $attach_data );
+                    $uploaded_attachment_ids[] = (int) $attach_id;
+                } else {
+                    $uploaded_attachment_ids[] = 0;
+                }
+            }
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'n88_items';
+        $table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table );
+        $columns = $wpdb->get_col( "DESCRIBE {$table_safe}" );
+        $has_meta_json = in_array( 'meta_json', $columns, true );
+        $has_project_id = in_array( 'project_id', $columns, true );
+        $has_room_id = in_array( 'room_id', $columns, true );
+        $allowed_sizes = array( 'S', 'D', 'L', 'XL' );
+
+        $created_item_ids = array();
+        $created_titles = array();
+        $board_item_links = array();
+        $board_access_cache = array();
+
+        // Create profile once per batch instead of per item.
+        $this->ensure_designer_profile( $user_id );
+
+        $wpdb->query( 'START TRANSACTION' );
+        try {
+            foreach ( $items as $idx => $item_data ) {
+                if ( ! is_array( $item_data ) ) {
+                    continue;
+                }
+                $title = isset( $item_data['title'] ) ? sanitize_text_field( $item_data['title'] ) : '';
+                if ( '' === $title ) {
+                    throw new Exception( 'Item ' . ( $idx + 1 ) . ': Title is required.' );
+                }
+                if ( strlen( $title ) > 500 ) {
+                    throw new Exception( 'Item ' . ( $idx + 1 ) . ': Title exceeds maximum length of 500 characters.' );
+                }
+                $description = isset( $item_data['description'] ) ? sanitize_textarea_field( $item_data['description'] ) : '';
+                $item_type = isset( $item_data['item_type'] ) ? sanitize_text_field( $item_data['item_type'] ) : 'furniture';
+                if ( ! self::is_valid_item_type( $item_type ) ) {
+                    throw new Exception( 'Item ' . ( $idx + 1 ) . ': Invalid item type.' );
+                }
+                $status = isset( $item_data['status'] ) ? sanitize_text_field( $item_data['status'] ) : 'active';
+                if ( ! in_array( $status, self::$allowed_item_statuses, true ) ) {
+                    $status = 'active';
+                }
+                $size = isset( $item_data['size'] ) ? sanitize_text_field( $item_data['size'] ) : 'S';
+                if ( ! in_array( $size, $allowed_sizes, true ) ) {
+                    $size = 'S';
+                }
+                $board_id = isset( $item_data['board_id'] ) ? absint( $item_data['board_id'] ) : 0;
+                $project_id = isset( $item_data['project_id'] ) ? absint( $item_data['project_id'] ) : 0;
+                $room_id = isset( $item_data['room_id'] ) ? absint( $item_data['room_id'] ) : 0;
+
+                if ( $board_id > 0 ) {
+                    if ( ! array_key_exists( $board_id, $board_access_cache ) ) {
+                        $board_access_cache[ $board_id ] = (bool) N88_Authorization::get_board_for_user( $board_id, $user_id );
+                    }
+                    if ( ! $board_access_cache[ $board_id ] ) {
+                        throw new Exception( 'Item ' . ( $idx + 1 ) . ': Access denied for selected board.' );
+                    }
+                }
+
+            $meta_json = array(
+                'default_size' => $size,
+            );
+            if ( isset( $item_data['delivery_country'] ) ) {
+                $meta_json['delivery_country'] = sanitize_text_field( $item_data['delivery_country'] );
+            }
+            if ( isset( $item_data['delivery_postal'] ) ) {
+                $meta_json['delivery_postal'] = sanitize_text_field( $item_data['delivery_postal'] );
+            }
+            if ( isset( $item_data['preferred_delivery_date'] ) ) {
+                $meta_json['preferred_delivery_date'] = sanitize_text_field( $item_data['preferred_delivery_date'] );
+            }
+            if ( isset( $item_data['rfq_overall_notes'] ) ) {
+                $meta_json['rfq_overall_notes'] = substr( sanitize_textarea_field( (string) $item_data['rfq_overall_notes'] ), 0, 100 );
+            }
+            $fabric_flag = isset( $item_data['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( $item_data['rfq_fabric_supplied_flag'] ) : 'yes';
+            $meta_json['rfq_fabric_supplied_flag'] = ( 'no' === strtolower( $fabric_flag ) ) ? 'no' : 'yes';
+            if ( isset( $item_data['rfq_fabric_notes'] ) ) {
+                $meta_json['rfq_fabric_notes'] = sanitize_textarea_field( $item_data['rfq_fabric_notes'] );
+            }
+            if ( isset( $item_data['rfq_draft_invited_suppliers'] ) && is_array( $item_data['rfq_draft_invited_suppliers'] ) ) {
+                $clean_invites = array();
+                foreach ( $item_data['rfq_draft_invited_suppliers'] as $invite ) {
+                    $invite = trim( (string) $invite );
+                    if ( '' === $invite ) {
+                        continue;
+                    }
+                    $clean_invites[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $clean_invites ) >= 5 ) {
+                        break;
+                    }
+                }
+                if ( ! empty( $clean_invites ) ) {
+                    $meta_json['rfq_draft_invited_suppliers'] = $clean_invites;
+                }
+            }
+            $meta_json['rfq_draft_allow_system_invites'] = ! empty( $item_data['rfq_draft_allow_system_invites'] );
+            if ( isset( $item_data['selected_keyword_ids'] ) && is_array( $item_data['selected_keyword_ids'] ) ) {
+                $meta_json['selected_keyword_ids'] = array_values( array_unique( array_filter( array_map( 'absint', $item_data['selected_keyword_ids'] ) ) ) );
+            }
+            $measurement_type = isset( $item_data['measurement_type'] ) ? sanitize_text_field( $item_data['measurement_type'] ) : '';
+            if ( $measurement_type ) {
+                $meta_json['measurement_type'] = $measurement_type;
+            }
+            if ( isset( $item_data['measurement_area'] ) && $item_data['measurement_area'] !== '' ) {
+                $meta_json['measurement_area'] = floatval( $item_data['measurement_area'] );
+            }
+            if ( isset( $item_data['measurement_area_unit'] ) ) {
+                $meta_json['measurement_area_unit'] = sanitize_text_field( $item_data['measurement_area_unit'] );
+            }
+            if ( isset( $item_data['measurement_length'] ) && $item_data['measurement_length'] !== '' ) {
+                $meta_json['measurement_length'] = floatval( $item_data['measurement_length'] );
+            }
+            if ( isset( $item_data['measurement_length_unit'] ) ) {
+                $meta_json['measurement_length_unit'] = sanitize_text_field( $item_data['measurement_length_unit'] );
+            }
+            if ( isset( $item_data['custom_specification'] ) ) {
+                $meta_json['custom_specification'] = sanitize_textarea_field( $item_data['custom_specification'] );
+            }
+            if ( isset( $item_data['quantity'] ) && $item_data['quantity'] !== '' ) {
+                $meta_json['quantity'] = intval( $item_data['quantity'] );
+            }
+            if ( isset( $item_data['dims'] ) && is_array( $item_data['dims'] ) ) {
+                $dims = array(
+                    'w' => isset( $item_data['dims']['w'] ) ? floatval( $item_data['dims']['w'] ) : null,
+                    'd' => isset( $item_data['dims']['d'] ) ? floatval( $item_data['dims']['d'] ) : null,
+                    'h' => isset( $item_data['dims']['h'] ) ? floatval( $item_data['dims']['h'] ) : null,
+                    'unit' => isset( $item_data['dims']['unit'] ) ? sanitize_text_field( $item_data['dims']['unit'] ) : 'in',
+                );
+                $meta_json['dims'] = $dims;
+            }
+            if ( $measurement_type && $measurement_type !== 'dimensions' ) {
+                unset( $meta_json['dims'], $meta_json['dims_cm'], $meta_json['cbm'] );
+            }
+
+            $attachment_ids_for_item = array();
+            if ( isset( $item_data['image_file_indexes'] ) && is_array( $item_data['image_file_indexes'] ) ) {
+                foreach ( $item_data['image_file_indexes'] as $file_index ) {
+                    $file_index = absint( $file_index );
+                    if ( isset( $uploaded_attachment_ids[ $file_index ] ) && $uploaded_attachment_ids[ $file_index ] > 0 ) {
+                        $attachment_ids_for_item[] = (int) $uploaded_attachment_ids[ $file_index ];
+                    }
+                }
+                $attachment_ids_for_item = array_values( array_unique( $attachment_ids_for_item ) );
+            }
+
+            $primary_image_id = ! empty( $attachment_ids_for_item ) ? (int) $attachment_ids_for_item[0] : 0;
+            if ( ! empty( $attachment_ids_for_item ) ) {
+                $captions = isset( $item_data['image_captions'] ) && is_array( $item_data['image_captions'] ) ? $item_data['image_captions'] : array();
+                $meta_json['inspiration'] = array();
+                foreach ( $attachment_ids_for_item as $image_idx => $aid ) {
+                    $caption = isset( $captions[ $image_idx ] ) ? substr( sanitize_text_field( (string) $captions[ $image_idx ] ), 0, 100 ) : '';
+                    $meta_json['inspiration'][] = array(
+                        'type'    => 'image',
+                        'id'      => (int) $aid,
+                        'url'     => wp_get_attachment_url( $aid ) ?: null,
+                        'caption' => $caption,
+                    );
+                }
+            }
+
+            $now = current_time( 'mysql' );
+            $insert_data = array(
+                'owner_user_id' => $user_id,
+                'title'         => $title,
+                'description'   => $description,
+                'item_type'     => $item_type,
+                'status'        => $status,
+                'version'       => 1,
+                'created_at'    => $now,
+                'updated_at'    => $now,
+            );
+            $insert_format = array( '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s' );
+            if ( $has_project_id && $project_id > 0 ) {
+                $insert_data['project_id'] = $project_id;
+                $insert_format[] = '%d';
+            }
+            if ( $has_room_id && $room_id > 0 ) {
+                $insert_data['room_id'] = $room_id;
+                $insert_format[] = '%d';
+            }
+            if ( $has_meta_json ) {
+                $insert_data['meta_json'] = wp_json_encode( $meta_json );
+                $insert_format[] = '%s';
+            }
+            if ( $primary_image_id > 0 ) {
+                $insert_data['primary_image_id'] = $primary_image_id;
+                $insert_format[] = '%d';
+            }
+
+            $inserted = $wpdb->insert( $table, $insert_data, $insert_format );
+            if ( ! $inserted ) {
+                throw new Exception( 'Failed to create item ' . ( $idx + 1 ) . '.' );
+            }
+
+            $item_id = (int) $wpdb->insert_id;
+            $created_item_ids[] = $item_id;
+            $created_titles[] = $title;
+
+            n88_log_event(
+                'item_created',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'title'     => $title,
+                        'item_type' => $item_type,
+                        'status'    => $status,
+                    ),
+                )
+            );
+            if ( class_exists( 'N88_Item_Timeline' ) ) {
+                N88_Item_Timeline::ensure_timeline_for_item( $item_id );
+            }
+
+            if ( $board_id > 0 ) {
+                if ( ! isset( $board_item_links[ $board_id ] ) ) {
+                    $board_item_links[ $board_id ] = array();
+                }
+                $board_item_links[ $board_id ][] = $item_id;
+            }
+        }
+
+            // Insert board-item links in grouped queries (one existence check per board).
+            if ( ! empty( $board_item_links ) ) {
+                $board_items_table = $wpdb->prefix . 'n88_board_items';
+                foreach ( $board_item_links as $board_id => $item_ids_for_board ) {
+                    $item_ids_for_board = array_values( array_unique( array_map( 'absint', $item_ids_for_board ) ) );
+                    if ( empty( $item_ids_for_board ) ) {
+                        continue;
+                    }
+                    $placeholders = implode( ',', array_fill( 0, count( $item_ids_for_board ), '%d' ) );
+                    $existing_sql = $wpdb->prepare(
+                        "SELECT item_id FROM {$board_items_table} WHERE board_id = %d AND removed_at IS NULL AND item_id IN ({$placeholders})",
+                        array_merge( array( (int) $board_id ), $item_ids_for_board )
+                    );
+                    $existing_item_ids = $wpdb->get_col( $existing_sql );
+                    $existing_lookup = array_fill_keys( array_map( 'intval', (array) $existing_item_ids ), true );
+                    $missing_ids = array_values(
+                        array_filter(
+                            $item_ids_for_board,
+                            function( $candidate_id ) use ( $existing_lookup ) {
+                                return empty( $existing_lookup[ (int) $candidate_id ] );
+                            }
+                        )
+                    );
+                    if ( empty( $missing_ids ) ) {
+                        continue;
+                    }
+                    $value_rows = array();
+                    $value_args = array();
+                    $now = current_time( 'mysql' );
+                    foreach ( $missing_ids as $missing_item_id ) {
+                        $value_rows[] = '( %d, %d, %d, %s )';
+                        $value_args[] = (int) $board_id;
+                        $value_args[] = (int) $missing_item_id;
+                        $value_args[] = (int) $user_id;
+                        $value_args[] = $now;
+                    }
+                    $insert_sql = "INSERT INTO {$board_items_table} (board_id, item_id, added_by_user_id, added_at) VALUES " . implode( ', ', $value_rows );
+                    $prepared_insert = $wpdb->prepare( $insert_sql, $value_args );
+                    $insert_ok = $wpdb->query( $prepared_insert );
+                    if ( false === $insert_ok ) {
+                        throw new Exception( 'Failed to attach created items to board #' . $board_id . '.' );
+                    }
+                }
+            }
+
+            $wpdb->query( 'COMMIT' );
+        } catch ( Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            wp_send_json_error( array( 'message' => $e->getMessage() ), 500 );
+        }
+
+        wp_send_json_success(
+            array(
+                'item_ids' => $created_item_ids,
+                'item_id'  => ! empty( $created_item_ids ) ? $created_item_ids[0] : 0,
+                'count'    => count( $created_item_ids ),
+                'titles'   => $created_titles,
+                'message'  => count( $created_item_ids ) . ' item(s) created successfully.',
+            )
+        );
     }
 
     /**

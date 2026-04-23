@@ -17,6 +17,12 @@ const useBoardStore = window.N88StudioOS?.useBoardStore || (() => {
     throw new Error('useBoardStore not found');
 });
 
+const itemTimelineCache = {};
+const itemMessagesCache = {};
+const paymentReceiptsCache = {};
+const boardProjectsCache = {};
+const projectRoomsCache = {};
+
 /**
  * Normalize dimensions to cm
  */
@@ -2266,6 +2272,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [itemState, setItemState] = React.useState(initialItemState);
     const [loadedSections, setLoadedSections] = React.useState({ summary: false, bids: false, workflow: false });
     const itemStateRequestRef = React.useRef({});
+    const itemStateCacheRef = React.useRef({});
     
     // Payment Instructions Modal State
     const [showPaymentInstructions, setShowPaymentInstructions] = React.useState(false);
@@ -2399,6 +2406,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [selectedKeywords, setSelectedKeywords] = React.useState([]);
     const [prototypeNote, setPrototypeNote] = React.useState('');
     const [availableKeywords, setAvailableKeywords] = React.useState([]);
+    const [hasRequestedCategoryKeywords, setHasRequestedCategoryKeywords] = React.useState(false);
     const [isLoadingKeywords, setIsLoadingKeywords] = React.useState(false);
     const [isSubmittingCadPrototype, setIsSubmittingCadPrototype] = React.useState(false);
     const [cadPrototypeError, setCadPrototypeError] = React.useState('');
@@ -2535,14 +2543,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
 
     React.useEffect(() => {
         if (!isOpen) return;
+        itemStateRequestRef.current = {};
+        const cachedEntry = itemId ? itemStateCacheRef.current[itemId] : null;
+        if (cachedEntry && cachedEntry.itemState) {
+            setItemState(cachedEntry.itemState);
+            setLoadedSections(cachedEntry.loadedSections || { summary: false, bids: false, workflow: false });
+            return;
+        }
         setItemState(initialItemState);
         setLoadedSections({ summary: false, bids: false, workflow: false });
-        itemStateRequestRef.current = {};
     }, [isOpen, itemId, initialItemState]);
     
     // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Review and Message so the tab effect can auto-expand it.
     React.useEffect(() => {
         if (isOpen && itemId && itemId > 0) {
+            const cachedSummaryLoaded = !!itemStateCacheRef.current[itemId]?.loadedSections?.summary;
             const hasActionRequired = !!(
                 item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 ||
                 item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1
@@ -2550,9 +2565,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             if (!hasActionRequired) {
                 setShowDesignerMessageForm(false); // Collapse when not Action Required (CAD-pending is only known after fetch)
             }
-            fetchItemState('summary');
+            if (!loadedSections.summary && !cachedSummaryLoaded) {
+                fetchItemState('summary');
+            }
         }
-    }, [isOpen, itemId, item?.action_required, item?.has_unread_operator_messages]);
+    }, [isOpen, itemId, item?.action_required, item?.has_unread_operator_messages, loadedSections.summary, fetchItemState]);
     
     // Auto-expand "Payment Confirmed" / "View Prototype Videos" when supplier has submitted videos
     React.useEffect(() => {
@@ -2607,52 +2624,67 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 const summaryLoaded = !!sectionFlags.summary || section === 'summary' || section === 'bids' || section === 'workflow';
                 const bidsLoaded = !!sectionFlags.bids || section === 'bids';
                 const workflowLoaded = !!sectionFlags.workflow || section === 'workflow';
+                let nextLoadedSections = null;
+                let nextItemState = null;
 
-                setLoadedSections((prev) => ({
-                    summary: prev.summary || summaryLoaded,
-                    bids: prev.bids || bidsLoaded,
-                    workflow: prev.workflow || workflowLoaded,
-                }));
+                setLoadedSections((prev) => {
+                    nextLoadedSections = {
+                        summary: prev.summary || summaryLoaded,
+                        bids: prev.bids || bidsLoaded,
+                        workflow: prev.workflow || workflowLoaded,
+                    };
+                    return nextLoadedSections;
+                });
 
-                setItemState((prev) => ({
-                    ...prev,
-                    has_rfq: data.data.has_rfq || false,
-                    has_bids: data.data.has_bids || false,
-                    has_awarded_bid: !!data.data.has_awarded_bid,
-                    bids: bidsLoaded ? (data.data.bids || []) : prev.bids,
-                    rfq_revision_current: workflowLoaded ? (data.data.rfq_revision_current || null) : prev.rfq_revision_current,
-                    revision_changed: workflowLoaded ? (data.data.revision_changed || false) : prev.revision_changed,
-                    has_unread_operator_messages: data.data.has_unread_operator_messages || false,
-                    unread_operator_messages: data.data.unread_operator_messages || 0,
-                    has_prototype_payment: data.data.has_prototype_payment || false,
-                    prototype_payment_id: data.data.prototype_payment_id || null,
-                    prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
-                    prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
-                    prototype_payment_status: data.data.prototype_payment_status || null,
-                    prototype_payment_total_due: data.data.prototype_payment_total_due || null,
-                    cad_status: data.data.cad_status || null,
-                    cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
-                    cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
-                    cad_approved_at: data.data.cad_approved_at || null,
-                    cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
-                    cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
-                    cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
-                    prototype_status: data.data.prototype_status || null,
-                    prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
-                    prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
-                    prototype_submission: workflowLoaded ? (data.data.prototype_submission || null) : prev.prototype_submission,
-                    direction_keyword_ids: workflowLoaded ? (data.data.direction_keyword_ids || null) : prev.direction_keyword_ids,
-                    direction_keyword_names: workflowLoaded ? (data.data.direction_keyword_names || null) : prev.direction_keyword_names,
-                    workflow_milestones: workflowLoaded ? (data.data.workflow_milestones || null) : prev.workflow_milestones,
-                    deposit_status: data.data.deposit_status || '',
-                    deposit_amount: data.data.deposit_amount != null ? data.data.deposit_amount : null,
-                    deposit_calculated_at: data.data.deposit_calculated_at || null,
-                    deposit_received_at: data.data.deposit_received_at || null,
-                    deposit_receipt_url: data.data.deposit_receipt_url || '',
-                    deposit_sent_note: data.data.deposit_sent_note || '',
-                    deposit_sent_at: data.data.deposit_sent_at || null,
-                    loading: section === 'summary' ? false : prev.loading,
-                }));
+                setItemState((prev) => {
+                    nextItemState = {
+                        ...prev,
+                        has_rfq: data.data.has_rfq || false,
+                        has_bids: data.data.has_bids || false,
+                        has_awarded_bid: !!data.data.has_awarded_bid,
+                        bids: bidsLoaded ? (data.data.bids || []) : prev.bids,
+                        rfq_revision_current: workflowLoaded ? (data.data.rfq_revision_current || null) : prev.rfq_revision_current,
+                        revision_changed: workflowLoaded ? (data.data.revision_changed || false) : prev.revision_changed,
+                        has_unread_operator_messages: data.data.has_unread_operator_messages || false,
+                        unread_operator_messages: data.data.unread_operator_messages || 0,
+                        has_prototype_payment: data.data.has_prototype_payment || false,
+                        prototype_payment_id: data.data.prototype_payment_id || null,
+                        prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
+                        prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
+                        prototype_payment_status: data.data.prototype_payment_status || null,
+                        prototype_payment_total_due: data.data.prototype_payment_total_due || null,
+                        cad_status: data.data.cad_status || null,
+                        cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
+                        cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
+                        cad_approved_at: data.data.cad_approved_at || null,
+                        cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
+                        cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
+                        cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
+                        prototype_status: data.data.prototype_status || null,
+                        prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
+                        prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
+                        prototype_submission: workflowLoaded ? (data.data.prototype_submission || null) : prev.prototype_submission,
+                        direction_keyword_ids: workflowLoaded ? (data.data.direction_keyword_ids || null) : prev.direction_keyword_ids,
+                        direction_keyword_names: workflowLoaded ? (data.data.direction_keyword_names || null) : prev.direction_keyword_names,
+                        workflow_milestones: workflowLoaded ? (data.data.workflow_milestones || null) : prev.workflow_milestones,
+                        deposit_status: data.data.deposit_status || '',
+                        deposit_amount: data.data.deposit_amount != null ? data.data.deposit_amount : null,
+                        deposit_calculated_at: data.data.deposit_calculated_at || null,
+                        deposit_received_at: data.data.deposit_received_at || null,
+                        deposit_receipt_url: data.data.deposit_receipt_url || '',
+                        deposit_sent_note: data.data.deposit_sent_note || '',
+                        deposit_sent_at: data.data.deposit_sent_at || null,
+                        loading: section === 'summary' ? false : prev.loading,
+                    };
+                    return nextItemState;
+                });
+
+                if (itemId && nextItemState && nextLoadedSections) {
+                    itemStateCacheRef.current[itemId] = {
+                        itemState: nextItemState,
+                        loadedSections: nextLoadedSections,
+                    };
+                }
                 // Update board card so status progresses (CAD Requested, Awaiting payment, Payment received, Review CAD, Pending Prototype Video, etc.)
                 const cardUpdates = {};
                 if (data.data.cad_status !== undefined && data.data.cad_status !== null) cardUpdates.cad_status = data.data.cad_status;
@@ -2689,22 +2721,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
 
     React.useEffect(() => {
         if (!isOpen || !itemId || itemId <= 0) return;
-        if (activeTab === 'bids' && itemState.has_bids && !loadedSections.bids) {
+        const cachedBidsLoaded = !!itemStateCacheRef.current[itemId]?.loadedSections?.bids;
+        if (activeTab === 'bids' && itemState.has_bids && !loadedSections.bids && !cachedBidsLoaded) {
             fetchItemState('bids');
         }
     }, [isOpen, itemId, activeTab, itemState.has_bids, loadedSections.bids, fetchItemState]);
 
     React.useEffect(() => {
         if (!isOpen || !itemId || itemId <= 0) return;
-        if (activeTab === 'workflow' && !loadedSections.workflow) {
+        const cachedWorkflowLoaded = !!itemStateCacheRef.current[itemId]?.loadedSections?.workflow;
+        if (activeTab === 'workflow' && !loadedSections.workflow && !cachedWorkflowLoaded) {
             fetchItemState('workflow');
         }
     }, [isOpen, itemId, activeTab, loadedSections.workflow, fetchItemState]);
 
     // Commit 3.A.1: Fetch item timeline when Workflow tab is selected
-    const fetchTimeline = React.useCallback(async () => {
+    const fetchTimeline = React.useCallback(async (forceRefresh = false) => {
         const id = getItemId();
         if (!id) return;
+        if (!forceRefresh && itemTimelineCache[id]) {
+            setTimelineData(itemTimelineCache[id]);
+            setTimelineError(null);
+            return;
+        }
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
         // Prefer timeline/RFQ state nonce so designer and admin both get timeline + evidence_by_step
         let nonce = '';
@@ -2726,14 +2765,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             const response = await fetch(ajaxUrl, { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success && data.data && data.data.timeline) {
-                setTimelineData({
+                const nextTimelineData = {
                     ...data.data.timeline,
                     evidence_by_step: data.data.evidence_by_step || {},
                     can_add_evidence_comment: !!data.data.can_add_evidence_comment,
                     steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {},
                     step_456_videos: data.data.step_456_videos || { 4: [], 5: [], 6: [] },
                     step_456_comments: data.data.step_456_comments || { 4: [], 5: [], 6: [] },
-                });
+                };
+                itemTimelineCache[id] = nextTimelineData;
+                setTimelineData(nextTimelineData);
                 setTimelineError(null);
             } else {
                 setTimelineData(null);
@@ -2763,59 +2804,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     
     // Load keywords when bid is selected (Commit 2.3.9.1B)
     React.useEffect(() => {
-        if (!showCadPrototypeForm || !selectedBidId || !category) {
+        if (!showCadPrototypeForm || !hasRequestedCategoryKeywords || !selectedBidId || !category) {
             return;
         }
 
-        // Get category_id from category name - we'll need to fetch it
-        // For now, try to get it from item data or fetch categories
         const loadKeywordsForCategory = async () => {
             setIsLoadingKeywords(true);
             setAvailableKeywords([]);
 
             try {
-                // First, try to get category_id - we'll need to fetch categories or use a mapping
-                // For now, let's create an endpoint that accepts category name, or fetch category_id
-                // Let me fetch categories first to get the ID
-                const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                // Get nonce for n88_get_keywords action
-                let nonce = '';
-                if (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keywords) {
-                    nonce = window.n88BoardNonce.nonce_get_keywords;
-                } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                    nonce = window.n88BoardData.nonce;
-                } else if (window.n88 && window.n88.nonce) {
-                    nonce = window.n88.nonce;
-                } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
-                    nonce = window.n88BoardNonce.nonce;
-                }
-                
-                if (!nonce) {
-                    console.error('Nonce not found for n88_get_keywords_by_category');
-                    setAvailableKeywords([]);
-                    setIsLoadingKeywords(false);
-                    return;
-                }
-                
-                // Use category name to fetch keywords (endpoint now accepts category_name)
-                const formData = new FormData();
-                formData.append('action', 'n88_get_keywords_by_category');
-                formData.append('category_name', category);
-                formData.append('_ajax_nonce', nonce);
-
-                const response = await fetch(ajaxUrl, {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                const data = await response.json();
-
-                if (data.success && data.data && data.data.keywords) {
-                    setAvailableKeywords(data.data.keywords);
-                } else {
-                    console.error('Failed to load keywords:', data.message);
-                    setAvailableKeywords([]);
-                }
+                const keywordLoader = typeof window !== 'undefined' ? window.n88LoadCategoryKeywords : null;
+                const keywords = typeof keywordLoader === 'function'
+                    ? await keywordLoader(category)
+                    : [];
+                setAvailableKeywords(Array.isArray(keywords) ? keywords : []);
             } catch (error) {
                 console.error('Error loading keywords:', error);
                 setAvailableKeywords([]);
@@ -2825,11 +2827,15 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         };
 
         loadKeywordsForCategory();
-    }, [showCadPrototypeForm, selectedBidId, category]);
+    }, [showCadPrototypeForm, hasRequestedCategoryKeywords, selectedBidId, category]);
     
     // Commit 2.3.9.1C-a: Load Designer Messages
-    const loadDesignerMessages = React.useCallback(async () => {
+    const loadDesignerMessages = React.useCallback(async (forceRefresh = false) => {
         if (!itemId) return;
+        if (!forceRefresh && itemMessagesCache[itemId]) {
+            setDesignerMessages(itemMessagesCache[itemId]);
+            return;
+        }
         
         setIsLoadingDesignerMessages(true);
         try {
@@ -2857,8 +2863,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             
             if (data.success && data.data && data.data.messages) {
                 setDesignerMessages(data.data.messages);
+                itemMessagesCache[itemId] = data.data.messages;
             } else {
                 setDesignerMessages([]);
+                itemMessagesCache[itemId] = [];
             }
         } catch (error) {
             console.error('Error loading designer messages:', error);
@@ -2906,9 +2914,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             if (data.success) {
                 setDesignerMessageText('');
                 setDesignerMessageCategory('');
-                await loadDesignerMessages();
-                // Refresh item state to update unread operator messages count
-                await fetchItemState();
+                loadDesignerMessages(true);
+                window.setTimeout(() => { if (typeof fetchItemState === 'function') fetchItemState(); }, 0);
             } else {
                 alert('Error: ' + (data.data?.message || 'Failed to send message. Please try again.'));
             }
@@ -2918,7 +2925,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         } finally {
             setIsSendingDesignerMessage(false);
         }
-    }, [itemId, designerMessageText, designerMessageCategory, loadDesignerMessages]);
+    }, [itemId, designerMessageText, designerMessageCategory, loadDesignerMessages, fetchItemState]);
 
     // Commit 2.3.9.2A: Designer CAD actions (Request Revision / Approve CAD)
     const requestCadRevision = React.useCallback(async (files = []) => {
@@ -2955,7 +2962,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             if (data.success) {
                 setShowRevisionUpload(false);
                 setRevisionFiles([]);
-                await loadDesignerMessages();
+                await loadDesignerMessages(true);
                 skipNextTabSwitchFromCadActionRef.current = true; // stay on Workflow Step 2 after revision request
                 setActiveTab('workflow');
                 setSelectedStepIndex(1); // Step 2
@@ -2994,7 +3001,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             const response = await fetch(ajaxUrl, { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) {
-                await loadDesignerMessages();
+                await loadDesignerMessages(true);
                 skipNextTabSwitchFromCadActionRef.current = true; // stay on Workflow Step 2 after approve CAD
                 setActiveTab('workflow');
                 setSelectedStepIndex(1); // Step 2
@@ -3013,9 +3020,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     }, [itemId, item.id, itemState.prototype_payment_id, loadDesignerMessages, fetchItemState, updateLayout]);
 
     // Fetch payment receipts when Payment Instructions modal opens
-    const fetchPaymentReceipts = React.useCallback(async () => {
+    const fetchPaymentReceipts = React.useCallback(async (forceRefresh = false) => {
         const pid = itemState.prototype_payment_id;
         if (!pid) return;
+        if (!forceRefresh && paymentReceiptsCache[pid]) {
+            setPaymentReceipts(paymentReceiptsCache[pid]);
+            return;
+        }
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
         const nonce = window.n88BoardNonce?.nonce_get_payment_receipts || '';
         if (!nonce) return;
@@ -3027,8 +3038,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             fd.append('_ajax_nonce', nonce);
             const r = await fetch(ajaxUrl, { method: 'POST', body: fd });
             const d = await r.json();
-            if (d.success && Array.isArray(d.data.receipts)) setPaymentReceipts(d.data.receipts);
-            else setPaymentReceipts([]);
+            if (d.success && Array.isArray(d.data.receipts)) {
+                setPaymentReceipts(d.data.receipts);
+                paymentReceiptsCache[pid] = d.data.receipts;
+            } else {
+                setPaymentReceipts([]);
+                paymentReceiptsCache[pid] = [];
+            }
         } catch (e) {
             setPaymentReceipts([]);
         } finally {
@@ -3039,7 +3055,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     React.useEffect(() => {
         if (showPaymentInstructions && itemState.prototype_payment_id) fetchPaymentReceipts();
         else if (!showPaymentInstructions) {
-            setPaymentReceipts([]);
             setPaymentReceiptSelectedFile(null);
             setPaymentReceiptMessage('');
             setShowResubmitReceiptForm(false);
@@ -3059,6 +3074,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     React.useEffect(() => {
         if (!isOpen || !projectMenuOpen) return;
         if (!boardId || Number(boardId) <= 0) return;
+        const boardCacheKey = String(boardId);
+        if (boardProjectsCache[boardCacheKey]) {
+            setBoardProjects(boardProjectsCache[boardCacheKey]);
+            return;
+        }
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
         const nonce = window.n88BoardNonce?.nonce || window.n88BoardData?.nonce || window.n88?.nonce || '';
         if (!nonce) return;
@@ -3069,9 +3089,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         })
             .then((r) => r.json())
             .then((d) => {
-                if (d && d.success && Array.isArray(d.data?.projects)) setBoardProjects(d.data.projects);
-                else if (d && d.success && Array.isArray(d.projects)) setBoardProjects(d.projects);
-                else setBoardProjects([]);
+                if (d && d.success && Array.isArray(d.data?.projects)) {
+                    setBoardProjects(d.data.projects);
+                    boardProjectsCache[boardCacheKey] = d.data.projects;
+                } else if (d && d.success && Array.isArray(d.projects)) {
+                    setBoardProjects(d.projects);
+                    boardProjectsCache[boardCacheKey] = d.projects;
+                } else {
+                    setBoardProjects([]);
+                    boardProjectsCache[boardCacheKey] = [];
+                }
             })
             .catch(() => setBoardProjects([]))
             .finally(() => setProjectsLoading(false));
@@ -3083,6 +3110,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         if (!selectedProjectId || selectedProjectId <= 0) {
             setProjectRooms([]);
             setRoomsLoading(false);
+            return;
+        }
+        const roomsCacheKey = String(selectedProjectId);
+        if (projectRoomsCache[roomsCacheKey]) {
+            setProjectRooms(projectRoomsCache[roomsCacheKey]);
             return;
         }
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
@@ -3103,6 +3135,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 const list = Array.isArray(roomsRaw)
                     ? roomsRaw.map((r) => ({ id: r.id ?? r.room_id, name: r.name ?? r.room_name ?? String(r.id ?? r.room_id ?? '') }))
                     : [];
+                projectRoomsCache[roomsCacheKey] = list;
                 if (roomsFetchProjectIdRef.current === pid) setProjectRooms(list);
             })
             .catch(() => { if (roomsFetchProjectIdRef.current === pid) setProjectRooms([]); })
@@ -3254,7 +3287,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setPaymentReceiptMessage('');
                 setShowResubmitReceiptForm(false);
                 setShowPaymentInstructions(false);
-                await fetchPaymentReceipts();
+                await fetchPaymentReceipts(true);
                 if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
                 // Update item card status to "Awaiting payment confirmation"
                 updateLayout(item.id, { has_payment_receipt_uploaded: true });
@@ -3301,7 +3334,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setDepositProofMessage('');
                 if (depositProofInputRef.current) depositProofInputRef.current.value = '';
                 if (typeof fetchItemState === 'function') fetchItemState();
-                if (typeof fetchTimeline === 'function') fetchTimeline();
+                if (typeof fetchTimeline === 'function') fetchTimeline(true);
                 if (typeof updateLayout === 'function') updateLayout(item.id, { deposit_status: 'sent_by_designer' });
             } else {
                 alert(d.data?.message || d.message || 'Failed to submit.');
@@ -7034,6 +7067,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             if (itemState.bids && itemState.bids.length === 1) {
                                                                 setSelectedBidId(itemState.bids[0].bid_id);
                                                             }
+                                                            setHasRequestedCategoryKeywords(true);
                                                             setShowCadPrototypeForm(true);
                                                             setCadPrototypeError('');
                                                             setCadPrototypeSuccess(false);
@@ -7074,6 +7108,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         <button
                                                             onClick={() => {
                                                                 setShowCadPrototypeForm(false);
+                                                                setHasRequestedCategoryKeywords(false);
                                                                 setSelectedBidId(null);
                                                                 setSelectedKeywords([]);
                                                                 setPrototypeNote('');
@@ -7147,6 +7182,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     value={selectedBidId || ''}
                                                                     onChange={(e) => {
                                                                         setSelectedBidId(parseInt(e.target.value));
+                                                                        setHasRequestedCategoryKeywords(true);
                                                                         setSelectedKeywords([]);
                                                                         setAvailableKeywords([]);
                                                                     }}

@@ -10,6 +10,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class N88_RFQ_Admin {
 
+    /**
+     * CAD/Prototype workflow feature toggle.
+     * Disabled by default for performance-focused deployments.
+     *
+     * @return bool
+     */
+    private function is_cad_prototype_enabled() {
+        return (bool) apply_filters( 'n88_enable_cad_prototype_flow', false );
+    }
+
     public function __construct() {
         add_action( 'admin_menu', array( $this, 'register_menus' ) );
         add_action( 'admin_menu', array( $this, 'modify_board_menu_url' ), 999 ); // Run after menus are registered
@@ -348,6 +358,18 @@ class N88_RFQ_Admin {
 
         $sample_status = isset( $validation['sample_status'] ) ? sanitize_key( $validation['sample_status'] ) : '';
         $supplier_status = isset( $supplier['status'] ) ? sanitize_key( $supplier['status'] ) : '';
+        $has_approved_review_data = ! empty( $review['approved_at'] )
+            || ( isset( $review['approved_material_codes'] ) && is_array( $review['approved_material_codes'] ) && ! empty( $review['approved_material_codes'] ) )
+            || ( isset( $review['approved_finish_codes'] ) && is_array( $review['approved_finish_codes'] ) && ! empty( $review['approved_finish_codes'] ) )
+            || ( isset( $review['approved_sample_image_ids'] ) && is_array( $review['approved_sample_image_ids'] ) && ! empty( $review['approved_sample_image_ids'] ) )
+            || ! empty( $review['notes'] )
+            || ( isset( $item_meta['approved_material_codes'] ) && is_array( $item_meta['approved_material_codes'] ) && ! empty( $item_meta['approved_material_codes'] ) )
+            || ( isset( $item_meta['approved_finish_codes'] ) && is_array( $item_meta['approved_finish_codes'] ) && ! empty( $item_meta['approved_finish_codes'] ) )
+            || ( isset( $item_meta['approved_sample_images'] ) && is_array( $item_meta['approved_sample_images'] ) && ! empty( $item_meta['approved_sample_images'] ) )
+            || ! empty( $item_meta['validation_notes'] );
+        if ( $has_approved_review_data ) {
+            $sample_status = 'samples_approved';
+        }
         if ( ( ! $sample_status || 'sample_requested' === $sample_status ) && $supplier_status ) {
             $sample_status = $supplier_status;
         }
@@ -402,6 +424,24 @@ class N88_RFQ_Admin {
         $com_completed     = ! $com_applicable || in_array( $com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
         $deposit_status    = isset( $commitment['deposit_status'] ) ? sanitize_key( $commitment['deposit_status'] ) : '';
         $deposit_confirmed = in_array( $deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
+
+        // Commit 3.D.8 (foundation): execution paywall state before production.
+        $execution = isset( $commitment['execution_activation'] ) && is_array( $commitment['execution_activation'] )
+            ? $commitment['execution_activation']
+            : array();
+        $execution_payment_status = isset( $execution['payment_status'] ) ? sanitize_key( $execution['payment_status'] ) : '';
+        if ( ! in_array( $execution_payment_status, array( 'not_started', 'pending', 'pending_verification', 'confirmed' ), true ) ) {
+            $execution_payment_status = 'not_started';
+        }
+        $execution_awarded_item_count = isset( $execution['awarded_item_count'] ) ? absint( $execution['awarded_item_count'] ) : 0;
+        if ( $execution_awarded_item_count <= 0 && $has_awarded_bid ) {
+            $execution_awarded_item_count = 1;
+        }
+        $execution_fee_per_item = 750;
+        $execution_fee_total = $execution_awarded_item_count * $execution_fee_per_item;
+        $execution_locked = $execution_awarded_item_count > 0 && 'confirmed' !== $execution_payment_status;
+
+        $production_started = ! empty( $commitment['production_started_at'] ) || in_array( isset( $commitment['production_status'] ) ? sanitize_key( $commitment['production_status'] ) : '', array( 'in_production', 'started' ), true );
         $readiness         = array(
             'validation_complete' => $samples_approved,
             'awaiting_po'         => $has_awarded_bid && $samples_approved && ! $po_uploaded,
@@ -413,7 +453,13 @@ class N88_RFQ_Admin {
         $card_status_text  = '';
         $card_status_color = '#f4b400';
 
-        if ( $can_commit ) {
+        if ( $can_commit && $execution_locked ) {
+            $card_status_text  = 'Activate Production';
+            $card_status_color = '#f57c00';
+        } elseif ( $can_commit && $production_started ) {
+            $card_status_text  = 'In Production';
+            $card_status_color = '#2e7d32';
+        } elseif ( $can_commit ) {
             $card_status_text  = 'Ready for Production';
             $card_status_color = '#2e7d32';
         } elseif ( $readiness['awaiting_deposit'] ) {
@@ -505,9 +551,28 @@ class N88_RFQ_Admin {
                 'deposit_status'        => $deposit_status,
                 'deposit_receipt_files' => $this->get_item_validation_attachment_entries( isset( $commitment['deposit_receipt_file_ids'] ) ? $commitment['deposit_receipt_file_ids'] : array() ),
                 'deposit_confirmed_at'  => isset( $commitment['deposit_confirmed_at'] ) ? $commitment['deposit_confirmed_at'] : null,
+                'production_status'     => isset( $commitment['production_status'] ) ? sanitize_key( $commitment['production_status'] ) : '',
+                'production_started_at' => isset( $commitment['production_started_at'] ) ? $commitment['production_started_at'] : null,
+                'execution_activation'  => array(
+                    'enabled'               => $execution_awarded_item_count > 0,
+                    'fee_per_awarded_item'  => $execution_fee_per_item,
+                    'awarded_item_count'    => $execution_awarded_item_count,
+                    'fee_total'             => $execution_fee_total,
+                    'payment_status'        => $execution_payment_status,
+                    'payment_method'        => isset( $execution['payment_method'] ) ? sanitize_key( $execution['payment_method'] ) : '',
+                    'reference_id'          => isset( $execution['reference_id'] ) ? sanitize_text_field( $execution['reference_id'] ) : '',
+                    'payment_submitted_at'  => isset( $execution['payment_submitted_at'] ) ? $execution['payment_submitted_at'] : null,
+                    'payment_confirmed_at'  => isset( $execution['payment_confirmed_at'] ) ? $execution['payment_confirmed_at'] : null,
+                    'locked'                => $execution_locked,
+                ),
             ),
             'readiness_flags'         => $readiness,
             'can_commit'              => $can_commit,
+            'production_started'      => $production_started,
+            'execution_locked'        => $execution_locked,
+            'execution_payment_status' => $execution_payment_status,
+            'execution_awarded_item_count' => $execution_awarded_item_count,
+            'execution_fee_total'     => $execution_fee_total,
             'approved_material_codes' => isset( $item_meta['approved_material_codes'] ) && is_array( $item_meta['approved_material_codes'] ) ? array_values( $item_meta['approved_material_codes'] ) : array(),
             'approved_finish_codes'   => isset( $item_meta['approved_finish_codes'] ) && is_array( $item_meta['approved_finish_codes'] ) ? array_values( $item_meta['approved_finish_codes'] ) : array(),
             'approved_sample_images'  => $this->get_item_validation_attachment_entries( isset( $item_meta['approved_sample_images'] ) ? $item_meta['approved_sample_images'] : array() ),
@@ -4577,7 +4642,7 @@ class N88_RFQ_Admin {
                         $cad_current_version = null;
                         
                         // Check if prototype payments table exists
-                        $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+                        $prototype_payments_table_exists = $this->is_cad_prototype_enabled() && ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table );
                         if ( $prototype_payments_table_exists ) {
                             $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
                             $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
@@ -4716,7 +4781,7 @@ class N88_RFQ_Admin {
                             }
                         }
                         
-                        $items[] = array(
+                        $item_payload = array(
                             'id' => $item_id_string,
                             'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
                             'y' => isset( $layout_item['y'] ) ? floatval( $layout_item['y'] ) : 50,
@@ -4774,18 +4839,10 @@ class N88_RFQ_Admin {
                 'has_unread_supplier_messages' => $has_unread_supplier_messages,
                 'unread_supplier_messages' => $unread_supplier_messages,
                             'unread_operator_messages' => $unread_operator_messages,
-                            'has_prototype_video_submitted' => $has_prototype_video_submitted,
-                            'prototype_status' => $prototype_status,
                             'action_required' => $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ) || ( $is_operator && isset( $item_meta['deposit_status'] ) && $item_meta['deposit_status'] === 'sent_by_designer' ),
-                            // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved / Review CAD label
-                            'has_prototype_payment' => $has_prototype_payment,
                             // Commit 3.B.5.A1: Step 4–6 status (supplier/operator video, designer comment, step started/completed)
                             'step456_status_text' => $step456_status_text,
                             'step456_status_color' => $step456_status_color,
-                            'prototype_payment_status' => $prototype_payment_status,
-                            'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
-                            'cad_status' => $cad_status,
-                            'cad_current_version' => $cad_current_version,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                             // Project/room for Add to Project button label
@@ -4794,6 +4851,16 @@ class N88_RFQ_Admin {
                             'project_name' => ( $has_project_room && $projects_table_exists && ! empty( $board_item->project_name ) ) ? sanitize_text_field( $board_item->project_name ) : null,
                             'room_name' => ( $has_project_room && $rooms_table_exists && ! empty( $board_item->room_name ) ) ? sanitize_text_field( $board_item->room_name ) : null,
                         );
+                        if ( $this->is_cad_prototype_enabled() ) {
+                            $item_payload['has_prototype_video_submitted'] = $has_prototype_video_submitted;
+                            $item_payload['prototype_status'] = $prototype_status;
+                            $item_payload['has_prototype_payment'] = $has_prototype_payment;
+                            $item_payload['prototype_payment_status'] = $prototype_payment_status;
+                            $item_payload['has_payment_receipt_uploaded'] = $has_payment_receipt_uploaded;
+                            $item_payload['cad_status'] = $cad_status;
+                            $item_payload['cad_current_version'] = $cad_current_version;
+                        }
+                        $items[] = $item_payload;
                     } else {
                         // New item - no layout data yet, use defaults from item meta_json
                         $default_size = 'L';
@@ -5012,7 +5079,7 @@ class N88_RFQ_Admin {
                         $has_payment_receipt_uploaded = false;
                         
                         // Check if prototype payments table exists
-                        $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+                        $prototype_payments_table_exists = $this->is_cad_prototype_enabled() && ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table );
                         if ( $prototype_payments_table_exists ) {
                             $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
                             $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
@@ -5143,7 +5210,7 @@ class N88_RFQ_Admin {
                         $item_x = $start_x + ( $col * ( $item_width_for_spacing + $item_spacing ) );
                         $item_y = $start_y + ( $row * ( $item_height_for_spacing + $item_spacing ) );
                         
-                        $items[] = array(
+                        $item_payload = array(
                             'id' => $item_id_string,
                             'x' => $item_x,
                             'y' => $item_y,
@@ -5198,17 +5265,9 @@ class N88_RFQ_Admin {
                             // Action Required: include (operator) review payment proof
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
-                            'has_prototype_video_submitted' => $has_prototype_video_submitted,
-                            'prototype_status' => $prototype_status,
                             'action_required' => $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ) || ( $is_operator && isset( $item_meta['deposit_status'] ) && $item_meta['deposit_status'] === 'sent_by_designer' ),
-                            // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved label
-                            'has_prototype_payment' => $has_prototype_payment,
-                            'prototype_payment_status' => $prototype_payment_status,
-                            'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
-                            'cad_status' => $cad_status,
                             'step456_status_text' => $step456_status_text_else,
                             'step456_status_color' => $step456_status_color_else,
-                            'cad_current_version' => $cad_current_version,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                             // Project/room for Add to Project button label
@@ -5217,6 +5276,16 @@ class N88_RFQ_Admin {
                             'project_name' => ( $has_project_room && $projects_table_exists && ! empty( $board_item->project_name ) ) ? sanitize_text_field( $board_item->project_name ) : null,
                             'room_name' => ( $has_project_room && $rooms_table_exists && ! empty( $board_item->room_name ) ) ? sanitize_text_field( $board_item->room_name ) : null,
                         );
+                        if ( $this->is_cad_prototype_enabled() ) {
+                            $item_payload['has_prototype_video_submitted'] = $has_prototype_video_submitted;
+                            $item_payload['prototype_status'] = $prototype_status;
+                            $item_payload['has_prototype_payment'] = $has_prototype_payment;
+                            $item_payload['prototype_payment_status'] = $prototype_payment_status;
+                            $item_payload['has_payment_receipt_uploaded'] = $has_payment_receipt_uploaded;
+                            $item_payload['cad_status'] = $cad_status;
+                            $item_payload['cad_current_version'] = $cad_current_version;
+                        }
+                        $items[] = $item_payload;
                         
                         error_log('Item ' . $item_id . ' - New item positioned at (' . $item_x . ', ' . $item_y . ') with size: ' . $default_size);
                         error_log('Item ' . $item_id . ' - Loaded quantity: ' . ( $item_quantity !== null ? $item_quantity : 'null' ) . ', notes: ' . substr( $item_smart_alternatives_note, 0, 50 ) );
@@ -5345,6 +5414,10 @@ class N88_RFQ_Admin {
             'isViewOnly' => $is_view_only, // Commit 2.6.1: View-only flag for team members
             'isOperator' => $is_operator, // So designer messages show "Comment by designer" when operator views
             'isSupplier' => $is_supplier,
+            'isCadPrototypeEnabled' => $this->is_cad_prototype_enabled(),
+            // Same query args used when loading initial board items — keeps status refresh + batch scope aligned when URL omits project_id.
+            'boardProjectId' => isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0,
+            'boardRoomId' => isset( $_GET['room_id'] ) ? absint( $_GET['room_id'] ) : 0,
         ) );
         ?>
         <style>
@@ -5943,6 +6016,10 @@ class N88_RFQ_Admin {
             #n88-add-item-modal .n88-btn-add-item:hover { background: rgba(233,30,140,0.2); }
             #n88-add-item-modal .n88-btn-add-item .spinner.is-active { width: 18px; height: 18px; border-width: 2px; border-color: rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: n88-spin 0.7s linear infinite; }
             @keyframes n88-spin { to { transform: rotate(360deg); } }
+            @keyframes n88PulseDot {
+                0%, 100% { opacity: 0.35; transform: scale(0.8); }
+                50% { opacity: 1; transform: scale(1); }
+            }
             #n88-add-item-modal .n88-result { margin-top: 10px; font-size: 13px; }
             #n88-add-item-modal .n88-result.success { color: #7cba7c; }
             #n88-add-item-modal .n88-result.error { color: #e88; }
@@ -8789,6 +8866,104 @@ class N88_RFQ_Admin {
                     }
                     return { formData: formData, ajaxUrl: ajaxUrl, boardId: boardId, projectId: projectId, roomId: roomId };
                 }
+                function buildItemPayloadForBlock(block) {
+                    if (!block) return null;
+                    var titleEl = block.querySelector('[name="title"]');
+                    var title = titleEl ? titleEl.value.trim() : '';
+                    if (!title) return null;
+                    var boardEl = document.getElementById('n88-modal-item-board');
+                    var boardId = boardEl ? boardEl.value : '';
+                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                    var itemTypeEl = block.querySelector('[name="item_type"]');
+                    var projSel = block.querySelector('[name="project_id"]');
+                    var roomSel = block.querySelector('[name="room_id"]');
+                    var qty = (block.querySelector('[name="quantity"]') || {}).value;
+                    var measurementData = getMeasurementPayloadFromBlock(block);
+                    var deliveryCountrySel = block.querySelector('select[name="delivery_country"]');
+                    var deliveryPostalInp = block.querySelector('input[name="delivery_postal"]');
+                    var preferredDeliveryDateInp = block.querySelector('input[name="preferred_delivery_date"]');
+                    var overallNotesBlock = block.querySelector('textarea[name="rfq_overall_notes"]');
+                    var fabricNoRadio = block.querySelector('input[name^="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="no"]') || block.querySelector('input[name="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="no"]');
+                    var fabricNotesBlock = block.querySelector('textarea[name="rfq_fabric_notes"]');
+                    var chipsWrap = block.querySelector('.n88-invite-chips');
+                    var invitedBlock = [];
+                    if (chipsWrap) {
+                        var chips = chipsWrap.querySelectorAll('span[data-supplier]');
+                        chips.forEach(function(chip) {
+                            var v = (chip.getAttribute('data-supplier') || '').trim();
+                            if (v) invitedBlock.push(v);
+                        });
+                    }
+                    var allowBoxBlock = block.querySelector('.n88-allow-system-invites');
+                    var allowSystemBlock = !!(allowBoxBlock && allowBoxBlock.checked);
+
+                    var files = (block.n88Files && block.n88Files.length > 0) ? block.n88Files : n88ModalSelectedFiles;
+                    var captions = Array.isArray(block.n88Captions) ? block.n88Captions.slice() : [];
+                    if (blocksContainer) {
+                        var firstBlock = blocksContainer.querySelector('.n88-add-item-block');
+                        if (firstBlock && firstBlock === block) {
+                            if ((!files || files.length === 0) && n88ModalSelectedFiles && n88ModalSelectedFiles.length > 0) {
+                                files = n88ModalSelectedFiles;
+                            }
+                            if ((!captions || captions.length === 0) && n88ModalCaptions && n88ModalCaptions.length > 0) {
+                                captions = n88ModalCaptions.slice();
+                            }
+                            if (typeof block.n88PrimaryIndex !== 'number') {
+                                block.n88PrimaryIndex = n88ModalPrimaryIndex;
+                            }
+                        }
+                    }
+
+                    var orderedFiles = [];
+                    var orderedCaptions = [];
+                    if (files && files.length > 0) {
+                        var primaryIndex = typeof block.n88PrimaryIndex === 'number' ? block.n88PrimaryIndex : 0;
+                        if (primaryIndex < 0 || primaryIndex >= files.length) primaryIndex = 0;
+                        for (var i = 0; i < files.length; i++) {
+                            if (i === primaryIndex) continue;
+                            orderedFiles.push(files[i]);
+                            orderedCaptions.push((captions[i] || '').slice(0, 100));
+                        }
+                        orderedFiles.unshift(files[primaryIndex]);
+                        orderedCaptions.unshift((captions[primaryIndex] || '').slice(0, 100));
+                    }
+
+                    return {
+                        ajaxUrl: ajaxUrl,
+                        boardId: boardId,
+                        projectId: projSel ? projSel.value : '',
+                        roomId: roomSel ? roomSel.value : '',
+                        item: {
+                            title: title,
+                            description: (block.querySelector('[name="description"]') || {}).value || '',
+                            item_type: (itemTypeEl && itemTypeEl.value && itemTypeEl.value.trim()) ? itemTypeEl.value : 'OTHER',
+                            status: 'active',
+                            size: (document.getElementById('n88-modal-item-size') || {}).value || 'S',
+                            board_id: boardId || '',
+                            project_id: projSel ? (projSel.value || '') : '',
+                            room_id: roomSel ? (roomSel.value || '') : '',
+                            quantity: qty || '',
+                            measurement_type: measurementData.measurement_type || 'dimensions',
+                            selected_keyword_ids: measurementData.selected_keyword_ids || [],
+                            dims: measurementData.dims || null,
+                            measurement_area: measurementData.measurement_area || '',
+                            measurement_area_unit: measurementData.measurement_area_unit || '',
+                            measurement_length: measurementData.measurement_length || '',
+                            measurement_length_unit: measurementData.measurement_length_unit || '',
+                            custom_specification: measurementData.custom_specification || '',
+                            delivery_country: deliveryCountrySel ? (deliveryCountrySel.value || '') : '',
+                            delivery_postal: deliveryPostalInp ? (deliveryPostalInp.value || '') : '',
+                            preferred_delivery_date: preferredDeliveryDateInp ? (preferredDeliveryDateInp.value || '') : '',
+                            rfq_overall_notes: overallNotesBlock ? (overallNotesBlock.value || '') : '',
+                            rfq_fabric_supplied_flag: (fabricNoRadio && fabricNoRadio.checked) ? 'no' : 'yes',
+                            rfq_fabric_notes: fabricNotesBlock ? (fabricNotesBlock.value || '') : '',
+                            rfq_draft_invited_suppliers: invitedBlock,
+                            rfq_draft_allow_system_invites: allowSystemBlock ? 1 : 0,
+                            image_captions: orderedCaptions
+                        },
+                        orderedFiles: orderedFiles
+                    };
+                }
                 function blockHasSelectedImage(block) {
                     if (!block) return false;
                     var files = (block.n88Files && block.n88Files.length > 0) ? block.n88Files : [];
@@ -9112,7 +9287,7 @@ class N88_RFQ_Admin {
                         var payloads = [];
                         var payloadTitles = [];
                         for (var i = 0; i < activeBlocks.length; i++) {
-                            var b = buildItemFormDataForBlock(activeBlocks[i]);
+                            var b = buildItemPayloadForBlock(activeBlocks[i]);
                             if (b) {
                                 payloads.push(b);
                                 var tEl = activeBlocks[i].querySelector('[name="title"]');
@@ -9149,31 +9324,81 @@ class N88_RFQ_Admin {
                         resultEl.textContent = '';
                         resultEl.className = 'n88-result';
                         var ajaxUrl = payloads[0].ajaxUrl;
-                        var idx = 0;
                         var createdItemIds = [];
-                        function submitNext() {
-                            if (idx >= payloads.length) {
+                        (function submitBatchCreate() {
+                            var batchFormData = new FormData();
+                            batchFormData.append('action', 'n88_create_items_batch');
+                            batchFormData.append('nonce', nonce);
+                            var itemsPayload = [];
+                            var globalFileIndex = 0;
+                            payloads.forEach(function(payloadObj) {
+                                var itemPayload = payloadObj.item || {};
+                                var files = Array.isArray(payloadObj.orderedFiles) ? payloadObj.orderedFiles : [];
+                                var fileIndexes = [];
+                                files.forEach(function(file) {
+                                    batchFormData.append('batch_image_files[]', file);
+                                    fileIndexes.push(globalFileIndex++);
+                                });
+                                itemPayload.image_file_indexes = fileIndexes;
+                                itemsPayload.push(itemPayload);
+                            });
+                            batchFormData.append('items_json', JSON.stringify(itemsPayload));
+                            fetch(ajaxUrl, { method: 'POST', body: batchFormData, credentials: 'same-origin' })
+                                .then(function(r) { return r.json(); })
+                                .then(function(res) {
+                                    if (!res || !res.success) {
+                                        submitBtn.disabled = false;
+                                        if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
+                                        submitBtn.innerHTML = defaultText;
+                                        if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
+                                        resultEl.textContent = 'Error: ' + (res && res.data && res.data.message ? res.data.message : 'Unknown error');
+                                        resultEl.className = 'n88-result error';
+                                        updateDirectRfqButtonVisibility();
+                                        return;
+                                    }
+                                    if (res.data && Array.isArray(res.data.item_ids)) {
+                                        createdItemIds = res.data.item_ids.map(function(id) { return parseInt(id, 10); }).filter(function(id) { return id > 0; });
+                                    } else if (res.data && res.data.item_id) {
+                                        createdItemIds = [parseInt(res.data.item_id, 10)];
+                                    }
+                                    if (!createdItemIds.length) {
+                                        submitBtn.disabled = false;
+                                        if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
+                                        submitBtn.innerHTML = defaultText;
+                                        if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
+                                        resultEl.textContent = 'No item IDs returned from server.';
+                                        resultEl.className = 'n88-result error';
+                                        return;
+                                    }
+                                    submitBtn.disabled = false;
+                                    if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
+                                    submitBtn.innerHTML = defaultText;
+                                    if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
+                                    if (resultEl) {
+                                        resultEl.textContent = createdItemIds.length + ' item(s) created successfully.';
+                                        resultEl.className = 'n88-result success';
+                                    }
+                                    if (shouldSubmitRfqAfterCreate) {
+                                        submitCreatedItemsAsRfq(createdItemIds, submitRfqDirectBtn || submitBtn).then(function(data) {
+                                            alert((data.data && data.data.message) || 'RFQ submitted successfully!');
+                                            closeAddItemModal();
+                                            window.location.reload();
+                                        }).catch(function(err) {
+                                            if (!err || err.message !== 'RFQ validation failed') {
+                                                resultEl.textContent = (err && err.message) ? err.message : 'Request failed. Please try again.';
+                                                resultEl.className = 'n88-result error';
+                                            }
+                                            updateDirectRfqButtonVisibility();
+                                        });
+                                        return;
+                                    }
                                 submitBtn.disabled = false;
                                 if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
                                 submitBtn.innerHTML = defaultText;
                                 if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
                                 if (resultEl) {
-                                    resultEl.textContent = payloads.length + ' item(s) created successfully.';
+                                    resultEl.textContent = createdItemIds.length + ' item(s) created successfully.';
                                     resultEl.className = 'n88-result success';
-                                }
-                                if (shouldSubmitRfqAfterCreate) {
-                                    submitCreatedItemsAsRfq(createdItemIds, submitRfqDirectBtn || submitBtn).then(function(data) {
-                                        alert((data.data && data.data.message) || 'RFQ submitted successfully!');
-                                        closeAddItemModal();
-                                        window.location.reload();
-                                    }).catch(function(err) {
-                                        if (!err || err.message !== 'RFQ validation failed') {
-                                            resultEl.textContent = (err && err.message) ? err.message : 'Request failed. Please try again.';
-                                            resultEl.className = 'n88-result error';
-                                        }
-                                        updateDirectRfqButtonVisibility();
-                                    });
-                                    return;
                                 }
                                 <?php if ( $is_designer && $is_real_board ) : ?>
                                 // Show post-save RFQ decision overlay (Commit 3.C.4)
@@ -9485,26 +9710,6 @@ class N88_RFQ_Admin {
                                 if (previewWrap) { previewWrap.innerHTML = ''; previewWrap.classList.remove('visible'); }
                                 <?php endif; ?>
                                 return;
-                            }
-                            var p = payloads[idx];
-                            fetch(ajaxUrl, { method: 'POST', body: p.formData })
-                                .then(function(r) { return r.json(); })
-                                .then(function(res) {
-                                    if (!res.success) {
-                                        submitBtn.disabled = false;
-                                        if (submitRfqDirectBtn) submitRfqDirectBtn.disabled = false;
-                                        submitBtn.innerHTML = defaultText;
-                                        if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
-                                        resultEl.textContent = 'Error: ' + (res.data && res.data.message ? res.data.message : 'Unknown error');
-                                        resultEl.className = 'n88-result error';
-                                        updateDirectRfqButtonVisibility();
-                                        return;
-                                    }
-                                    if (res.data && res.data.item_id) {
-                                        createdItemIds.push(res.data.item_id);
-                                    }
-                                    idx++;
-                                    submitNext();
                                 })
                                 .catch(function() {
                                     submitBtn.disabled = false;
@@ -9515,8 +9720,7 @@ class N88_RFQ_Admin {
                                     resultEl.className = 'n88-result error';
                                     updateDirectRfqButtonVisibility();
                                 });
-                        }
-                        submitNext();
+                        })();
                     });
                 }
 
@@ -11068,12 +11272,44 @@ class N88_RFQ_Admin {
                     );
 
                     var hasGroupedHistory = hasBatchProposals || derivedGroupIds.length > 0;
+                    var explicitBatchItemIds = Array.isArray(itemData.batch_request_item_ids)
+                        ? itemData.batch_request_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                        : [];
+                    var explicitBatchItemCount = parseInt(itemData.batch_item_count, 10) || 0;
+                    if (!explicitBatchItemCount && explicitBatchItemIds.length) {
+                        explicitBatchItemCount = explicitBatchItemIds.length;
+                    }
+                    // IMPORTANT:
+                    // Do not treat missing batch_item_count (0/unknown) as single-item workspace.
+                    // That caused multi-item batch RFQs to incorrectly fall back to single modal.
+                    var hasKnownSingleWorkspaceScope = (
+                        explicitBatchItemCount === 1 ||
+                        explicitBatchItemIds.length === 1
+                    );
+                    var hasOnlySingleWorkspaceContext = (
+                        derivedGroupIds.length === 1 &&
+                        batchProposalBidCount <= 1 &&
+                        hasKnownSingleWorkspaceScope
+                    );
+                    var hasExplicitMultiItemBatchScope = (
+                        explicitBatchItemCount > 1 ||
+                        explicitBatchItemIds.length > 1
+                    );
                     var hasGroupedProposalPath = hasGroupedHistory && (
                         batchProposalBidCount > 0 ||
                         validBidCount > 0 ||
                         hasGroupedWorkflowStatus ||
                         hasGroupedCommitmentProgress
                     );
+                    // Designer board parity with supplier board:
+                    // once an item belongs to a grouped/batch RFQ workspace,
+                    // card click should route to grouped modal immediately.
+                    if (!isSupplierBoardUser && hasGroupedHistory) {
+                        hasGroupedProposalPath = true;
+                    }
+                    if (hasOnlySingleWorkspaceContext) {
+                        hasGroupedProposalPath = false;
+                    }
                     var commitmentStatusText = String(commitmentState.com_status || '').toLowerCase().trim();
                     var supplierGroupedFlowCompleted = !!(
                         validationCardText.indexOf('com received') !== -1 ||
@@ -11084,17 +11320,29 @@ class N88_RFQ_Admin {
                         commitmentStatusText === 'received' ||
                         commitmentStatusText === 'confirmed'
                     );
+                    var designerGroupedFlowCompleted = !!(
+                        validationCardText.indexOf('ready for production') !== -1 ||
+                        /(^|\b)in production(\b|$)/.test(validationCardText)
+                    );
 
-                    if (isSupplierBoardUser && hasGroupedHistory) {
+                    if (isSupplierBoardUser && hasGroupedHistory && !hasOnlySingleWorkspaceContext) {
                         return {
                             shouldOpenGroupedModal: !supplierGroupedFlowCompleted,
                             showBatchBadge: !supplierGroupedFlowCompleted
                         };
                     }
 
+                    var designerShouldOpenGrouped = !!(
+                        !designerGroupedFlowCompleted &&
+                        (
+                            hasGroupedProposalPath ||
+                            hasExplicitMultiItemBatchScope ||
+                            hasGroupedHistory
+                        )
+                    );
                     return {
-                        shouldOpenGroupedModal: hasGroupedProposalPath,
-                        showBatchBadge: hasGroupedProposalPath
+                        shouldOpenGroupedModal: designerShouldOpenGrouped,
+                        showBatchBadge: designerShouldOpenGrouped
                     };
                 };
 
@@ -11268,6 +11516,7 @@ class N88_RFQ_Admin {
 
                     // Calculate item status based on available data (order must match BoardItem.jsx: Action Required, then prototype workflow, then Bid Awarded, then Proposals Received)
                     var truthy = function(v) { return v === true || v === 'true' || v === 1 || v === '1' || (typeof v === 'string' && v.toLowerCase() === 'true'); };
+                    var isSupplierBoardViewer = !!(window.n88BoardData && truthy(window.n88BoardData.isSupplier));
                     var batchProposalOpenState = getBoardItemBatchProposalOpenState(item);
                     var shouldForceGroupedModalFromVisibleStatus = function(statusText) {
                         var normalizedStatusText = String(statusText || '').trim().toLowerCase();
@@ -11287,6 +11536,7 @@ class N88_RFQ_Admin {
                         );
                     };
                     var shouldOpenGroupedModalFromCard = function() {
+                        if (!isSupplierBoardViewer) return false;
                         return !!(
                             (batchProposalOpenState && (batchProposalOpenState.shouldOpenGroupedModal || batchProposalOpenState.showBatchBadge)) ||
                             shouldForceGroupedModalFromVisibleStatus(itemStatus && itemStatus.text)
@@ -11354,9 +11604,20 @@ class N88_RFQ_Admin {
                         // Production flag (used for "In Production" once deposit / award_set is true)
                         var inProduction = truthy(item.award_set);
 
-                        // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video - show View Prototype video
+                        var unreadOperatorCount = parseInt(item.unread_operator_messages || 0, 10) || 0;
+                        var unreadSupplierCount = parseInt(item.unread_supplier_messages || 0, 10) || 0;
+                        // Priority 1: Action Required (unread operator/supplier messages); or supplier submitted prototype video - show View Prototype video
                         if (hasUnreadOperatorMessages || hasUnreadSupplierMessages) {
-                            return { text: 'Action Required', color: actionRequiredColor, dot: actionRequiredColor };
+                            var statusParts = [];
+                            if (hasUnreadSupplierMessages) {
+                                var supplierCountLabel = unreadSupplierCount > 0 ? unreadSupplierCount : 1;
+                                statusParts.push(String(supplierCountLabel) + ' message' + (supplierCountLabel === 1 ? '' : 's') + ' from supplier');
+                            }
+                            if (hasUnreadOperatorMessages) {
+                                var operatorCountLabel = unreadOperatorCount > 0 ? unreadOperatorCount : 1;
+                                statusParts.push(String(operatorCountLabel) + ' message' + (operatorCountLabel === 1 ? '' : 's') + ' from operator');
+                            }
+                            return { text: 'Action Required - ' + (statusParts.length ? statusParts.join(' | ') : '1 message received'), color: actionRequiredColor, dot: actionRequiredColor };
                         }
                         if (ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
                             return { text: 'View Prototype video', color: evaluationColor, dot: evaluationColor };
@@ -11524,7 +11785,14 @@ class N88_RFQ_Admin {
                         // E) This handles: All valid bids withdrawn + routes exist + RFQ still open → "RFQ Sent"
                         // Otherwise (no routes or RFQ closed) → falls through to "Standby"
                         if (isRfqActive) {
-                            return { text: 'RFQ Sent', color: rfqSentColor, dot: rfqSentColor };
+                            var isBatchRfqSent = !!(
+                                truthy(item.has_batch_proposals) ||
+                                (parseInt(item.batch_item_count, 10) || 0) > 1 ||
+                                (Array.isArray(item.batch_request_item_ids) && item.batch_request_item_ids.length > 1) ||
+                                (Array.isArray(item.batch_proposal_group_ids) && item.batch_proposal_group_ids.length > 0) ||
+                                (parseInt(item.batch_primary_proposal_group_id, 10) || 0) > 0
+                            );
+                            return { text: isBatchRfqSent ? 'Batch RFQ Sent' : 'RFQ Sent', color: rfqSentColor, dot: rfqSentColor };
                         }
                         
                         // Priority 5: Check if item has meaningful details filled by designer
@@ -11701,18 +11969,8 @@ class N88_RFQ_Admin {
                             // Update z via updateLayout (triggers state update)
                             updateLayout(item.id, { z: newZ });
                             
-                            // Trigger save with updated z-index so stacking order persists
-                            if (onLayoutChanged) {
-                                onLayoutChanged({
-                                    id: item.id,
-                                    x: item.x,
-                                    y: item.y,
-                                    z: newZ,
-                                    width: item.width,
-                                    height: item.height,
-                                    displayMode: item.displayMode,
-                                });
-                            }
+                            // Keep z-index responsive in local state, but avoid saving on plain click.
+                            // Persisting here sends board-layout AJAX during modal open and slows first paint.
                         }
                     };
 
@@ -14491,6 +14749,56 @@ class N88_RFQ_Admin {
                         )
                     );
                 };
+
+                function boardCanvasDepositAttachmentUrlLooksLikeImage(url) {
+                    if (!url || typeof url !== 'string') return false;
+                    var base = url.split('?')[0].split('#')[0].toLowerCase();
+                    return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/.test(base);
+                }
+                function boardCanvasPrettyFilenameFromUrl(url, fallback) {
+                    if (!url || typeof url !== 'string') return fallback || 'Attachment';
+                    try {
+                        var path = url.split('?')[0].split('#')[0];
+                        var seg = path.split('/').pop() || '';
+                        seg = decodeURIComponent(seg);
+                        if (seg && seg.length > 0 && seg.length < 180) {
+                            return seg;
+                        }
+                    } catch (err) {}
+                    return fallback || 'Attachment';
+                }
+                function boardCanvasRenderDepositReceiptPreviewBlock(files, blobPreviewUrls, accent) {
+                    accent = accent || '#6fdc8f';
+                    if (!files || !files.length) return null;
+                    var blobArr = Array.isArray(blobPreviewUrls) ? blobPreviewUrls : [];
+                    return React.createElement('div', { style: { marginTop: '8px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.25)' } },
+                        React.createElement('div', { style: { fontSize: '10px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' } }, 'Receipt preview'),
+                        React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-start' } },
+                            files.map(function(file, idx) {
+                                var name = (file && file.name) ? file.name : ((file && file.title) ? file.title : ('File ' + (idx + 1)));
+                                var href = (file && file.url) ? String(file.url) : '';
+                                var blob = blobArr[idx] || '';
+                                var isLocalFile = !!(file && typeof File !== 'undefined' && file instanceof File);
+                                var isImage = isLocalFile ? (String(file.type || '').toLowerCase().indexOf('image/') === 0) : boardCanvasDepositAttachmentUrlLooksLikeImage(href);
+                                var openHref = href || blob || '#';
+                                var src = blob || (isImage && href ? href : '');
+                                if (src) {
+                                    return React.createElement('div', { key: 'dep-rcpt-' + idx + '-' + String(name).slice(0, 32), style: { maxWidth: '148px' } },
+                                        React.createElement('div', { style: { fontSize: '9px', color: '#ccc', wordBreak: 'break-all', marginBottom: '4px', lineHeight: 1.3 } }, name),
+                                        React.createElement('a', { href: openHref, target: '_blank', rel: 'noopener noreferrer', style: { display: 'block' } },
+                                            React.createElement('img', { src: src, alt: '', style: { width: '120px', height: '90px', objectFit: 'cover', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', display: 'block' } })
+                                        )
+                                    );
+                                }
+                                return React.createElement('div', { key: 'dep-rcpt-' + idx + '-' + String(name).slice(0, 32), style: { padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: '#111', maxWidth: '220px' } },
+                                    React.createElement('div', { style: { fontSize: '10px', fontWeight: '700', color: accent, marginBottom: '4px' } }, 'PDF / document'),
+                                    React.createElement('div', { style: { fontSize: '10px', color: '#e6e6e6', wordBreak: 'break-all', lineHeight: 1.35 } }, name),
+                                    openHref && openHref !== '#' ? React.createElement('a', { href: openHref, target: '_blank', rel: 'noopener noreferrer', style: { fontSize: '10px', color: accent, marginTop: '6px', display: 'inline-block' } }, 'Open file') : null
+                                );
+                            })
+                        )
+                    );
+                }
                 
                 var ItemDetailModalInline = function(props) {
                     var item = props.item;
@@ -14503,6 +14811,8 @@ class N88_RFQ_Admin {
                     var initialTimelineStepProp = typeof props.initialTimelineStep === 'number' ? props.initialTimelineStep : null;
                     var requestSampleContextProp = props.requestSampleContext || null;
                     var supportMediaContextProp = props.supportMediaContext || null;
+                    var preloadedTimelineDataProp = props.preloadedTimelineData && typeof props.preloadedTimelineData === 'object' ? props.preloadedTimelineData : null;
+                    var hidePerItemMarkSamplesReceived = !!props.hidePerItemMarkSamplesReceived;
                     
                     // Get updateLayout from store (if available)
                     var updateLayout = null;
@@ -14841,7 +15151,45 @@ class N88_RFQ_Admin {
                     var _validationDepositReceiptsState = React.useState([]);
                     var validationDepositReceipts = _validationDepositReceiptsState[0];
                     var setValidationDepositReceipts = _validationDepositReceiptsState[1];
+                    var _validationDepositPreviewUrlsState = React.useState([]);
+                    var validationDepositPreviewUrls = _validationDepositPreviewUrlsState[0];
+                    var setValidationDepositPreviewUrls = _validationDepositPreviewUrlsState[1];
                     var validationDepositInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var _executionPaymentMethodState = React.useState('zelle');
+                    var executionPaymentMethod = _executionPaymentMethodState[0];
+                    var setExecutionPaymentMethod = _executionPaymentMethodState[1];
+                    var _executionPaymentSubmittingState = React.useState(false);
+                    var executionPaymentSubmitting = _executionPaymentSubmittingState[0];
+                    var setExecutionPaymentSubmitting = _executionPaymentSubmittingState[1];
+                    React.useEffect(function() {
+                        var files = validationDepositReceipts || [];
+                        var urls = [];
+                        files.forEach(function(f) {
+                            if (!f) {
+                                urls.push('');
+                                return;
+                            }
+                            try {
+                                if (String(f.type || '').toLowerCase().indexOf('image/') === 0) {
+                                    urls.push(URL.createObjectURL(f));
+                                } else {
+                                    urls.push('');
+                                }
+                            } catch (err) {
+                                urls.push('');
+                            }
+                        });
+                        setValidationDepositPreviewUrls(urls);
+                        return function() {
+                            urls.forEach(function(u) {
+                                if (u) {
+                                    try {
+                                        URL.revokeObjectURL(u);
+                                    } catch (e2) {}
+                                }
+                            });
+                        };
+                    }, [validationDepositReceipts]);
                     
                     // Payment Instructions Modal State
                     var _showPaymentInstructionsState = React.useState(false);
@@ -15134,6 +15482,10 @@ class N88_RFQ_Admin {
                     var availableKeywords = _availableKeywordsState[0];
                     var setAvailableKeywords = _availableKeywordsState[1];
                     
+                    var _hasRequestedCategoryKeywordsState = React.useState(false);
+                    var hasRequestedCategoryKeywords = _hasRequestedCategoryKeywordsState[0];
+                    var setHasRequestedCategoryKeywords = _hasRequestedCategoryKeywordsState[1];
+                    
                     var _isLoadingKeywordsState = React.useState(false);
                     var isLoadingKeywords = _isLoadingKeywordsState[0];
                     var setIsLoadingKeywords = _isLoadingKeywordsState[1];
@@ -15331,6 +15683,34 @@ class N88_RFQ_Admin {
                     var _isUploadingInspirationState = React.useState(false);
                     var isUploadingInspiration = _isUploadingInspirationState[0];
                     var setIsUploadingInspiration = _isUploadingInspirationState[1];
+                    var renderLoadingNotice = function(message, styleOverrides) {
+                        return React.createElement('div', {
+                            style: Object.assign({
+                                marginBottom: '16px',
+                                padding: '14px 16px',
+                                border: '1px solid ' + darkBorder,
+                                borderRadius: '6px',
+                                backgroundColor: '#111111',
+                                color: '#c8c8c8',
+                                fontSize: '12px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }, styleOverrides || {})
+                        },
+                            React.createElement('span', {
+                                style: {
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#FF0065',
+                                    display: 'inline-block',
+                                    animation: 'n88PulseDot 1s ease-in-out infinite'
+                                }
+                            }),
+                            React.createElement('span', null, message || 'Loading...')
+                        );
+                    };
                     
                     // Active tab state
                     var _activeTabState = React.useState(initialTabProp);
@@ -15339,6 +15719,8 @@ class N88_RFQ_Admin {
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     var manualTabOverrideRef = React.useRef(false);
+                    var workflowTimelineUserNavRef = React.useRef(false);
+                    var awardStepLockUntilRef = React.useRef(0);
                     var switchDesignerModalTabManually = function(nextTab) {
                         manualTabOverrideRef.current = true;
                         setActiveTab(nextTab);
@@ -15379,10 +15761,14 @@ class N88_RFQ_Admin {
                     React.useEffect(function() {
                         if (!isOpen) {
                             manualTabOverrideRef.current = false;
+                            workflowTimelineUserNavRef.current = false;
                             return;
                         }
                         manualTabOverrideRef.current = false;
                     }, [isOpen, itemId, initialTabProp, openToDetailsAndSupport]);
+                    React.useEffect(function() {
+                        workflowTimelineUserNavRef.current = false;
+                    }, [itemId]);
 
                     // Keep active tab in sync with initialTab prop when it changes (e.g., auto-open RFQ)
                     React.useEffect(function() {
@@ -15500,6 +15886,11 @@ class N88_RFQ_Admin {
                             return;
                         }
                         if (itemState.loading) return;
+                        if ((awardStepLockUntilRef.current || 0) > Date.now()) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(2); // Step 3 immediately after award
+                            return;
+                        }
                         if (pinnedTimelineStep === 2) {
                             setActiveTab('timeline');
                             setSelectedStepIndex(2);
@@ -15536,10 +15927,15 @@ class N88_RFQ_Admin {
                         var validationReadinessAuto = validationStateAuto.readiness_flags && typeof validationStateAuto.readiness_flags === 'object'
                             ? validationStateAuto.readiness_flags
                             : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.readiness_flags && typeof item.meta.material_validation.readiness_flags === 'object') ? item.meta.material_validation.readiness_flags : {});
-                        var isSupplierBoardViewer = !!(window.n88BoardData && window.n88BoardData.isSupplier);
+                        var commitmentComStatusAuto = String(validationCommitmentAuto.com_status || '').toLowerCase();
+                        var productionStartedAuto = !!(
+                            validationStateAuto.production_started ||
+                            validationCommitmentAuto.production_started_at ||
+                            String(validationCommitmentAuto.production_status || '').toLowerCase() === 'in_production' ||
+                            validationCardTextAuto === 'in production'
+                        );
                         var readyForProductionAuto = !!(
-                            validationStateAuto.can_commit ||
-                            validationCardTextAuto === 'ready for production'
+                            productionStartedAuto
                         );
                         var sampleReviewStepThree = !!(
                             itemState.has_awarded_bid ||
@@ -15576,9 +15972,9 @@ class N88_RFQ_Admin {
                             validationCardTextAuto === 'review samples' ||
                             validationCardTextAuto === 'samples received' ||
                             validationCardTextAuto === 'samples approved';
-                        if (isSupplierBoardViewer && readyForProductionAuto) {
+                        if (readyForProductionAuto && !workflowTimelineUserNavRef.current) {
                             setActiveTab('timeline');
-                            setSelectedStepIndex(3); // Step 4: supplier production flow begins after commitment is complete
+                            setSelectedStepIndex(3); // Step 4: only after supplier has begun production
                             return;
                         }
                         if (sampleReviewStepThree) {
@@ -15642,7 +16038,7 @@ class N88_RFQ_Admin {
                     
                     // Load keywords when bid is selected (Commit 2.3.9.1B)
                     React.useEffect(function() {
-                        if (!showCadPrototypeForm || !selectedBidId || !category) {
+                        if (!showCadPrototypeForm || !hasRequestedCategoryKeywords || !selectedBidId || !category) {
                             return;
                         }
 
@@ -15651,42 +16047,15 @@ class N88_RFQ_Admin {
                             setAvailableKeywords([]);
 
                             try {
-                                var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
-                                // Get nonce for n88_get_keywords action
-                                var nonce = '';
-                                if (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keywords) {
-                                    nonce = window.n88BoardNonce.nonce_get_keywords;
-                                } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                                    nonce = window.n88BoardData.nonce;
-                                } else if (window.n88 && window.n88.nonce) {
-                                    nonce = window.n88.nonce;
-                                } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
-                                    nonce = window.n88BoardNonce.nonce;
-                                }
-                                
-                                if (!nonce) {
-                                    console.error('Nonce not found for n88_get_keywords_by_category');
-                                    setAvailableKeywords([]);
-                                    setIsLoadingKeywords(false);
-                                    return;
-                                }
-                                
-                                // Use category name to fetch keywords (endpoint now accepts category_name)
-                                var formData = new FormData();
-                                formData.append('action', 'n88_get_keywords_by_category');
-                                formData.append('category_name', category);
-                                formData.append('_ajax_nonce', nonce);
+                                var keywordLoader = typeof window !== 'undefined' ? window.n88LoadCategoryKeywords : null;
+                                var keywordPromise = typeof keywordLoader === 'function'
+                                    ? keywordLoader(category)
+                                    : Promise.resolve([]);
 
-                                fetch(ajaxUrl, {
-                                    method: 'POST',
-                                    body: formData,
-                                })
-                                .then(function(response) { return response.json(); })
-                                .then(function(data) {
-                                    if (data.success && data.data && data.data.keywords) {
-                                        setAvailableKeywords(data.data.keywords);
+                                keywordPromise.then(function(keywords) {
+                                    if (Array.isArray(keywords)) {
+                                        setAvailableKeywords(keywords);
                                     } else {
-                                        console.error('Failed to load keywords:', data.message);
                                         setAvailableKeywords([]);
                                     }
                                 })
@@ -15705,7 +16074,7 @@ class N88_RFQ_Admin {
                         };
 
                         loadKeywordsForCategory();
-                    }, [showCadPrototypeForm, selectedBidId, category]);
+                    }, [showCadPrototypeForm, hasRequestedCategoryKeywords, selectedBidId, category]);
                     
                     var availableDirectSuppliers = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
                     var invitedDraftSuppliers = Array.isArray(invitedSuppliers) ? invitedSuppliers.slice() : [];
@@ -16218,7 +16587,11 @@ class N88_RFQ_Admin {
                         }
                         var conversationContext = getDesignerConversationContext(scope);
                         if (conversationContext.threadType === 'designer_operator' && Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0) {
-                            conversationContext.threadType = 'designer_supplier';
+                            var upgradeRecipient = normalizeDirectSupplierId() || (selectedDirectSupplierId && String(selectedDirectSupplierId) !== allSuppliersOptionValue ? String(selectedDirectSupplierId) : '');
+                            if (upgradeRecipient) {
+                                conversationContext.threadType = 'designer_supplier';
+                                conversationContext.supplierId = upgradeRecipient;
+                            }
                         }
                         var isAllSuppliersSelection = conversationContext.threadType === 'designer_supplier' && String(selectedDirectSupplierId || '') === allSuppliersOptionValue;
                         if (conversationContext.threadType === 'designer_supplier' && conversationContext.supplierId && !isAllSuppliersSelection) {
@@ -16243,20 +16616,29 @@ class N88_RFQ_Admin {
 
                                 if (conversationContext.threadType === 'designer_supplier') {
                                     if (String(selectedDirectSupplierId || '') === allSuppliersOptionValue) {
-                                        targetSupplierIds = allSuppliersTargetOptions.map(function(opt) {
-                                            return String(opt.supplier_id || '');
-                                        }).filter(Boolean);
-                                    } else if (conversationContext.supplierId) {
-                                        targetSupplierIds = [String(conversationContext.supplierId)];
+                                        alert('Select one supplier in the list. Each message is delivered only to that supplier.');
+                                        setIsSendingDesignerMessage(false);
+                                        return;
+                                    }
+                                    var explicitRecipient = normalizeDirectSupplierId() || (selectedDirectSupplierId && String(selectedDirectSupplierId) !== allSuppliersOptionValue ? String(selectedDirectSupplierId) : '');
+                                    if (!explicitRecipient && conversationContext.supplierId) {
+                                        explicitRecipient = String(conversationContext.supplierId);
+                                    }
+                                    if (explicitRecipient) {
+                                        targetSupplierIds = [String(explicitRecipient)];
+                                        conversationContext.supplierId = String(explicitRecipient);
                                     } else if (selectedDirectSupplierId) {
                                         targetSupplierIds = [String(selectedDirectSupplierId)];
-                                        conversationContext.supplierId = targetSupplierIds[0];
+                                        conversationContext.supplierId = String(selectedDirectSupplierId);
                                     } else if (availableDirectSuppliers.length === 1) {
                                         targetSupplierIds = [String(availableDirectSuppliers[0].supplier_id)];
                                         conversationContext.supplierId = targetSupplierIds[0];
                                         setSelectedDirectSupplierId(targetSupplierIds[0]);
                                     } else if (!availableDirectSuppliers.length && Array.isArray(invitedSuppliers) && invitedSuppliers.length > 0) {
-                                        targetSupplierIds = invitedSuppliers.map(function(invite) { return String(invite || '').trim(); }).filter(Boolean);
+                                        var oneInvite = String(invitedSuppliers[0] || '').trim();
+                                        if (oneInvite) {
+                                            targetSupplierIds = [oneInvite];
+                                        }
                                     } else {
                                         alert('Select a supplier first.');
                                         setIsSendingDesignerMessage(false);
@@ -16332,9 +16714,7 @@ class N88_RFQ_Admin {
                                 if (successfulResults[0] && successfulResults[0].result && successfulResults[0].result.data && successfulResults[0].result.data.supplier_id) {
                                     resolvedSupplierId = String(successfulResults[0].result.data.supplier_id);
                                 }
-                                if (conversationContext.threadType === 'designer_supplier' && isAllSuppliersSelection) {
-                                    setSelectedDirectSupplierId(allSuppliersOptionValue);
-                                } else if (resolvedSupplierId) {
+                                if (resolvedSupplierId) {
                                     setSelectedDirectSupplierId(resolvedSupplierId);
                                 }
                                 setDesignerMessageText('');
@@ -16347,12 +16727,51 @@ class N88_RFQ_Admin {
                                 if (fileInputT2) fileInputT2.value = '';
                                 var fileInputWorkflowSidebar = document.getElementById('n88-designer-message-attachments-workflow-sidebar');
                                 if (fileInputWorkflowSidebar) fileInputWorkflowSidebar.value = '';
-                                if (conversationContext.threadType === 'designer_supplier' && isAllSuppliersSelection) {
-                                    loadDesignerMessages(allSuppliersOptionValue, scope);
-                                } else {
-                                    loadDesignerMessages(resolvedSupplierId, scope);
+                                var scopeKey = scope === 'support' ? supportDesignerConversationKey : activeDesignerConversationKey;
+                                var serverMsg = successfulResults[0].result && successfulResults[0].result.data && successfulResults[0].result.data.message ? successfulResults[0].result.data.message : null;
+                                if (scopeKey && serverMsg && serverMsg.message_id) {
+                                    setDesignerMessagesByKey(function(prev) {
+                                        var next = Object.assign({}, prev);
+                                        var existing = next[scopeKey] ? next[scopeKey].slice() : [];
+                                        var optimisticRow = {
+                                            message_id: serverMsg.message_id,
+                                            item_id: serverMsg.item_id,
+                                            message_text: serverMsg.message_text,
+                                            sender_role: serverMsg.sender_role,
+                                            sender_user_id: serverMsg.sender_user_id,
+                                            sender_name: serverMsg.sender_name,
+                                            created_at: serverMsg.created_at,
+                                            thread_type: serverMsg.thread_type,
+                                            context_type: serverMsg.context_type
+                                        };
+                                        var already = existing.some(function(m) { return m && String(m.message_id) === String(optimisticRow.message_id); });
+                                        if (!already) {
+                                            existing.push(optimisticRow);
+                                        }
+                                        next[scopeKey] = existing;
+                                        return next;
+                                    });
                                 }
-                                fetchItemState();
+                                window.setTimeout(function() {
+                                    if (scope === 'support') {
+                                        loadDesignerMessages(resolvedSupplierId, 'support');
+                                    } else {
+                                        loadDesignerMessages(resolvedSupplierId);
+                                    }
+                                }, 0);
+                                if (typeof requestAnimationFrame === 'function') {
+                                    requestAnimationFrame(function() {
+                                        if (typeof fetchItemState === 'function') {
+                                            fetchItemState();
+                                        }
+                                    });
+                                } else {
+                                    window.setTimeout(function() {
+                                        if (typeof fetchItemState === 'function') {
+                                            fetchItemState();
+                                        }
+                                    }, 0);
+                                }
 
                                 if (requestTargets.length > 1 && successfulResults.length !== requestTargets.length) {
                                     alert('Message sent to some suppliers, but not all. Please review and retry the failed recipients if needed.');
@@ -16370,7 +16789,7 @@ class N88_RFQ_Admin {
                             alert('An error occurred. Please try again.');
                             setIsSendingDesignerMessage(false);
                         }
-                    }, [itemId, designerMessageText, designerMessageFiles, loadDesignerMessages, getDesignerConversationContext, designerMessageCategory, selectedDirectSupplierId, availableDirectSuppliers, allSuppliersTargetOptions, isSendingDesignerMessage, allSuppliersOptionValue]);
+                    }, [itemId, designerMessageText, designerMessageFiles, loadDesignerMessages, getDesignerConversationContext, designerMessageCategory, selectedDirectSupplierId, availableDirectSuppliers, allSuppliersTargetOptions, isSendingDesignerMessage, allSuppliersOptionValue, normalizeDirectSupplierId]);
                     
                     // Auto-scroll to bottom when messages load or new message is sent
                     React.useEffect(function() {
@@ -16399,15 +16818,92 @@ class N88_RFQ_Admin {
                     // Commit 3.C.20: Reload isolated thread when workflow step changes.
                     React.useEffect(function() {
                         if (activeTab !== 'timeline' || !itemId) return;
+                        if (itemState.loading) return;
+                        if (!isItemStateSectionLoaded('workflow') || isItemStateSectionLoading('workflow')) return;
                         if (hasAvailableDirectSuppliers && activeDesignerConversationContext.threadType === 'designer_supplier' && !selectedDirectSupplierId) {
                             return;
                         }
                         if (hasAvailableDirectSuppliers || itemState.has_rfq || itemState.has_prototype_payment) {
-                            loadDesignerMessages();
+                            setTimeout(function() {
+                                loadDesignerMessages();
+                            }, 80);
                         }
-                    }, [activeTab, itemId, hasAvailableDirectSuppliers, itemState.has_rfq, itemState.has_prototype_payment, selectedStepIndex, pinnedTimelineStep, activeDesignerConversationContext.threadType, activeMessageContextType, selectedDirectSupplierId]);
+                    }, [activeTab, itemId, hasAvailableDirectSuppliers, itemState.has_rfq, itemState.has_prototype_payment, itemState.loading, itemState.loaded_sections, itemState.loading_sections, selectedStepIndex, pinnedTimelineStep, activeDesignerConversationContext.threadType, activeMessageContextType, selectedDirectSupplierId]);
+                    var buildLocalPendingTimeline = React.useCallback(function(localItemId) {
+                        var id = parseInt(localItemId, 10) || 0;
+                        return {
+                            timeline_id: 0,
+                            item_id: id,
+                            created_at: null,
+                            steps: [
+                                { step_id: 0, step_number: 1, label: 'Proposal Submitted', status: 'pending', display_status: 'pending', started_at: null, completed_at: null, expected_by: null, is_delayed: false, evidence_required: true, evidence_verified_at: null, evidence_verified_by: null, has_required_evidence: false },
+                                { step_id: 0, step_number: 2, label: 'Design Evaluation', status: 'pending', display_status: 'pending', started_at: null, completed_at: null, expected_by: null, is_delayed: false, evidence_required: true, evidence_verified_at: null, evidence_verified_by: null, has_required_evidence: false },
+                                { step_id: 0, step_number: 3, label: 'Award Decision', status: 'pending', display_status: 'pending', started_at: null, completed_at: null, expected_by: null, is_delayed: false, evidence_required: true, evidence_verified_at: null, evidence_verified_by: null, has_required_evidence: false },
+                                { step_id: 0, step_number: 4, label: 'Production', status: 'pending', display_status: 'pending', started_at: null, completed_at: null, expected_by: null, is_delayed: false, evidence_required: true, evidence_verified_at: null, evidence_verified_by: null, has_required_evidence: false },
+                                { step_id: 0, step_number: 5, label: 'Quality Review & Packing', status: 'pending', display_status: 'pending', started_at: null, completed_at: null, expected_by: null, is_delayed: false, evidence_required: true, evidence_verified_at: null, evidence_verified_by: null, has_required_evidence: false },
+                                { step_id: 0, step_number: 6, label: 'Delivery', status: 'pending', display_status: 'pending', started_at: null, completed_at: null, expected_by: null, is_delayed: false, evidence_required: true, evidence_verified_at: null, evidence_verified_by: null, has_required_evidence: false }
+                            ],
+                            show_prototype_mini: false,
+                            evidence_by_step: {},
+                            can_add_evidence_comment: false,
+                            steps_with_supplier_evidence: {},
+                            step_456_videos: { 4: [], 5: [], 6: [] },
+                            step_456_comments: { 4: [], 5: [], 6: [] }
+                        };
+                    }, []);
+                    var shouldSkipRemoteTimelineFetch = React.useCallback(function() {
+                        var isCadPrototypeEnabled = !!(window.n88BoardData && window.n88BoardData.isCadPrototypeEnabled);
+                        if (!isCadPrototypeEnabled) {
+                            return true;
+                        }
+                        var validationState = itemState && itemState.validation_state && typeof itemState.validation_state === 'object' ? itemState.validation_state : null;
+                        var hasValidationFlow = !!(validationState && validationState.enabled);
+                        var sampleStatus = validationState && validationState.sample_status ? String(validationState.sample_status).toLowerCase() : '';
+                        var validationCardText = validationState && validationState.card_status_text ? String(validationState.card_status_text).toLowerCase() : '';
+                        var isSampleValidationFlow = (
+                            sampleStatus === 'sample_requested'
+                            || sampleStatus === 'sample_material_kit_requested'
+                            || sampleStatus === 'shipped'
+                            || sampleStatus === 'delivered'
+                            || sampleStatus === 'received'
+                            || sampleStatus === 'in_review'
+                            || sampleStatus === 'approved'
+                            || validationCardText === 'sample material kit requested'
+                            || validationCardText === 'sample shipped'
+                            || validationCardText === 'sample delivered'
+                            || validationCardText === 'sample received'
+                        );
+                        var hasBids = !!(itemState && itemState.has_bids);
+                        var hasRfq = !!(itemState && itemState.has_rfq);
+                        var hasPrototypeFlow = !!(itemState && itemState.has_prototype_payment);
+                        var hasAwarded = !!(itemState && itemState.has_awarded_bid);
+                        if (isSampleValidationFlow) {
+                            return true;
+                        }
+                        return !hasValidationFlow && !hasBids && !hasRfq && !hasPrototypeFlow && !hasAwarded;
+                    }, [itemState]);
                     var fetchTimeline = React.useCallback(function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) return;
+                        if (shouldSkipRemoteTimelineFetch()) {
+                            var localTimeline = buildLocalPendingTimeline(itemId);
+                            if (!window.n88BoardTimelineCache) {
+                                window.n88BoardTimelineCache = {};
+                            }
+                            window.n88BoardTimelineCache[itemId] = localTimeline;
+                            setTimelineData(localTimeline);
+                            setIsOperatorTimeline(false);
+                            setTimelineError(null);
+                            setTimelineLoading(false);
+                            return;
+                        }
+                        if (!window.n88BoardTimelineCache) {
+                            window.n88BoardTimelineCache = {};
+                        }
+                        if (window.n88BoardTimelineCache[itemId]) {
+                            setTimelineData(window.n88BoardTimelineCache[itemId]);
+                            setTimelineError(null);
+                            return;
+                        }
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
                         if (!nonce) { setTimelineError('Session expired. Please refresh.'); return; }
@@ -16421,14 +16917,16 @@ class N88_RFQ_Admin {
                             .then(function(r) { return r.json(); })
                             .then(function(data) {
                                 if (data.success && data.data && data.data.timeline) {
-                                    setTimelineData({
+                                    var nextTimelineData = {
                                         ...data.data.timeline,
                                         evidence_by_step: data.data.evidence_by_step || {},
                                         can_add_evidence_comment: !!(data.data.can_add_evidence_comment),
                                         steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {},
                                         step_456_videos: data.data.step_456_videos || { 4: [], 5: [], 6: [] },
                                         step_456_comments: data.data.step_456_comments || { 4: [], 5: [], 6: [] }
-                                    });
+                                    };
+                                    window.n88BoardTimelineCache[itemId] = nextTimelineData;
+                                    setTimelineData(nextTimelineData);
                                     setIsOperatorTimeline(!!(data.data.is_operator));
                                     setTimelineError(null);
                                 } else {
@@ -16441,27 +16939,53 @@ class N88_RFQ_Admin {
                                 setTimelineError('Failed to load timeline.');
                             })
                             .finally(function() { setTimelineLoading(false); });
-                    }, [itemId]);
+                    }, [itemId, shouldSkipRemoteTimelineFetch, buildLocalPendingTimeline]);
                     React.useEffect(function() {
-                        if (activeTab === 'timeline' && itemId && !timelineData && !timelineLoading && !timelineError) fetchTimeline();
+                        if (activeTab !== 'timeline' || !itemId || timelineData || timelineLoading || timelineError) {
+                            return;
+                        }
+                        var timeoutId = window.setTimeout(function() {
+                            fetchTimeline();
+                        }, 180);
+                        return function() {
+                            window.clearTimeout(timeoutId);
+                        };
                     }, [activeTab, itemId, timelineData, timelineLoading, timelineError, fetchTimeline]);
                     React.useEffect(function() {
-                        if (!isOpen || !itemId) return;
-                        if (activeTab === 'timeline' && !isItemStateSectionLoaded('workflow') && !isItemStateSectionLoading('workflow')) {
-                            fetchItemState('workflow');
-                        }
-                        if (activeTab === 'timeline' && itemState.has_bids && !isItemStateSectionLoaded('bids') && !isItemStateSectionLoading('bids')) {
-                            fetchItemState('bids');
-                        }
-                    }, [isOpen, itemId, activeTab, itemState.loaded_sections, itemState.loading_sections]);
+                        if (!isOpen || !itemId || activeTab !== 'timeline') return;
+                        if (itemStateRequestRef.current && itemStateRequestRef.current.full) return;
+                        var timeoutId = window.setTimeout(function() {
+                            if (!isItemStateSectionLoaded('workflow') && !isItemStateSectionLoading('workflow')) {
+                                fetchItemState('workflow');
+                            }
+                            if (itemState.has_bids && !isItemStateSectionLoaded('bids') && !isItemStateSectionLoading('bids')) {
+                                fetchItemState('bids');
+                            }
+                        }, 140);
+                        return function() {
+                            window.clearTimeout(timeoutId);
+                        };
+                    }, [isOpen, itemId, activeTab, itemState.has_bids, itemState.loaded_sections, itemState.loading_sections]);
                     React.useEffect(function() {
-                        setTimelineData(null);
-                        setTimelineError(null);
+                        if (!window.n88BoardTimelineCache) {
+                            window.n88BoardTimelineCache = {};
+                        }
+                        if (preloadedTimelineDataProp && itemId) {
+                            window.n88BoardTimelineCache[itemId] = Object.assign({}, preloadedTimelineDataProp);
+                            setTimelineData(Object.assign({}, preloadedTimelineDataProp));
+                            setTimelineError(null);
+                            if (preloadedTimelineDataProp.is_operator !== undefined) {
+                                setIsOperatorTimeline(!!preloadedTimelineDataProp.is_operator);
+                            }
+                        } else {
+                            setTimelineData(null);
+                            setTimelineError(null);
+                        }
                         setSelectedStepIndex(0);
                         setSupplierStepEvidenceView(null);
                         setOperatorStep456VideoFormStep(null);
                         setDetailsEditMode(false);
-                    }, [itemId]);
+                    }, [itemId, preloadedTimelineDataProp]);
                     React.useEffect(function() {
                         if (activeTab !== 'details') {
                             setDetailsEditMode(false);
@@ -16555,6 +17079,12 @@ class N88_RFQ_Admin {
                         if (!forceRefresh && isItemStateSectionLoaded(sectionKey)) {
                             return Promise.resolve(itemState);
                         }
+                        if (!forceRefresh && sectionKey === 'full' &&
+                            isItemStateSectionLoaded('summary') &&
+                            isItemStateSectionLoaded('workflow') &&
+                            isItemStateSectionLoaded('bids')) {
+                            return Promise.resolve(itemState);
+                        }
 
                         var formData = new FormData();
                         formData.append('action', 'n88_get_item_rfq_state');
@@ -16569,9 +17099,15 @@ class N88_RFQ_Admin {
                         setItemState(function(prev) {
                             var previousState = prev && typeof prev === 'object' ? prev : {};
                             var nextLoadingSections = ensureItemStateSectionMap(previousState.loading_sections);
-                            nextLoadingSections[sectionKey] = true;
+                            if (sectionKey === 'full') {
+                                nextLoadingSections.summary = true;
+                                nextLoadingSections.bids = true;
+                                nextLoadingSections.workflow = true;
+                            } else {
+                                nextLoadingSections[sectionKey] = true;
+                            }
                             return Object.assign({}, previousState, {
-                                loading: sectionKey === 'summary' ? true : previousState.loading,
+                                loading: (sectionKey === 'summary' || sectionKey === 'full') ? true : previousState.loading,
                                 loading_sections: nextLoadingSections
                             });
                         });
@@ -16645,7 +17181,7 @@ class N88_RFQ_Admin {
                                         deposit_receipt_url: data.data.deposit_receipt_url || '',
                                         deposit_sent_note: data.data.deposit_sent_note || '',
                                         deposit_sent_at: data.data.deposit_sent_at || null,
-                                        loading: sectionKey === 'summary' ? false : previousState.loading,
+                                        loading: (sectionKey === 'summary' || sectionKey === 'full') ? false : previousState.loading,
                                         loaded_sections: nextLoadedSections,
                                         loading_sections: nextLoadingSections
                                     });
@@ -16704,9 +17240,15 @@ class N88_RFQ_Admin {
                             setItemState(function(prev) {
                                 var previousState = prev && typeof prev === 'object' ? prev : {};
                                 var nextLoadingSections = ensureItemStateSectionMap(previousState.loading_sections);
-                                nextLoadingSections[sectionKey] = false;
+                                if (sectionKey === 'full') {
+                                    nextLoadingSections.summary = false;
+                                    nextLoadingSections.bids = false;
+                                    nextLoadingSections.workflow = false;
+                                } else {
+                                    nextLoadingSections[sectionKey] = false;
+                                }
                                 return Object.assign({}, previousState, {
-                                    loading: sectionKey === 'summary' ? false : previousState.loading,
+                                    loading: (sectionKey === 'summary' || sectionKey === 'full') ? false : previousState.loading,
                                     loading_sections: nextLoadingSections
                                 });
                             });
@@ -16716,32 +17258,57 @@ class N88_RFQ_Admin {
                     
                     // Fetch item state when modal opens; reset Message Operator to collapsed to avoid carry-over from previous item
                     React.useEffect(function() {
-                        if (isOpen && itemId && itemId > 0) {
-                            setShowDesignerMessageForm(false);
-                            setPinnedTimelineStep(null);
-                            if (item && item.rfq_state && typeof item.rfq_state === 'object') {
-                                var cachedAt = item && item.rfq_state_fetched_at ? parseInt(item.rfq_state_fetched_at, 10) : 0;
-                                var cacheIsFresh = cachedAt > 0 && (Date.now() - cachedAt) < 30000;
-                                setItemState(function(prev) {
-                                    var previousState = prev && typeof prev === 'object' ? prev : {};
-                                    var previousValidationState = previousState.validation_state
-                                        || (item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null)
-                                        || (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object' ? item.meta.material_validation : null);
-                                    var mergedValidationState = mergeValidationState(previousValidationState, item.rfq_state.validation_state || null);
-                                    return Object.assign({}, previousState, item.rfq_state, {
-                                        validation_state: mergedValidationState,
-                                        validation_card_status_text: mergedValidationState && mergedValidationState.card_status_text ? mergedValidationState.card_status_text : (previousState.validation_card_status_text || ''),
-                                        validation_card_status_color: mergedValidationState && mergedValidationState.card_status_color ? mergedValidationState.card_status_color : (previousState.validation_card_status_color || '#f4b400'),
-                                        loading: false
-                                    });
-                                });
-                                if (!cacheIsFresh) {
-                                    window.setTimeout(function() { fetchItemState('summary', true); }, 0);
-                                }
-                                return;
-                            }
-                            fetchItemState('summary');
+                        if (!(isOpen && itemId && itemId > 0)) {
+                            return;
                         }
+                        setShowDesignerMessageForm(false);
+                        setPinnedTimelineStep(null);
+
+                        var timeoutId = null;
+
+                        if (item && item.rfq_state && typeof item.rfq_state === 'object') {
+                            var cachedAt = item && item.rfq_state_fetched_at ? parseInt(item.rfq_state_fetched_at, 10) : 0;
+                            var cacheIsFresh = cachedAt > 0 && (Date.now() - cachedAt) < 120000;
+                            var preloadedLoadedSections = item.rfq_state.loaded_sections && typeof item.rfq_state.loaded_sections === 'object'
+                                ? Object.assign({ summary: true, bids: true, workflow: true }, item.rfq_state.loaded_sections)
+                                : { summary: true, bids: true, workflow: true };
+                            var preloadedLoadingSections = item.rfq_state.loading_sections && typeof item.rfq_state.loading_sections === 'object'
+                                ? Object.assign({ summary: false, bids: false, workflow: false }, item.rfq_state.loading_sections)
+                                : { summary: false, bids: false, workflow: false };
+                            setItemState(function(prev) {
+                                var previousState = prev && typeof prev === 'object' ? prev : {};
+                                var previousValidationState = previousState.validation_state
+                                    || (item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null)
+                                    || (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object' ? item.meta.material_validation : null);
+                                var mergedValidationState = mergeValidationState(previousValidationState, item.rfq_state.validation_state || null);
+                                return Object.assign({}, previousState, item.rfq_state, {
+                                    validation_state: mergedValidationState,
+                                    validation_card_status_text: mergedValidationState && mergedValidationState.card_status_text ? mergedValidationState.card_status_text : (previousState.validation_card_status_text || ''),
+                                    validation_card_status_color: mergedValidationState && mergedValidationState.card_status_color ? mergedValidationState.card_status_color : (previousState.validation_card_status_color || '#f4b400'),
+                                    loaded_sections: preloadedLoadedSections,
+                                    loading_sections: preloadedLoadingSections,
+                                    loading: false
+                                });
+                            });
+                            if (!cacheIsFresh) {
+                                timeoutId = window.setTimeout(function() {
+                                    // Refresh complete RFQ state once so workflow/bids tabs
+                                    // can hydrate from a single request.
+                                    fetchItemState('full', true);
+                                }, 350);
+                            }
+                        } else {
+                            timeoutId = window.setTimeout(function() {
+                                // Bootstrap modal with full state in one call.
+                                fetchItemState('full');
+                            }, 80);
+                        }
+
+                        return function() {
+                            if (timeoutId) {
+                                window.clearTimeout(timeoutId);
+                            }
+                        };
                     }, [isOpen, itemId, item && item.rfq_state]);
                     React.useEffect(function() {
                         if (!isOpen || !requestSampleContextProp) return;
@@ -17016,6 +17583,13 @@ class N88_RFQ_Admin {
                         setSampleRequestFiles(function(prev) {
                             return prev.concat(nextFiles);
                         });
+                    };
+                    var isPreviewableImageFile = function(file) {
+                        if (!file) return false;
+                        var mimeType = String(file.type || '').toLowerCase();
+                        if (mimeType.indexOf('image/') === 0) return true;
+                        var fileName = String(file.name || '').toLowerCase();
+                        return /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i.test(fileName);
                     };
                     var removeSampleRequestFileAt = function(idx) {
                         setSampleRequestFiles(function(prev) {
@@ -17486,6 +18060,7 @@ class N88_RFQ_Admin {
                                     if (typeof fetchItemState === 'function') fetchItemState();
                                     if (typeof fetchTimeline === 'function') fetchTimeline();
                                     if (typeof updateLayout === 'function') updateLayout(item.id, { deposit_status: 'sent_by_designer' });
+                                    window.location.reload();
                                 } else {
                                     alert((d.data && d.data.message) || d.message || 'Failed to submit.');
                                 }
@@ -17678,27 +18253,50 @@ class N88_RFQ_Admin {
                         setMeasurementType(n88GetCategoryMeasurementType(category));
                     }, [category]);
                     React.useEffect(function() {
+                        if (!isOpen) {
+                            return;
+                        }
+                        // Keep keyword loading as secondary priority: do not fire on workflow-first opens.
+                        if (activeTab !== 'details') {
+                            return;
+                        }
                         if (!category) {
                             setCategoryKeywordsLoading(false);
                             setAvailableCategoryKeywords([]);
                             return;
                         }
                         var cancelled = false;
-                        setCategoryKeywordsLoading(true);
-                        window.n88LoadCategoryKeywords(category).then(function(keywords) {
+                        var idleHandle = null;
+                        var timeoutHandle = null;
+                        var runLoad = function() {
                             if (cancelled) return;
-                            setCategoryKeywordsLoading(false);
-                            setAvailableCategoryKeywords(Array.isArray(keywords) ? keywords : []);
-                        }).catch(function() {
-                            if (!cancelled) {
+                            setCategoryKeywordsLoading(true);
+                            window.n88LoadCategoryKeywords(category).then(function(keywords) {
+                                if (cancelled) return;
                                 setCategoryKeywordsLoading(false);
-                                setAvailableCategoryKeywords([]);
-                            }
-                        });
+                                setAvailableCategoryKeywords(Array.isArray(keywords) ? keywords : []);
+                            }).catch(function() {
+                                if (!cancelled) {
+                                    setCategoryKeywordsLoading(false);
+                                    setAvailableCategoryKeywords([]);
+                                }
+                            });
+                        };
+                        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                            idleHandle = window.requestIdleCallback(runLoad, { timeout: 800 });
+                        } else {
+                            timeoutHandle = setTimeout(runLoad, 220);
+                        }
                         return function() {
                             cancelled = true;
+                            if (idleHandle && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+                                window.cancelIdleCallback(idleHandle);
+                            }
+                            if (timeoutHandle) {
+                                clearTimeout(timeoutHandle);
+                            }
                         };
-                    }, [category]);
+                    }, [isOpen, activeTab, category]);
                     var toggleSelectedCategoryKeywordId = function(keywordId) {
                         setSelectedCategoryKeywordIds(function(prev) {
                             var list = Array.isArray(prev) ? prev.slice() : [];
@@ -19618,6 +20216,7 @@ class N88_RFQ_Admin {
                                         activeTab === 'details' ? React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start', flex: 1, minHeight: 0 } },
                                             // Left 60%: main content scrolls with the modal scroll container
                                             React.createElement('div', { style: { flex: '0 0 60%', maxWidth: '60%', paddingRight: '8px' } },
+                                            itemState.loading ? renderLoadingNotice('Loading item details, please wait...') : null,
                                             itemState.has_unread_operator_messages ? React.createElement('div', {
                                                 style: { marginBottom: '24px', padding: '16px', backgroundColor: '#330000', border: '2px solid #ff0000', borderRadius: '4px' }
                                             },
@@ -19666,7 +20265,7 @@ class N88_RFQ_Admin {
                                                         (category && detailsEditAllowed && detailsEditMode) ? React.createElement('div', { style: { marginBottom: '12px' } },
                                                             React.createElement('div', { style: { fontSize: '12px', marginBottom: '6px', color: darkText, opacity: 0.7 } }, 'Keywords:'),
                                                             React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
-                                                                categoryKeywordsLoading ? React.createElement('div', { style: { fontSize: '11px', opacity: 0.75, color: darkText } }, 'Loading keywords...') : ((availableCategoryKeywords || []).length ? availableCategoryKeywords.map(function(keyword) {
+                                                                categoryKeywordsLoading ? renderLoadingNotice('Loading keywords...', { marginBottom: '0', padding: '8px 10px', fontSize: '11px' }) : ((availableCategoryKeywords || []).length ? availableCategoryKeywords.map(function(keyword) {
                                                                     var keywordId = parseInt(keyword.keyword_id, 10);
                                                                     var isSelected = selectedCategoryKeywordIds.indexOf(keywordId) !== -1;
                                                                     return React.createElement('button', {
@@ -21314,6 +21913,7 @@ class N88_RFQ_Admin {
                                                                 if (itemState.bids && itemState.bids.length === 1) {
                                                                     setSelectedBidId(itemState.bids[0].bid_id);
                                                                 }
+                                                                setHasRequestedCategoryKeywords(true);
                                                                 setShowCadPrototypeForm(true);
                                                                 setCadPrototypeError('');
                                                                 setCadPrototypeSuccess(false);
@@ -21355,6 +21955,7 @@ class N88_RFQ_Admin {
                                                             React.createElement('button', {
                                                                 onClick: function() {
                                                                     setShowCadPrototypeForm(false);
+                                                                    setHasRequestedCategoryKeywords(false);
                                                                     setSelectedBidId(null);
                                                                     setSelectedKeywords([]);
                                                                     setPrototypeNote('');
@@ -21422,6 +22023,7 @@ class N88_RFQ_Admin {
                                                                     value: selectedBidId || '',
                                                                     onChange: function(e) {
                                                                         setSelectedBidId(parseInt(e.target.value));
+                                                                        setHasRequestedCategoryKeywords(true);
                                                                         setSelectedKeywords([]);
                                                                         setAvailableKeywords([]);
                                                                     },
@@ -21788,8 +22390,8 @@ class N88_RFQ_Admin {
                                         ) : null,
                                         // Tab 4: Production Timeline (Commit 3.A.1 - dynamic 6-step timeline; operator controls)
                                         activeTab === 'timeline' ? React.createElement('div', { style: { fontFamily: 'monospace' } },
-                                            timelineLoading ? React.createElement('div', { style: { padding: '24px', textAlign: 'center', color: darkText } }, 'Loading timeline…') : null,
-                                            isItemStateSectionLoading('workflow') ? React.createElement('div', { style: { marginBottom: '16px', padding: '14px 16px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', color: '#888', fontSize: '12px' } }, 'Loading workflow details...') : null,
+                                            timelineLoading ? renderLoadingNotice('Loading timeline...') : null,
+                                            isItemStateSectionLoading('workflow') ? renderLoadingNotice('Loading workflow details...') : null,
                                             timelineError ? React.createElement('div', { style: { padding: '16px', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' } }, timelineError) : null,
                                             // Operator: standalone Step 4 Deposit block - visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps
                                             !timelineLoading && itemState && itemState.has_awarded_bid && isOperatorTimeline ? React.createElement('div', { style: { marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
@@ -21844,7 +22446,10 @@ class N88_RFQ_Admin {
                                                         var isSelected = selectedStepIndex === idx;
                                                         stepEls.push(React.createElement('div', {
                                                             key: step.step_id || idx,
-                                                            onClick: function() { setSelectedStepIndex(idx); },
+                                                            onClick: function() {
+                                                                workflowTimelineUserNavRef.current = true;
+                                                                setSelectedStepIndex(idx);
+                                                            },
                                                             style: {
                                                                 flex: 1,
                                                                 display: 'flex',
@@ -22017,6 +22622,8 @@ class N88_RFQ_Admin {
                                                             var mergedValidationStatus = validationStatus || validationMeta.sample_status || '';
                                                             var showSampleRequestStep = s.step_number === 2;
                                                             var showSampleResponseStep = s.step_number === 2;
+                                                            var showSupplierResponse = !!(mergedValidationSupplier.updated_at || mergedValidationSupplier.status || mergedValidationSupplier.note || mergedValidationSupplier.tracking_number || (mergedValidationSupplier.files && mergedValidationSupplier.files.length));
+                                                            var hasSampleRequest = !!(sampleRequestLocked || validationState.enabled || validationState.bid_id || mergedValidationRequest.requested_at || mergedValidationStatus === 'sample_requested' || showSupplierResponse || validationMeta.sample_status || validationMeta.bid_id || validationMetaRequest.requested_at || validationMetaSupplier.updated_at);
                                                             var selectedBidForRequest = selectedSampleRequestBid;
                                                             var supplierOptions = itemState.bids.map(function(bid) {
                                                                 return {
@@ -22025,7 +22632,6 @@ class N88_RFQ_Admin {
                                                                     label: bid.supplier_name || ('Supplier #' + bid.supplier_id)
                                                                 };
                                                             });
-                                                            var showSupplierResponse = !!(mergedValidationSupplier.updated_at || mergedValidationSupplier.status || mergedValidationSupplier.note || mergedValidationSupplier.tracking_number || (mergedValidationSupplier.files && mergedValidationSupplier.files.length));
                                                             var step2SampleStatus = String(mergedValidationStatus || '').toLowerCase();
                                                             var step2CardStatusText = String(validationState.card_status_text || validationMeta.card_status_text || itemState.validation_card_status_text || item.validation_card_status_text || '').toLowerCase();
                                                             var step2ReviewReceived = !!(
@@ -22036,22 +22642,67 @@ class N88_RFQ_Admin {
                                                             var step2ReviewApproved = !!(
                                                                 mergedValidationReview.approved_at ||
                                                                 step2SampleStatus === 'samples_approved' ||
-                                                                step2CardStatusText === 'samples approved'
+                                                                step2CardStatusText === 'samples approved' ||
+                                                                step2CardStatusText === 'awaiting po' ||
+                                                                (validationState.readiness_flags && validationState.readiness_flags.validation_complete)
+                                                            );
+                                                            var hasApprovedReviewPayload = !!(
+                                                                step2ReviewApproved ||
+                                                                (Array.isArray(mergedValidationReview.approved_material_codes) && mergedValidationReview.approved_material_codes.length) ||
+                                                                (Array.isArray(mergedValidationReview.approved_finish_codes) && mergedValidationReview.approved_finish_codes.length) ||
+                                                                (Array.isArray(mergedValidationReview.approved_sample_images) && mergedValidationReview.approved_sample_images.length) ||
+                                                                (mergedValidationReview.notes && String(mergedValidationReview.notes).trim()) ||
+                                                                (Array.isArray(validationState.approved_material_codes) && validationState.approved_material_codes.length) ||
+                                                                (Array.isArray(validationState.approved_finish_codes) && validationState.approved_finish_codes.length) ||
+                                                                (Array.isArray(validationState.approved_sample_images) && validationState.approved_sample_images.length) ||
+                                                                (validationState.validation_notes && String(validationState.validation_notes).trim())
                                                             );
                                                             var step2ShowRequestStatusBox = !!(hasSampleRequest && !showSupplierResponse && !step2ReviewReceived && !step2ReviewApproved);
                                                             var step2ShowSupplierDetailsBox = !!(showSampleResponseStep && showSupplierResponse);
-                                                            var step2ShowApprovedBox = !!(showSampleResponseStep && !showSupplierResponse && step2ReviewApproved);
-                                                            var step2ReviewBidId = parseInt(validationState.bid_id || validationMeta.bid_id || (selectedBidForRequest && selectedBidForRequest.bid_id) || 0, 10) || 0;
+                                                            var step2ShowApprovedBox = !!(showSampleResponseStep && hasApprovedReviewPayload);
+                                                            var fallbackAwardBid = Array.isArray(itemState.bids)
+                                                                ? (itemState.bids.find(function(bid) {
+                                                                    var bidStatus = String((bid && bid.status) || '').toLowerCase();
+                                                                    return bidStatus === 'submitted';
+                                                                }) || itemState.bids.find(function(bid) {
+                                                                    var bidStatus = String((bid && bid.status) || '').toLowerCase();
+                                                                    return bidStatus === 'awarded';
+                                                                }) || itemState.bids[0] || null)
+                                                                : null;
+                                                            var step2ReviewBidId = parseInt(
+                                                                validationState.bid_id ||
+                                                                (validationState.review && validationState.review.bid_id) ||
+                                                                (validationState.request && validationState.request.bid_id) ||
+                                                                (validationState.supplier && validationState.supplier.bid_id) ||
+                                                                validationMeta.bid_id ||
+                                                                (validationMetaReview && validationMetaReview.bid_id) ||
+                                                                (mergedValidationRequest && mergedValidationRequest.bid_id) ||
+                                                                (mergedValidationSupplier && mergedValidationSupplier.bid_id) ||
+                                                                (selectedBidForRequest && selectedBidForRequest.bid_id) ||
+                                                                (fallbackAwardBid && fallbackAwardBid.bid_id) ||
+                                                                0,
+                                                                10
+                                                            ) || 0;
+                                                            var step2HasAwardableBid = step2ReviewBidId > 0 || !!(fallbackAwardBid && parseInt(fallbackAwardBid.bid_id, 10));
+                                                            var step2ApprovedAt = mergedValidationReview.approved_at || validationState.approved_at || validationMeta.approved_at || '';
                                                             var step2ValidationCanAward = !!(
-                                                                step2ReviewApproved &&
-                                                                step2ReviewBidId &&
+                                                                (step2ReviewApproved || hasApprovedReviewPayload || step2SampleStatus === 'samples_approved' || step2CardStatusText === 'samples approved' || step2CardStatusText === 'awaiting po') &&
                                                                 !itemState.has_awarded_bid
                                                             );
-                                                            var hasSampleRequest = !!(sampleRequestLocked || validationState.enabled || validationState.bid_id || mergedValidationRequest.requested_at || mergedValidationStatus === 'sample_requested' || showSupplierResponse || validationMeta.sample_status || validationMeta.bid_id || validationMetaRequest.requested_at || validationMetaSupplier.updated_at);
+                                                            var hasAwardedBidNormalized = (itemState && (itemState.has_awarded_bid === true || String(itemState.has_awarded_bid || '').toLowerCase() === 'true' || String(itemState.has_awarded_bid || '') === '1'));
+                                                            var forceStep2AwardCta = !!(
+                                                                showSampleResponseStep &&
+                                                                !hasAwardedBidNormalized &&
+                                                                (
+                                                                    (parseInt(validationState.bid_id || 0, 10) > 0 && String(validationState.sample_status || '').toLowerCase() === 'samples_approved') ||
+                                                                    (parseInt(validationState.bid_id || 0, 10) > 0 && validationState.readiness_flags && validationState.readiness_flags.validation_complete) ||
+                                                                    (parseInt(step2ReviewBidId || 0, 10) > 0 && hasApprovedReviewPayload)
+                                                                )
+                                                            );
                                                             var sampleRequestAlreadySubmitted = !!(showSampleRequestStep && hasSampleRequest && mergedValidationRequest.requested_at);
                                                             var openedFromSampleRequestAction = !!(requestSampleContextProp || sampleRequestInlineOpen);
                                                             var canDismissSampleRequestPanel = !!(!hasSampleRequest && openedFromSampleRequestAction);
-                                                            var shouldRenderSamplePanel = !!(hasSampleRequest || openedFromSampleRequestAction);
+                                                            var shouldRenderSamplePanel = !!(hasSampleRequest || openedFromSampleRequestAction || hasApprovedReviewPayload);
                                                             var canShowSampleRequestForm = !!(showSampleRequestStep && !sampleRequestAlreadySubmitted && !showSupplierResponse && (!hasSampleRequest || openedFromSampleRequestAction));
                                                             var samplePanelTitle = (showSupplierResponse || step2ReviewReceived || step2ReviewApproved) ? 'Review Material Samples' : 'Request Material Samples';
                                                             var step2ApprovedMaterialCodes = Array.isArray(mergedValidationReview.approved_material_codes) && mergedValidationReview.approved_material_codes.length ? mergedValidationReview.approved_material_codes : (Array.isArray(validationState.approved_material_codes) ? validationState.approved_material_codes : []);
@@ -22100,6 +22751,70 @@ class N88_RFQ_Admin {
                                                                 sampleRequestError ? React.createElement('div', {
                                                                     style: { marginBottom: '12px', padding: '10px 12px', backgroundColor: '#3a1a1a', border: '1px solid #ff4444', borderRadius: '4px', fontSize: '12px', color: '#ff6666' }
                                                                 }, sampleRequestError) : null,
+                                                                forceStep2AwardCta ? React.createElement('div', {
+                                                                    style: { marginBottom: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px', display: 'grid', gap: '8px' }
+                                                                },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
+                                                                    step2ApprovedAt ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Approved: ' + formatWorkflowDateTime(step2ApprovedAt)) : null,
+                                                                    step2ApprovedMaterialCodes && step2ApprovedMaterialCodes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + step2ApprovedMaterialCodes.join(', ')) : null,
+                                                                    step2ApprovedFinishCodes && step2ApprovedFinishCodes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + step2ApprovedFinishCodes.join(', ')) : null,
+                                                                    step2ApprovedReviewNotes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Review Notes: ' + step2ApprovedReviewNotes) : null,
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        disabled: step2AwardSubmitting,
+                                                                        onClick: function() {
+                                                                            if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
+                                                                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                                                                            if (!nonce) {
+                                                                                setSampleRequestError('Security token missing. Please refresh and try again.');
+                                                                                return;
+                                                                            }
+                                                                            setStep2AwardSubmitting(true);
+                                                                            setSampleRequestMessage('');
+                                                                            setSampleRequestError('');
+                                                                            var fd = new FormData();
+                                                                            fd.append('action', 'n88_award_bid');
+                                                                            fd.append('item_id', String(itemId));
+                                                                            var resolvedAwardBidId = parseInt(step2ReviewBidId, 10) || (fallbackAwardBid ? parseInt(fallbackAwardBid.bid_id, 10) : 0) || 0;
+                                                                            if (!resolvedAwardBidId) {
+                                                                                setSampleRequestError('No eligible bid found to award. Please refresh and try again.');
+                                                                                setStep2AwardSubmitting(false);
+                                                                                return;
+                                                                            }
+                                                                            fd.append('bid_id', String(resolvedAwardBidId));
+                                                                            fd.append('_ajax_nonce', nonce);
+                                                                            fetch(ajaxUrl, { method: 'POST', body: fd })
+                                                                                .then(function(response) { return response.json(); })
+                                                                                .then(function(data) {
+                                                                                    if (data && data.success) {
+                                                                                        setSampleRequestMessage(data.data && data.data.message ? data.data.message : 'Bid awarded successfully.');
+                                                                                        setItemState(function(prev) {
+                                                                                            var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                            nextState.has_awarded_bid = true;
+                                                                                            nextState.awarded_bid_id = resolvedAwardBidId || nextState.awarded_bid_id || null;
+                                                                                            return nextState;
+                                                                                        });
+                                                                                        awardStepLockUntilRef.current = Date.now() + 4000;
+                                                                                        switchDesignerModalTabManually('timeline');
+                                                                                        setPinnedTimelineStep(2);
+                                                                                        setSelectedStepIndex(2);
+                                                                                        fetchItemState();
+                                                                                        window.location.reload();
+                                                                                    } else {
+                                                                                        setSampleRequestError(data && data.data && data.data.message ? data.data.message : 'Failed to award bid.');
+                                                                                    }
+                                                                                })
+                                                                                .catch(function() {
+                                                                                    setSampleRequestError('Failed to award bid. Please try again.');
+                                                                                })
+                                                                                .finally(function() {
+                                                                                    setStep2AwardSubmitting(false);
+                                                                                });
+                                                                        },
+                                                                        style: { justifySelf: 'start', padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: step2AwardSubmitting ? 'not-allowed' : 'pointer', opacity: step2AwardSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '700' }
+                                                                    }, step2AwardSubmitting ? 'Awarding...' : 'Award Project')
+                                                                ) : null,
                                                                 (hasSampleRequest && mergedValidationRequest.requested_at) ? React.createElement('div', {
                                                                     style: { marginBottom: '14px', padding: '12px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px', display: 'grid', gap: '6px' }
                                                                 },
@@ -22223,11 +22938,21 @@ class N88_RFQ_Admin {
                                                                     }),
                                                                     sampleRequestFiles.length ? React.createElement('div', { style: { marginTop: '8px', display: 'grid', gap: '6px' } },
                                                                         sampleRequestFiles.map(function(file, fileIdx) {
+                                                                            var canPreview = isPreviewableImageFile(file);
+                                                                            var previewUrl = canPreview && typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(file) : '';
                                                                             return React.createElement('div', {
                                                                                 key: 'sample-file-' + fileIdx,
-                                                                                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid ' + darkBorder, borderRadius: '4px', fontSize: '11px', color: darkText }
+                                                                                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid ' + darkBorder, borderRadius: '4px', fontSize: '11px', color: darkText }
                                                                             },
-                                                                                React.createElement('span', null, file.name),
+                                                                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 } },
+                                                                                    previewUrl ? React.createElement('img', {
+                                                                                        src: previewUrl,
+                                                                                        alt: file.name || ('Reference ' + (fileIdx + 1)),
+                                                                                        onLoad: function() { try { if (URL && URL.revokeObjectURL) URL.revokeObjectURL(previewUrl); } catch (e) {} },
+                                                                                        style: { width: '42px', height: '42px', objectFit: 'cover', borderRadius: '4px', border: '1px solid ' + darkBorder, flexShrink: 0 }
+                                                                                    }) : null,
+                                                                                    React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, file.name)
+                                                                                ),
                                                                                 React.createElement('button', {
                                                                                     type: 'button',
                                                                                     onClick: function() { removeSampleRequestFileAt(fileIdx); },
@@ -22284,7 +23009,7 @@ class N88_RFQ_Admin {
                                                                         renderAttachmentGallery(mergedValidationSupplier.files, { keyPrefix: 'supplier-sample-file-', defaultTitlePrefix: 'Sample File' })
                                                                     ) : null,
                                                                     mergedValidationSupplier.submitted_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Submitted By User ID: ' + mergedValidationSupplier.submitted_by) : null,
-                                                                    React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                                    (!hidePerItemMarkSamplesReceived || mergedValidationReview.samples_received_at) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#ffcc80', marginBottom: '8px' } }, 'Samples Received'),
                                                                         mergedValidationReview.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Received: ' + formatWorkflowDateTime(mergedValidationReview.samples_received_at)) : React.createElement('button', {
                                                                             type: 'button',
@@ -22325,9 +23050,9 @@ class N88_RFQ_Admin {
                                                                             },
                                                                             style: { marginBottom: '10px', padding: '8px 12px', background: '#FF0065', color: '#000', border: '1px solid #FF0065', borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace', fontWeight: '700' }
                                                                         }, sampleReviewSubmitting ? 'Saving...' : 'Mark Samples Received')
-                                                                    )
+                                                                    ) : null
                                                                 ) : null,
-                                                                (showSampleResponseStep && showSupplierResponse && step2ReviewReceived && !step2ReviewApproved) ? React.createElement('div', {
+                                                                (showSampleResponseStep && showSupplierResponse && step2ReviewReceived && !hasApprovedReviewPayload) ? React.createElement('div', {
                                                                     style: { marginTop: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px' }
                                                                 },
                                                                     React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Review Samples'),
@@ -22341,7 +23066,7 @@ class N88_RFQ_Admin {
                                                                                 var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
                                                                                 return selectedSupplierSampleIds.indexOf(fileId) !== -1;
                                                                             },
-                                                                            renderControl: step2ReviewApproved ? null : function(fileEntry, fileIdx) {
+                                                                            renderControl: hasApprovedReviewPayload ? null : function(fileEntry, fileIdx) {
                                                                                 var fileId = String((fileEntry && fileEntry.id) || ('idx-' + fileIdx));
                                                                                 var isSelectedSample = selectedSupplierSampleIds.indexOf(fileId) !== -1;
                                                                                 return React.createElement('input', {
@@ -22459,9 +23184,9 @@ class N88_RFQ_Admin {
                                                                             }, sampleReviewSubmitting ? 'Approving...' : 'Approve Samples')
                                                                         )
                                                                     ),
-                                                                step2ReviewApproved ? React.createElement('div', { style: { marginTop: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px', display: 'grid', gap: '6px' } },
+                                                                (step2ReviewApproved || hasApprovedReviewPayload || forceStep2AwardCta) ? React.createElement('div', { style: { marginTop: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px', display: 'grid', gap: '6px' } },
                                                                         React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
-                                                                        mergedValidationReview.approved_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Approved: ' + formatWorkflowDateTime(mergedValidationReview.approved_at)) : null,
+                                                                        step2ApprovedAt ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Approved: ' + formatWorkflowDateTime(step2ApprovedAt)) : null,
                                                                         step2ApprovedMaterialCodes && step2ApprovedMaterialCodes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + step2ApprovedMaterialCodes.join(', ')) : null,
                                                                         step2ApprovedFinishCodes && step2ApprovedFinishCodes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + step2ApprovedFinishCodes.join(', ')) : null,
                                                                         step2ApprovedSelectedSupplierSampleLabels && step2ApprovedSelectedSupplierSampleLabels.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Selected Supplier Samples: ' + step2ApprovedSelectedSupplierSampleLabels.join(', ')) : null,
@@ -22471,7 +23196,7 @@ class N88_RFQ_Admin {
                                                                             renderAttachmentGallery(step2ApprovedSampleImages, { keyPrefix: 'approved-sample-photo-summary-', defaultTitlePrefix: 'Approved Sample Photo' })
                                                                         ) : null
                                                                     ) : null,
-                                                                    step2ValidationCanAward ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, display: 'grid', gap: '8px' } },
+                                                                    (step2ValidationCanAward || forceStep2AwardCta) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, display: 'grid', gap: '8px' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Validation approved. You can now award this supplier and move to Step 03.'),
                                                                         React.createElement('button', {
                                                                             type: 'button',
@@ -22490,7 +23215,13 @@ class N88_RFQ_Admin {
                                                                                 var fd = new FormData();
                                                                                 fd.append('action', 'n88_award_bid');
                                                                                 fd.append('item_id', String(itemId));
-                                                                                fd.append('bid_id', String(step2ReviewBidId));
+                                                                                var resolvedAwardBidId = parseInt(step2ReviewBidId, 10) || (fallbackAwardBid ? parseInt(fallbackAwardBid.bid_id, 10) : 0) || 0;
+                                                                                if (!resolvedAwardBidId) {
+                                                                                    setSampleRequestError('No eligible bid found to award. Please refresh and try again.');
+                                                                                    setStep2AwardSubmitting(false);
+                                                                                    return;
+                                                                                }
+                                                                                fd.append('bid_id', String(resolvedAwardBidId));
                                                                                 fd.append('_ajax_nonce', nonce);
                                                                                 fetch(ajaxUrl, { method: 'POST', body: fd })
                                                                                     .then(function(response) { return response.json(); })
@@ -22500,13 +23231,15 @@ class N88_RFQ_Admin {
                                                                                             setItemState(function(prev) {
                                                                                                 var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
                                                                                                 nextState.has_awarded_bid = true;
-                                                                                                nextState.awarded_bid_id = parseInt(step2ReviewBidId, 10) || nextState.awarded_bid_id || null;
+                                                                                                nextState.awarded_bid_id = resolvedAwardBidId || nextState.awarded_bid_id || null;
                                                                                                 return nextState;
                                                                                             });
-                                                                                            setActiveTab('timeline');
+                                                                                            awardStepLockUntilRef.current = Date.now() + 4000;
+                                                                                            switchDesignerModalTabManually('timeline');
                                                                                             setPinnedTimelineStep(2);
                                                                                             setSelectedStepIndex(2);
                                                                                             fetchItemState();
+                                                                                            window.location.reload();
                                                                                         } else {
                                                                                             setSampleRequestError(data && data.data && data.data.message ? data.data.message : 'Failed to award bid.');
                                                                                         }
@@ -22520,8 +23253,8 @@ class N88_RFQ_Admin {
                                                                                     });
                                                                             },
                                                                             style: { padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: step2AwardSubmitting ? 'not-allowed' : 'pointer', opacity: step2AwardSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '700' }
-                                                                        }, step2AwardSubmitting ? 'Awarding...' : 'Award Bid')
-                                                                    ) : (showSampleResponseStep && itemState.has_awarded_bid && step2ReviewApproved) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '11px', color: greenAccent } }, 'Bid awarded. Step 03 is now active for PO, COM, and deposit.') : null
+                                                                        }, step2AwardSubmitting ? 'Awarding...' : 'Award Project')
+                                                                    ) : (showSampleResponseStep && hasAwardedBidNormalized && step2ReviewApproved) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '11px', color: greenAccent } }, 'Bid awarded. Step 03 is now active for PO, COM, and deposit.') : null
                                                                 ) : null
                                                             );
                                                         })() : null,
@@ -22678,6 +23411,15 @@ class N88_RFQ_Admin {
                                                                 step3DepositConfirmed ||
                                                                 step3ValidationState.can_commit
                                                             );
+                                                            var executionActivationState = step3Commitment.execution_activation && typeof step3Commitment.execution_activation === 'object'
+                                                                ? step3Commitment.execution_activation
+                                                                : {};
+                                                            var executionPaymentStatus = String((executionActivationState.payment_status || step3ValidationState.execution_payment_status || 'not_started')).toLowerCase();
+                                                            var executionFeePerAwardedItem = Number(executionActivationState.fee_per_awarded_item || 750) || 750;
+                                                            var executionAwardedItemCount = Number(executionActivationState.awarded_item_count || step3ValidationState.execution_awarded_item_count || 1) || 1;
+                                                            var executionFeeTotal = Number(executionActivationState.fee_total || step3ValidationState.execution_fee_total || (executionAwardedItemCount * executionFeePerAwardedItem)) || 0;
+                                                            var executionReferenceId = executionActivationState.reference_id || '';
+                                                            var executionLocked = executionAwardedItemCount > 0 && executionPaymentStatus !== 'confirmed';
                                                             var step3IsReadyForProduction = !!(
                                                                 step3ValidationState.can_commit ||
                                                                 (step3HasPoSuccess && step3HasComSuccess && step3HasDepositSuccess) ||
@@ -22724,6 +23466,7 @@ class N88_RFQ_Admin {
                                                                                         setValidationPoFile(null);
                                                                                         if (validationPoInputRef && validationPoInputRef.current) validationPoInputRef.current.value = '';
                                                                                         fetchItemState();
+                                                                                        window.location.reload();
                                                                                     } else {
                                                                                         setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to upload PO.');
                                                                                     }
@@ -22864,9 +23607,7 @@ class N88_RFQ_Admin {
                                                                         step3Commitment.deposit_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.deposit_status).replace(/_/g, ' ')) : null,
                                                                         step3Commitment.deposit_confirmed_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Confirmed: ' + formatWorkflowDateTime(step3Commitment.deposit_confirmed_at)) : null,
                                                                         (step3HasDepositSuccess && !step3Commitment.deposit_status && !step3Commitment.deposit_confirmed_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Deposit stage is already completed.') : null,
-                                                                        step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length ? React.createElement('div', { style: { display: 'grid', gap: '3px' } }, step3Commitment.deposit_receipt_files.map(function(file, fileIdx) {
-                                                                            return React.createElement('a', { key: 'step3-deposit-receipt-' + fileIdx, href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, file.title || ('Deposit Receipt ' + (fileIdx + 1)));
-                                                                        })) : null
+                                                                        step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length ? boardCanvasRenderDepositReceiptPreviewBlock(step3Commitment.deposit_receipt_files, null, greenAccent) : null
                                                                     ) : null,
                                                                     (step3HasPoSuccess && step3HasDepositSuccess && step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasComSuccess ? greenAccent : '#ffb347' } }, step3HasComSuccess ? 'COM Completed' : 'COM Pending'),
@@ -22877,9 +23618,65 @@ class N88_RFQ_Admin {
                                                                     ) : (step3HasPoSuccess && step3HasDepositSuccess && !step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'COM Not Required')
                                                                     ) : null,
-                                                                    step3IsReadyForProduction ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
-                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '700', color: greenAccent } }, 'Ready for Production'),
-                                                                        React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'All validation commitments are complete.')
+                                                                    step3IsReadyForProduction ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '700', color: executionLocked ? '#ffb347' : greenAccent } }, executionLocked ? 'Activate Production' : 'Ready for Production'),
+                                                                        React.createElement('div', { style: { fontSize: '10px', color: darkText } }, executionLocked ? 'Awaiting payment confirmation. Step 4 remains locked for buyer and supplier.' : 'All validation commitments are complete.'),
+                                                                        React.createElement('div', { style: { display: 'grid', gap: '6px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#070707' } },
+                                                                            React.createElement('div', { style: { fontSize: '10px', color: '#fff', fontWeight: '700' } }, 'Execution Activation Fee'),
+                                                                            React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Awarded items: ' + executionAwardedItemCount + ' | Total: $' + executionFeeTotal.toFixed(2)),
+                                                                            executionReferenceId ? React.createElement('div', { style: { fontSize: '10px', color: '#ffcc80' } }, 'Reference ID: ' + executionReferenceId) : null,
+                                                                            executionLocked ? React.createElement(React.Fragment, null,
+                                                                                React.createElement('select', {
+                                                                                    value: executionPaymentMethod,
+                                                                                    disabled: executionPaymentSubmitting || executionPaymentStatus === 'pending_verification',
+                                                                                    onChange: function(e) { setExecutionPaymentMethod(e.target.value || 'zelle'); },
+                                                                                    style: { width: '100%', padding: '8px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' }
+                                                                                },
+                                                                                    React.createElement('option', { value: 'zelle' }, 'Zelle'),
+                                                                                    React.createElement('option', { value: 'wire' }, 'Wire'),
+                                                                                    React.createElement('option', { value: 'ach' }, 'ACH')
+                                                                                ),
+                                                                                React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Send payment offline, then click "I Have Sent Payment".'),
+                                                                                executionPaymentStatus === 'pending_verification'
+                                                                                    ? React.createElement('div', { style: { fontSize: '10px', color: '#ffcc80', fontWeight: '600' } }, 'Payment submitted. Awaiting admin verification.')
+                                                                                    : React.createElement('button', {
+                                                                                        type: 'button',
+                                                                                        disabled: executionPaymentSubmitting,
+                                                                                        onClick: function() {
+                                                                                            setExecutionPaymentSubmitting(true);
+                                                                                            setSampleRequestError('');
+                                                                                            setSampleRequestMessage('');
+                                                                                            submitMaterialValidationAction('n88_submit_execution_activation_payment', {
+                                                                                                payment_method: executionPaymentMethod,
+                                                                                                awarded_item_count: executionAwardedItemCount
+                                                                                            }, {})
+                                                                                                .then(function(res) {
+                                                                                                    if (res && res.success) {
+                                                                                                        setSampleRequestMessage((res.data && res.data.message) ? res.data.message : 'Execution payment submitted.');
+                                                                                                        if (res.data && res.data.validation_state) {
+                                                                                                            setItemState(function(prev) {
+                                                                                                                var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                                nextState.validation_state = mergeValidationState(nextState.validation_state, res.data.validation_state);
+                                                                                                                nextState.validation_card_status_text = (nextState.validation_state && nextState.validation_state.card_status_text) ? nextState.validation_state.card_status_text : '';
+                                                                                                                return nextState;
+                                                                                                            });
+                                                                                                        }
+                                                                                                        fetchItemState();
+                                                                                                    } else {
+                                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to submit execution payment.');
+                                                                                                    }
+                                                                                                })
+                                                                                                .catch(function(err) {
+                                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to submit execution payment.');
+                                                                                                })
+                                                                                                .finally(function() {
+                                                                                                    setExecutionPaymentSubmitting(false);
+                                                                                                });
+                                                                                        },
+                                                                                        style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: executionPaymentSubmitting ? 'not-allowed' : 'pointer', opacity: executionPaymentSubmitting ? 0.6 : 1, fontSize: '11px', fontWeight: '700', fontFamily: 'monospace', textTransform: 'uppercase' }
+                                                                                    }, executionPaymentSubmitting ? 'Submitting...' : 'I Have Sent Payment')
+                                                                            ) : React.createElement('div', { style: { fontSize: '10px', color: greenAccent, fontWeight: '600' } }, 'Execution payment confirmed. Step 4 unlocked.')
+                                                                        )
                                                                     ) : null
                                                                 )
                                                             );
@@ -22955,6 +23752,7 @@ class N88_RFQ_Admin {
                                                             return React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px', display: 'grid', gap: '10px' } },
                                                             React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Validation Readiness'),
                                                             React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.7 } }, 'Only pending actions are shown below. Completed sections are hidden automatically.'),
+                                                            React.createElement('div', { style: { padding: '10px 12px', borderRadius: '4px', border: '1px solid rgba(255,179,71,0.45)', background: 'rgba(255,179,71,0.08)', color: '#ffcc80', fontSize: '11px', lineHeight: 1.5 } }, 'Execution Activation Fee: $750 per awarded item required before production.'),
                                                             false && step3AwaitingPoReadiness ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
                                                                 React.createElement('div', { style: { fontSize: '16px', lineHeight: 1.2, color: '#fff', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Upload PO'),
                                                                 React.createElement('input', { ref: validationPoInputRef, type: 'file', onChange: function(e) { setValidationPoFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); }, style: { fontSize: '11px', color: '#fff' } }),
@@ -22973,6 +23771,7 @@ class N88_RFQ_Admin {
                                                                                     setValidationPoFile(null);
                                                                                     if (validationPoInputRef && validationPoInputRef.current) validationPoInputRef.current.value = '';
                                                                                     fetchItemState();
+                                                                                    window.location.reload();
                                                                                 } else {
                                                                                     setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to upload PO.');
                                                                                 }
@@ -22996,11 +23795,9 @@ class N88_RFQ_Admin {
                                                                 ) : null,
                                                                 !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'number', step: '0.01', value: validationDepositAmount, onChange: function(e) { setValidationDepositAmount(e.target.value); }, placeholder: 'Enter amount being sent', style: { width: '100%', padding: '8px', background: '#050505', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
                                                                 !step3DepositConfirmedReadiness ? React.createElement('div', { style: { fontSize: '10px', color: darkText, lineHeight: 1.5 } }, 'Deposit total is shown above. Enter the amount you are sending, then upload the receipt.') : null,
-                                                                !step3DepositConfirmedReadiness ? React.createElement('input', { ref: validationDepositInputRef, type: 'file', multiple: true, onChange: function(e) { setValidationDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }) : null,
-                                                                (!step3DepositConfirmedReadiness && validationDepositReceipts.length) ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, validationDepositReceipts.map(function(file) { return file.name; }).join(', ')) : null,
-                                                                step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length ? React.createElement('div', { style: { display: 'grid', gap: '4px' } }, step3CommitmentReadiness.deposit_receipt_files.map(function(file, fileIdx) {
-                                                                    return React.createElement('a', { key: 'deposit-proof-' + fileIdx, href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, file.title || ('Deposit Receipt ' + (fileIdx + 1)));
-                                                                })) : null,
+                                                                !step3DepositConfirmedReadiness ? React.createElement('input', { ref: validationDepositInputRef, type: 'file', multiple: true, accept: 'image/*,.pdf,.doc,.docx', onChange: function(e) { setValidationDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }) : null,
+                                                                (!step3DepositConfirmedReadiness && validationDepositReceipts.length) ? boardCanvasRenderDepositReceiptPreviewBlock(validationDepositReceipts, validationDepositPreviewUrls, greenAccent) : null,
+                                                                step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length ? boardCanvasRenderDepositReceiptPreviewBlock(step3CommitmentReadiness.deposit_receipt_files, null, greenAccent) : null,
                                                                 step3DepositConfirmedReadiness ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, 'Deposit confirmed' + (step3CommitmentReadiness.deposit_confirmed_at ? ' · ' + formatWorkflowDateTime(step3CommitmentReadiness.deposit_confirmed_at) : '')) : null,
                                                                 !step3DepositConfirmedReadiness ? React.createElement('button', {
                                                                     type: 'button',
@@ -23021,6 +23818,7 @@ class N88_RFQ_Admin {
                                                                                     setValidationDepositReceipts([]);
                                                                                     if (validationDepositInputRef && validationDepositInputRef.current) validationDepositInputRef.current.value = '';
                                                                                     fetchItemState();
+                                                                                    window.location.reload();
                                                                                 } else {
                                                                                     setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to save deposit.');
                                                                                 }
@@ -24356,6 +25154,7 @@ class N88_RFQ_Admin {
                     var onLayoutChanged = props.onLayoutChanged;
                     var boardId = props.boardId;
                     var groupedModalBridge = props._groupedModalBridge || null;
+                    var batchActionDetailModalOpen = props.batchActionDetailModalOpen;
                     
                     var _modalState = React.useState(false);
                     var isModalOpen = _modalState[0];
@@ -24375,8 +25174,39 @@ class N88_RFQ_Admin {
                     var _supportMediaContextState = React.useState(null);
                     var supportMediaContext = _supportMediaContextState[0];
                     var setSupportMediaContext = _supportMediaContextState[1];
+                    var _modalPreloadedRfqStateState = React.useState(null);
+                    var modalPreloadedRfqState = _modalPreloadedRfqStateState[0];
+                    var setModalPreloadedRfqState = _modalPreloadedRfqStateState[1];
+                    var _modalPreloadedTimelineDataState = React.useState(null);
+                    var modalPreloadedTimelineData = _modalPreloadedTimelineDataState[0];
+                    var setModalPreloadedTimelineData = _modalPreloadedTimelineDataState[1];
                     var shouldOpenGroupedProposalForItem = function(targetItem) {
+                        var boardData = window.n88BoardData || {};
+                        var isSupplierBoardViewer = !!boardData.isSupplier;
+                        var isDesignerBoardViewer = !!boardData.isDesigner || !isSupplierBoardViewer;
+                        if (!isSupplierBoardViewer && !isDesignerBoardViewer) return false;
                         return !!(getBoardItemBatchProposalOpenState(targetItem).shouldOpenGroupedModal);
+                    };
+                    var hasAnyGroupedContextForItem = function(targetItem) {
+                        if (!targetItem || typeof targetItem !== 'object') return false;
+                        var primaryGroupId = parseInt(targetItem.batch_primary_proposal_group_id, 10) || 0;
+                        var groupIds = Array.isArray(targetItem.batch_proposal_group_ids)
+                            ? targetItem.batch_proposal_group_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                            : [];
+                        var explicitBatchItemIds = Array.isArray(targetItem.batch_request_item_ids)
+                            ? targetItem.batch_request_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                            : [];
+                        var explicitBatchItemCount = parseInt(targetItem.batch_item_count, 10) || 0;
+                        if (!explicitBatchItemCount && explicitBatchItemIds.length) {
+                            explicitBatchItemCount = explicitBatchItemIds.length;
+                        }
+                        return !!(
+                            primaryGroupId > 0 ||
+                            groupIds.length > 0 ||
+                            explicitBatchItemCount > 1 ||
+                            explicitBatchItemIds.length > 1 ||
+                            targetItem.has_batch_proposals
+                        );
                     };
                     var tryOpenGroupedProposalForItem = function(targetItem, options) {
                         if (!shouldOpenGroupedProposalForItem(targetItem)) return false;
@@ -24389,7 +25219,8 @@ class N88_RFQ_Admin {
                         groupedModalBridge.openGroupedProposalModal(Object.assign({
                             source: 'item',
                             anchorItemId: targetItem && targetItem.id ? targetItem.id : 0,
-                            groupId: targetItem && targetItem.batch_primary_proposal_group_id ? targetItem.batch_primary_proposal_group_id : 0
+                            groupId: targetItem && targetItem.batch_primary_proposal_group_id ? targetItem.batch_primary_proposal_group_id : 0,
+                            allowWhileLoading: true
                         }, options || {}));
                         return true;
                     };
@@ -24416,21 +25247,24 @@ class N88_RFQ_Admin {
                         var normalizedStatusText = String(statusText || '').trim().toLowerCase();
                         if (!normalizedStatusText) return false;
                         return (
-                            normalizedStatusText.indexOf('batch proposal received') !== -1 ||
-                            normalizedStatusText.indexOf('project awarded') !== -1 ||
-                            normalizedStatusText.indexOf('awaiting approval deposit') !== -1 ||
-                            normalizedStatusText.indexOf('awaiting deposit') !== -1 ||
-                            normalizedStatusText.indexOf('deposit confirmed') !== -1 ||
-                            normalizedStatusText.indexOf('po uploaded') !== -1 ||
-                            normalizedStatusText.indexOf('awaiting po') !== -1 ||
-                            normalizedStatusText.indexOf('awaiting com') !== -1 ||
-                            normalizedStatusText.indexOf('com shipped') !== -1 ||
-                            normalizedStatusText.indexOf('com received') !== -1 ||
-                            normalizedStatusText.indexOf('ready for production') !== -1
+                            normalizedStatusText.indexOf('batch proposal received') !== -1
                         );
                     };
                     var shouldSuppressSingleItemModalForItem = function(targetItem) {
+                        var boardData = window.n88BoardData || {};
+                        var isSupplierBoardViewer = !!boardData.isSupplier;
+                        var isDesignerBoardViewer = !!boardData.isDesigner || !isSupplierBoardViewer;
+                        if (!isSupplierBoardViewer && !isDesignerBoardViewer) return false;
+                        if (isDesignerBoardViewer && hasAnyGroupedContextForItem(targetItem) && shouldOpenGroupedProposalForItem(targetItem)) return true;
                         var statusText = getGroupedWorkflowStatusTextForItem(targetItem);
+                        var explicitBatchItemIds = targetItem && Array.isArray(targetItem.batch_request_item_ids)
+                            ? targetItem.batch_request_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                            : [];
+                        var explicitBatchItemCount = targetItem ? (parseInt(targetItem.batch_item_count, 10) || 0) : 0;
+                        if (!explicitBatchItemCount && explicitBatchItemIds.length) {
+                            explicitBatchItemCount = explicitBatchItemIds.length;
+                        }
+                        var hasExplicitMultiItemBatch = explicitBatchItemCount > 1;
                         var hasExplicitGroupId = !!(
                             targetItem && (
                                 targetItem.batch_primary_proposal_group_id ||
@@ -24461,11 +25295,13 @@ class N88_RFQ_Admin {
                             )
                         );
                         return !!(
-                            hasExplicitGroupId ||
-                            hasGroupedBidMeta ||
-                            hasGroupedAwardSnapshot ||
-                            shouldOpenGroupedProposalForItem(targetItem) ||
-                            shouldForceGroupedModalFromVisibleStatusLocal(statusText)
+                            hasExplicitMultiItemBatch && (
+                                hasExplicitGroupId ||
+                                hasGroupedBidMeta ||
+                                hasGroupedAwardSnapshot ||
+                                shouldOpenGroupedProposalForItem(targetItem) ||
+                                shouldForceGroupedModalFromVisibleStatusLocal(statusText)
+                            )
                         );
                     };
                     
@@ -24497,7 +25333,8 @@ class N88_RFQ_Admin {
                             var groupedOpened = !!groupedModalBridge.openGroupedProposalModal(Object.assign({
                                 source: 'item-forced',
                                 anchorItemId: item && item.id ? item.id : 0,
-                                groupId: item && item.batch_primary_proposal_group_id ? item.batch_primary_proposal_group_id : 0
+                                groupId: item && item.batch_primary_proposal_group_id ? item.batch_primary_proposal_group_id : 0,
+                                allowWhileLoading: true
                             }, options || {}));
                             console.log('[N88][Wrapper] openGrouped result', {
                                 itemId: item && item.id ? item.id : null,
@@ -24512,6 +25349,20 @@ class N88_RFQ_Admin {
                                 shouldOpenGroupedProposalForItem: shouldOpenGroupedProposalForItem(item),
                                 shouldSuppressSingleItemModalForItem: shouldSuppressSingleItemModalForItem(item)
                             });
+                            var boardData = window.n88BoardData || {};
+                            var isSupplierBoardViewer = !!boardData.isSupplier;
+                            var isDesignerBoardViewer = !!boardData.isDesigner || !isSupplierBoardViewer;
+                            if (isDesignerBoardViewer && hasAnyGroupedContextForItem(item) && shouldOpenGroupedProposalForItem(item) && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function') {
+                                var forcedDesignerGroupedOpened = !!groupedModalBridge.openGroupedProposalModal({
+                                    source: 'item-designer-force',
+                                    anchorItemId: item && item.id ? item.id : 0,
+                                    groupId: item && item.batch_primary_proposal_group_id ? item.batch_primary_proposal_group_id : 0,
+                                    allowWhileLoading: true
+                                });
+                                if (forcedDesignerGroupedOpened) {
+                                    return;
+                                }
+                            }
                             var groupedOpenedFromState = tryOpenGroupedProposalForItem(item, { source: 'item' });
                             console.log('[N88][Wrapper] tryOpenGroupedProposalForItem result', {
                                 itemId: item && item.id ? item.id : null,
@@ -24519,6 +25370,22 @@ class N88_RFQ_Admin {
                             });
                             if (groupedOpenedFromState) {
                                 return;
+                            }
+                            if (groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldSuppressSingleItemModalForItem(item)) {
+                                var forcedGroupedOpened = !!groupedModalBridge.openGroupedProposalModal({
+                                    source: 'item-fallback',
+                                    anchorItemId: item && item.id ? item.id : 0,
+                                    groupId: item && item.batch_primary_proposal_group_id ? item.batch_primary_proposal_group_id : 0,
+                                    allowWhileLoading: true,
+                                    statusText: getGroupedWorkflowStatusTextForItem(item)
+                                });
+                                console.log('[N88][Wrapper] fallback grouped modal result', {
+                                    itemId: item && item.id ? item.id : null,
+                                    forcedGroupedOpened: forcedGroupedOpened
+                                });
+                                if (forcedGroupedOpened) {
+                                    return;
+                                }
                             }
                             var unreadSupplierContext = item && item.latest_unread_supplier_message_context ? String(item.latest_unread_supplier_message_context) : '';
                             var unreadSupplierStepIndex = item && typeof item.latest_unread_supplier_message_step_index === 'number' ? item.latest_unread_supplier_message_step_index : null;
@@ -24540,9 +25407,12 @@ class N88_RFQ_Admin {
                                 ? validationStateOpen.readiness_flags
                                 : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.readiness_flags && typeof item.meta.material_validation.readiness_flags === 'object') ? item.meta.material_validation.readiness_flags : {});
                             var isSupplierBoardViewer = !!(window.n88BoardData && window.n88BoardData.isSupplier);
-                            var readyForProductionOpen = !!(
-                                validationStateOpen.can_commit ||
-                                validationCardTextOpen === 'ready for production'
+                            var comStatusOpenCard = String(validationCommitmentOpen.com_status || '').toLowerCase().trim();
+                            var openCardProductionStartedStep4 = !!(
+                                validationStateOpen.production_started ||
+                                validationCommitmentOpen.production_started_at ||
+                                String(validationCommitmentOpen.production_status || '').toLowerCase() === 'in_production' ||
+                                validationCardTextOpen.indexOf('in production') !== -1
                             );
                             var sampleSupplierResponseReceivedOpen = !!(
                                 validationSupplierOpen.updated_at ||
@@ -24553,15 +25423,14 @@ class N88_RFQ_Admin {
                             );
                             var sampleReviewStepThreeOpen = !!(
                                 (item && (item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1)) ||
+                                validationStateOpen.can_commit ||
                                 validationCommitmentOpen.po_uploaded_at ||
                                 (validationCommitmentOpen.po_file && validationCommitmentOpen.po_file.url) ||
                                 validationCommitmentOpen.com_status ||
                                 validationCommitmentOpen.com_tracking_number ||
-                                validationCommitmentOpen.com_delivered_at ||
                                 validationCommitmentOpen.deposit_status ||
                                 validationCommitmentOpen.deposit_confirmed_at ||
                                 (validationCommitmentOpen.deposit_receipt_files && validationCommitmentOpen.deposit_receipt_files.length) ||
-                                validationStateOpen.can_commit ||
                                 validationReadinessOpen.awaiting_po ||
                                 validationReadinessOpen.awaiting_deposit ||
                                 validationReadinessOpen.awaiting_com ||
@@ -24569,7 +25438,12 @@ class N88_RFQ_Admin {
                                 validationCardTextOpen === 'awaiting deposit' ||
                                 validationCardTextOpen === 'awaiting com' ||
                                 validationCardTextOpen === 'com shipped' ||
-                                validationCardTextOpen === 'ready for production'
+                                validationCardTextOpen.indexOf('ready for production') !== -1 ||
+                                validationCardTextOpen.indexOf('com received') !== -1 ||
+                                !!validationCommitmentOpen.com_delivered_at ||
+                                comStatusOpenCard === 'com_delivered' ||
+                                comStatusOpenCard === 'received' ||
+                                comStatusOpenCard === 'confirmed'
                             );
                             var sampleReviewStepTwoOpen = sampleSupplierResponseReceivedOpen ||
                                 validationSampleStatusOpen === 'sample_requested' ||
@@ -24615,7 +25489,7 @@ class N88_RFQ_Admin {
                                 setInitialTimelineStep(unreadSupplierStepIndex);
                                 setRequestSampleContext(null);
                                 setOpenModalToSupport(false);
-                            } else if (isSupplierBoardViewer && readyForProductionOpen) {
+                            } else if (openCardProductionStartedStep4) {
                                 setInitialTab('timeline');
                                 setInitialTimelineStep(3);
                                 setRequestSampleContext(null);
@@ -24676,6 +25550,7 @@ class N88_RFQ_Admin {
                                 var match = rawIds.some(function(v) { return String(v) === String(numericId); });
                                 if (!match) return;
                                 setInitialTab('rfq');
+                                setModalPreloadedRfqState(null);
                                 setIsModalOpen(true);
                             } catch (err) {
                                 console.error('Auto-open RFQ event handler error:', err);
@@ -24709,6 +25584,7 @@ class N88_RFQ_Admin {
                                     supplierId: e.detail.supplierId ? parseInt(e.detail.supplierId, 10) : null,
                                     requestToken: Date.now()
                                 });
+                                setModalPreloadedRfqState(null);
                                 setIsModalOpen(true);
                             } catch (err) {
                                 console.error('Open sample request event handler error:', err);
@@ -24742,6 +25618,7 @@ class N88_RFQ_Admin {
                                     supplierId: e.detail.supplierId ? parseInt(e.detail.supplierId, 10) : null,
                                     requestToken: Date.now()
                                 });
+                                setModalPreloadedRfqState(null);
                                 setIsModalOpen(true);
                             } catch (err) {
                                 console.error('Open support media event handler error:', err);
@@ -24774,7 +25651,7 @@ class N88_RFQ_Admin {
                                     shouldOpenGroupedProposalForItem: shouldOpenGroupedProposalForItem(item),
                                     shouldSuppressSingleItemModalForItem: shouldSuppressSingleItemModalForItem(item)
                                 });
-                                if (groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldOpenGroupedProposalForItem(item)) {
+                                if (!e.detail.forceSingleItemModal && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldOpenGroupedProposalForItem(item)) {
                                     setIsModalOpen(false);
                                     setOpenModalToSupport(false);
                                     setRequestSampleContext(null);
@@ -24784,6 +25661,7 @@ class N88_RFQ_Admin {
                                         source: 'item-event',
                                         anchorItemId: numericId,
                                         groupId: item && item.batch_primary_proposal_group_id ? item.batch_primary_proposal_group_id : 0,
+                                        allowWhileLoading: true,
                                         statusText: getGroupedWorkflowStatusTextForItem(item)
                                     });
                                     console.log('[N88][Event] grouped modal result', {
@@ -24794,9 +25672,31 @@ class N88_RFQ_Admin {
                                         return;
                                     }
                                 }
+                                if (!e.detail.forceSingleItemModal && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldSuppressSingleItemModalForItem(item)) {
+                                    var eventForcedGroupedOpened = groupedModalBridge.openGroupedProposalModal({
+                                        source: 'item-event-fallback',
+                                        anchorItemId: numericId,
+                                        groupId: item && item.batch_primary_proposal_group_id ? item.batch_primary_proposal_group_id : 0,
+                                        allowWhileLoading: true,
+                                        statusText: getGroupedWorkflowStatusTextForItem(item)
+                                    });
+                                    console.log('[N88][Event] forced grouped modal fallback result', {
+                                        itemId: numericId,
+                                        eventForcedGroupedOpened: !!eventForcedGroupedOpened
+                                    });
+                                    if (eventForcedGroupedOpened) {
+                                        return;
+                                    }
+                                }
                                 setOpenModalToSupport(false);
                                 setRequestSampleContext(null);
                                 setSupportMediaContext(null);
+                                setModalPreloadedRfqState(e.detail.preloadedRfqState && typeof e.detail.preloadedRfqState === 'object'
+                                    ? Object.assign({}, e.detail.preloadedRfqState, { rfq_state_fetched_at: Date.now() })
+                                    : null);
+                                setModalPreloadedTimelineData(e.detail.preloadedTimelineData && typeof e.detail.preloadedTimelineData === 'object'
+                                    ? Object.assign({}, e.detail.preloadedTimelineData)
+                                    : null);
                                 setInitialTab(e.detail.initialTab ? String(e.detail.initialTab) : 'details');
                                 setInitialTimelineStep(typeof e.detail.timelineStep === 'number' ? e.detail.timelineStep : null);
                                 console.log('[N88][Event] opening ItemDetailModal from event', {
@@ -24944,12 +25844,18 @@ class N88_RFQ_Admin {
                             return Promise.resolve();
                         }
                     };
+                    var modalItem = modalPreloadedRfqState && typeof modalPreloadedRfqState === 'object'
+                        ? Object.assign({}, item, {
+                            rfq_state: modalPreloadedRfqState,
+                            rfq_state_fetched_at: modalPreloadedRfqState.rfq_state_fetched_at || Date.now()
+                        })
+                        : item;
                     
                     return React.createElement(React.Fragment, null,
                         React.createElement(BoardItem, boardItemProps),
                         React.createElement(ItemDetailModalInline, {
                             key: 'item-detail-modal-' + String(item && (item.id || item.item_id || 'new')) + '-' + String(requestSampleContext && requestSampleContext.requestToken ? requestSampleContext.requestToken : 'default') + '-' + String(supportMediaContext && supportMediaContext.requestToken ? supportMediaContext.requestToken : 'support-default'),
-                            item: item,
+                            item: modalItem,
                             isOpen: isModalOpen,
                             openToDetailsAndSupport: openModalToSupport,
                             onClose: function() {
@@ -24958,6 +25864,8 @@ class N88_RFQ_Admin {
                                 setInitialTimelineStep(null);
                                 setRequestSampleContext(null);
                                 setSupportMediaContext(null);
+                                setModalPreloadedRfqState(null);
+                                setModalPreloadedTimelineData(null);
                                 setIsModalOpen(false);
                             },
                             onSave: handleSave,
@@ -24965,7 +25873,9 @@ class N88_RFQ_Admin {
                             initialTab: initialTab,
                             initialTimelineStep: initialTimelineStep,
                             requestSampleContext: requestSampleContext,
-                            supportMediaContext: supportMediaContext
+                            supportMediaContext: supportMediaContext,
+                            preloadedTimelineData: modalPreloadedTimelineData,
+                            hidePerItemMarkSamplesReceived: !!batchActionDetailModalOpen
                         })
                     );
                 };
@@ -25252,10 +26162,31 @@ class N88_RFQ_Admin {
                     var _proposalContextState = React.useState({ mode: 'selected', source: 'board', anchorItemId: 0, groupId: 0 });
                     var proposalContext = _proposalContextState[0];
                     var setProposalContext = _proposalContextState[1];
+                    var _proposalSupportMediaContextState = React.useState({ itemId: 0, bidId: 0, supplierId: 0, supplierName: '' });
+                    var proposalSupportMediaContext = _proposalSupportMediaContextState[0];
+                    var setProposalSupportMediaContext = _proposalSupportMediaContextState[1];
+                    var _proposalSupportMediaFilterState = React.useState('our_work');
+                    var proposalSupportMediaFilter = _proposalSupportMediaFilterState[0];
+                    var setProposalSupportMediaFilter = _proposalSupportMediaFilterState[1];
+                    var _proposalSupportMediaSearchState = React.useState('');
+                    var proposalSupportMediaSearch = _proposalSupportMediaSearchState[0];
+                    var setProposalSupportMediaSearch = _proposalSupportMediaSearchState[1];
+                    var _proposalSupportMediaLibraryState = React.useState({ our_work: [], material_samples: [] });
+                    var proposalSupportMediaLibrary = _proposalSupportMediaLibraryState[0];
+                    var setProposalSupportMediaLibrary = _proposalSupportMediaLibraryState[1];
+                    var _proposalSupportMediaLoadingState = React.useState(false);
+                    var proposalSupportMediaLoading = _proposalSupportMediaLoadingState[0];
+                    var setProposalSupportMediaLoading = _proposalSupportMediaLoadingState[1];
+                    var _proposalSupportMediaErrorState = React.useState('');
+                    var proposalSupportMediaError = _proposalSupportMediaErrorState[0];
+                    var setProposalSupportMediaError = _proposalSupportMediaErrorState[1];
+                    var proposalSupportMediaSectionRef = React.useRef(null);
                     var proposalStateCacheRef = React.useRef({});
                     var proposalStateRequestRef = React.useRef({});
                     var batchSupplierMediaCacheRef = React.useRef({});
                     var batchSupplierMediaRequestRef = React.useRef({});
+                    var boardStatusCacheRef = React.useRef({ boardId: 0, rows: [], fetchedAt: 0 });
+                    var groupedProposalModalCacheRef = React.useRef({});
                     var _batchActionSelectionModalState = React.useState(false);
                     var batchActionSelectionModalOpen = _batchActionSelectionModalState[0];
                     var setBatchActionSelectionModalOpen = _batchActionSelectionModalState[1];
@@ -25286,6 +26217,12 @@ class N88_RFQ_Admin {
                     var _batchActionSubmittingState = React.useState(false);
                     var batchActionSubmitting = _batchActionSubmittingState[0];
                     var setBatchActionSubmitting = _batchActionSubmittingState[1];
+                    var _batchMarkReceivingState = React.useState(false);
+                    var batchMarkReceiving = _batchMarkReceivingState[0];
+                    var setBatchMarkReceiving = _batchMarkReceivingState[1];
+                    var _batchSampleApprovingState = React.useState(false);
+                    var batchSampleApproving = _batchSampleApprovingState[0];
+                    var setBatchSampleApproving = _batchSampleApprovingState[1];
                     var _batchActionMessageState = React.useState('');
                     var batchActionMessage = _batchActionMessageState[0];
                     var setBatchActionMessage = _batchActionMessageState[1];
@@ -25311,10 +26248,82 @@ class N88_RFQ_Admin {
                     var _batchCommitmentDepositAmountState = React.useState('');
                     var batchCommitmentDepositAmount = _batchCommitmentDepositAmountState[0];
                     var setBatchCommitmentDepositAmount = _batchCommitmentDepositAmountState[1];
+                    var _batchExecutionPaymentMethodState = React.useState('zelle');
+                    var batchExecutionPaymentMethod = _batchExecutionPaymentMethodState[0];
+                    var setBatchExecutionPaymentMethod = _batchExecutionPaymentMethodState[1];
+                    var _batchExecutionPaymentSubmittingState = React.useState(false);
+                    var batchExecutionPaymentSubmitting = _batchExecutionPaymentSubmittingState[0];
+                    var setBatchExecutionPaymentSubmitting = _batchExecutionPaymentSubmittingState[1];
+                    var _boardBatchRfqChatState = React.useState({ messages: [], loading: false, input: '', error: '', threadKey: '', supplierEmail: '', supplierUserId: 0, anchorItemId: 0, supplierPicklist: [], picklistLoading: false, selectedSupplierId: 0, messageFiles: [] });
+                    var boardBatchRfqChat = _boardBatchRfqChatState[0];
+                    var setBoardBatchRfqChat = _boardBatchRfqChatState[1];
+                    var _boardBatchProposalChatState = React.useState({ messages: [], loading: false, input: '', error: '', supplierEmail: '', supplierUserId: 0, selectedSupplierId: 0, supplierPicklist: [], messageFiles: [] });
+                    var boardBatchProposalChat = _boardBatchProposalChatState[0];
+                    var setBoardBatchProposalChat = _boardBatchProposalChatState[1];
+                    var appendBoardBatchProposalMessageFiles = React.useCallback(function(fileList) {
+                        var incoming = Array.from(fileList || []);
+                        if (!incoming.length) return;
+                        setBoardBatchProposalChat(function(prev) {
+                            var existing = Array.isArray(prev && prev.messageFiles) ? prev.messageFiles : [];
+                            return Object.assign({}, prev, { messageFiles: existing.concat(incoming).slice(0, 5) });
+                        });
+                    }, []);
+                    var removeBoardBatchProposalMessageFile = React.useCallback(function(fileIndex) {
+                        setBoardBatchProposalChat(function(prev) {
+                            var existing = Array.isArray(prev && prev.messageFiles) ? prev.messageFiles : [];
+                            return Object.assign({}, prev, { messageFiles: existing.filter(function(_, idx) { return idx !== fileIndex; }) });
+                        });
+                    }, []);
+                    var appendBoardBatchRfqMessageFiles = React.useCallback(function(fileList) {
+                        var incoming = Array.from(fileList || []);
+                        if (!incoming.length) return;
+                        setBoardBatchRfqChat(function(prev) {
+                            var existing = Array.isArray(prev && prev.messageFiles) ? prev.messageFiles : [];
+                            return Object.assign({}, prev, { messageFiles: existing.concat(incoming).slice(0, 5) });
+                        });
+                    }, []);
+                    var removeBoardBatchRfqMessageFile = React.useCallback(function(fileIndex) {
+                        setBoardBatchRfqChat(function(prev) {
+                            var existing = Array.isArray(prev && prev.messageFiles) ? prev.messageFiles : [];
+                            return Object.assign({}, prev, { messageFiles: existing.filter(function(_, idx) { return idx !== fileIndex; }) });
+                        });
+                    }, []);
                     var _batchCommitmentDepositReceiptsState = React.useState([]);
                     var batchCommitmentDepositReceipts = _batchCommitmentDepositReceiptsState[0];
                     var setBatchCommitmentDepositReceipts = _batchCommitmentDepositReceiptsState[1];
+                    var _batchCommitmentDepositPreviewUrlsState = React.useState([]);
+                    var batchCommitmentDepositPreviewUrls = _batchCommitmentDepositPreviewUrlsState[0];
+                    var setBatchCommitmentDepositPreviewUrls = _batchCommitmentDepositPreviewUrlsState[1];
                     var batchCommitmentDepositInputRef = React.useRef(null);
+                    React.useEffect(function() {
+                        var files = batchCommitmentDepositReceipts || [];
+                        var urls = [];
+                        files.forEach(function(f) {
+                            if (!f) {
+                                urls.push('');
+                                return;
+                            }
+                            try {
+                                if (String(f.type || '').toLowerCase().indexOf('image/') === 0) {
+                                    urls.push(URL.createObjectURL(f));
+                                } else {
+                                    urls.push('');
+                                }
+                            } catch (err) {
+                                urls.push('');
+                            }
+                        });
+                        setBatchCommitmentDepositPreviewUrls(urls);
+                        return function() {
+                            urls.forEach(function(u) {
+                                if (u) {
+                                    try {
+                                        URL.revokeObjectURL(u);
+                                    } catch (e2) {}
+                                }
+                            });
+                        };
+                    }, [batchCommitmentDepositReceipts]);
                     var _batchCommitmentComTrackingNumberState = React.useState('');
                     var batchCommitmentComTrackingNumber = _batchCommitmentComTrackingNumberState[0];
                     var setBatchCommitmentComTrackingNumber = _batchCommitmentComTrackingNumberState[1];
@@ -25416,6 +26425,42 @@ class N88_RFQ_Admin {
                             });
                         return batchSupplierMediaRequestRef.current[numericSupplierId];
                     };
+                    var trackBoardCanvasSupportMediaView = function(itemId, bid) {
+                        var numericItemId = parseInt(itemId, 10) || 0;
+                        if (!(numericItemId > 0) || !bid || !bid.bid_id) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!ajaxUrl || !nonce) return;
+                        var fd = new FormData();
+                        fd.append('action', 'n88_track_supplier_media_view');
+                        fd.append('item_id', String(numericItemId));
+                        fd.append('bid_id', String(parseInt(bid.bid_id, 10) || 0));
+                        fd.append('supplier_id', String(parseInt(bid.supplier_id, 10) || 0));
+                        fd.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).catch(function() {});
+                    };
+                    var openProposalSupportMediaForBid = function(itemId, bid) {
+                        var numericItemId = parseInt(itemId, 10) || 0;
+                        if (!(numericItemId > 0) || !bid || !bid.bid_id) return;
+                        var supplierId = parseInt(bid.supplier_id, 10) || 0;
+                        setProposalSupportMediaContext({
+                            itemId: numericItemId,
+                            bidId: parseInt(bid.bid_id, 10) || 0,
+                            supplierId: supplierId,
+                            supplierName: bid && bid.supplier_name ? String(bid.supplier_name) : ''
+                        });
+                        setProposalSupportMediaFilter('our_work');
+                        setProposalSupportMediaSearch('');
+                        setProposalSupportMediaLibrary(getCachedBoardCanvasSupplierMediaLibrary(supplierId));
+                        setProposalSupportMediaLoading(!!supplierId && !hasCachedBoardCanvasSupplierMediaLibrary(supplierId));
+                        setProposalSupportMediaError('');
+                        trackBoardCanvasSupportMediaView(numericItemId, bid);
+                        window.setTimeout(function() {
+                            if (proposalSupportMediaSectionRef && proposalSupportMediaSectionRef.current && typeof proposalSupportMediaSectionRef.current.scrollIntoView === 'function') {
+                                proposalSupportMediaSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }
+                        }, 180);
+                    };
                     var getCachedProposalState = function(itemId) {
                         var numericItemId = parseInt(itemId, 10) || 0;
                         if (!(numericItemId > 0)) return null;
@@ -25447,13 +26492,290 @@ class N88_RFQ_Admin {
                     var fetchProposalStatesBatch = function(candidateItems) {
                         var batchOptions = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
                         candidateItems = Array.isArray(candidateItems) ? candidateItems : [];
-                        return Promise.all(candidateItems.map(function(it) {
-                            return fetchItemProposalState(toNumericItemId(it && it.id), batchOptions).then(function(state) {
-                                return { item: it, state: state, error: '' };
-                            }).catch(function(err) {
-                                return { item: it, state: getDefaultProposalState(), error: err && err.message ? err.message : 'Failed to load proposal state.' };
+                        var candidateItemIds = candidateItems.map(function(it) {
+                            return toNumericItemId(it && it.id);
+                        }).filter(function(id) {
+                            return id > 0;
+                        });
+                        var stateHasGroupedProposalBids = function(state) {
+                            if (!state || typeof state !== 'object') {
+                                return false;
+                            }
+                            if (isTruthyValue(state.has_batch_proposals)) {
+                                return true;
+                            }
+                            if (parseInt(state.batch_primary_proposal_group_id, 10) > 0) {
+                                return true;
+                            }
+                            if (Array.isArray(state.batch_proposal_group_ids) && state.batch_proposal_group_ids.some(function(id) {
+                                return (parseInt(id, 10) || 0) > 0;
+                            })) {
+                                return true;
+                            }
+                            if (Array.isArray(state.bids) && state.bids.length > 0) {
+                                return true;
+                            }
+                            return false;
+                        };
+                        var cachedResultsByItemId = {};
+                        var missingCandidateItems = candidateItems.slice();
+                        if (batchOptions.useCache !== false) {
+                            missingCandidateItems = candidateItems.filter(function(it) {
+                                var numericItemId = toNumericItemId(it && it.id);
+                                if (!(numericItemId > 0)) {
+                                    return false;
+                                }
+                                var cachedState = getCachedProposalState(numericItemId);
+                                var cachedStateEligible = !!cachedState;
+                                if (cachedStateEligible && batchOptions.requireGroupedBids) {
+                                    cachedStateEligible = Array.isArray(cachedState.bids) && cachedState.bids.length > 0;
+                                }
+                                if (!cachedStateEligible) {
+                                    return true;
+                                }
+                                cachedResultsByItemId[numericItemId] = {
+                                    item: it,
+                                    state: Object.assign({}, getDefaultProposalState(), cachedState),
+                                    error: ''
+                                };
+                                return false;
                             });
-                        }));
+                        }
+                        var mergeResultsInOriginalOrder = function(fetchedResults) {
+                            var fetchedByItemId = {};
+                            (fetchedResults || []).forEach(function(entry) {
+                                var fetchedItemId = toNumericItemId(entry && entry.item && entry.item.id);
+                                if (fetchedItemId > 0) {
+                                    fetchedByItemId[fetchedItemId] = entry;
+                                }
+                            });
+                            return candidateItems.map(function(it) {
+                                var numericItemId = toNumericItemId(it && it.id);
+                                return fetchedByItemId[numericItemId] || cachedResultsByItemId[numericItemId] || null;
+                            }).filter(function(entry) {
+                                return !!entry;
+                            });
+                        };
+                        var concurrency = parseInt(batchOptions.concurrency, 10) || 0;
+                        if (!(concurrency > 0)) {
+                            concurrency = candidateItems.length > 4 ? 3 : candidateItems.length || 1;
+                        }
+                        var onProgress = typeof batchOptions.onProgress === 'function' ? batchOptions.onProgress : null;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php');
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!missingCandidateItems.length) {
+                            var cachedOnlyResults = mergeResultsInOriginalOrder([]);
+                            if (onProgress) {
+                                cachedOnlyResults.forEach(function(entry, index) {
+                                    onProgress(entry, index + 1, cachedOnlyResults.length, cachedOnlyResults.slice(0, index + 1));
+                                });
+                            }
+                            return Promise.resolve(cachedOnlyResults);
+                        }
+                        var runSingleFetches = function() {
+                            return new Promise(function(resolve) {
+                                if (!missingCandidateItems.length) {
+                                    resolve(mergeResultsInOriginalOrder([]));
+                                    return;
+                                }
+                                var results = new Array(missingCandidateItems.length);
+                                var nextIndex = 0;
+                                var completedCount = 0;
+                                var launchNext = function() {
+                                    if (nextIndex >= missingCandidateItems.length) {
+                                        return;
+                                    }
+                                    var currentIndex = nextIndex++;
+                                    var currentItem = missingCandidateItems[currentIndex];
+                                    fetchItemProposalState(toNumericItemId(currentItem && currentItem.id), Object.assign({}, batchOptions, {
+                                        section: batchOptions.section || (batchOptions.requireGroupedBids ? 'bids' : 'bids_summary')
+                                    })).then(function(state) {
+                                        results[currentIndex] = { item: currentItem, state: state, error: '' };
+                                    }).catch(function(err) {
+                                        results[currentIndex] = {
+                                            item: currentItem,
+                                            state: getDefaultProposalState(),
+                                            error: err && err.message ? err.message : 'Failed to load proposal state.'
+                                        };
+                                    }).finally(function() {
+                                        completedCount++;
+                                        if (onProgress && results[currentIndex]) {
+                                            var partialMergedResults = mergeResultsInOriginalOrder(results.filter(function(entry) { return !!entry; }));
+                                            onProgress(results[currentIndex], partialMergedResults.length, candidateItems.length, partialMergedResults);
+                                        }
+                                        if (completedCount >= missingCandidateItems.length) {
+                                            resolve(mergeResultsInOriginalOrder(results.filter(function(entry) { return !!entry; })));
+                                            return;
+                                        }
+                                        launchNext();
+                                    });
+                                };
+                                for (var workerIndex = 0; workerIndex < Math.min(concurrency, missingCandidateItems.length); workerIndex++) {
+                                    launchNext();
+                                }
+                            });
+                        };
+                        var missingCandidateItemIds = missingCandidateItems.map(function(it) {
+                            return toNumericItemId(it && it.id);
+                        }).filter(function(id) {
+                            return id > 0;
+                        });
+                        var resolveBatchItemIdsForRequest = function() {
+                            var ids = missingCandidateItemIds.slice();
+                            if (Array.isArray(batchOptions.batchScopeItemIds) && batchOptions.batchScopeItemIds.length) {
+                                var scopeSeen = {};
+                                ids = [];
+                                batchOptions.batchScopeItemIds.forEach(function(sid) {
+                                    var n = parseInt(sid, 10) || 0;
+                                    if (n > 0 && !scopeSeen[n]) {
+                                        scopeSeen[n] = true;
+                                        ids.push(n);
+                                    }
+                                });
+                                ids.sort(function(a, b) { return a - b; });
+                            }
+                            if (ids.length < 2) {
+                                ids = missingCandidateItemIds.slice().sort(function(a, b) { return a - b; });
+                            }
+                            return ids;
+                        };
+                        var layoutIndicatesQuoted = function(boardItem, stateObj) {
+                            if (!boardItem || typeof boardItem !== 'object') return false;
+                            if (isTruthyValue(boardItem.has_bids)) return true;
+                            if (isTruthyValue(boardItem.has_batch_proposals)) return true;
+                            if (parseInt(boardItem.batch_proposal_bid_count, 10) > 0) return true;
+                            var rs = boardItem.rfq_state && typeof boardItem.rfq_state === 'object' ? boardItem.rfq_state : null;
+                            if (rs && isTruthyValue(rs.has_bids)) return true;
+                            if (rs && isTruthyValue(rs.has_batch_proposals)) return true;
+                            if (rs && parseInt(rs.batch_proposal_bid_count, 10) > 0) return true;
+                            if (rs && Array.isArray(rs.bids) && rs.bids.length > 0) return true;
+                            if (stateObj && isTruthyValue(stateObj.has_bids)) return true;
+                            return false;
+                        };
+                        var hydrateBatchEntriesIfQuotedMismatch = function(resultEntries) {
+                            if (!Array.isArray(resultEntries) || !resultEntries.length) {
+                                return Promise.resolve(resultEntries);
+                            }
+                            var targets = resultEntries.filter(function(entry) {
+                                var st = entry && entry.state ? entry.state : null;
+                                var bidCount = st && Array.isArray(st.bids) ? st.bids.length : 0;
+                                if (bidCount > 0) return false;
+                                return layoutIndicatesQuoted(entry.item, st);
+                            });
+                            if (!targets.length) {
+                                return Promise.resolve(resultEntries);
+                            }
+                            return Promise.all(targets.map(function(entry) {
+                                var hid = toNumericItemId(entry.item && entry.item.id);
+                                if (!(hid > 0)) return Promise.resolve();
+                                return fetchItemProposalState(hid, { useCache: false, requireGroupedBids: false, section: 'bids' }).then(function(fresh) {
+                                    if (!fresh || typeof fresh !== 'object') return;
+                                    if (!Array.isArray(fresh.bids) || !fresh.bids.length) return;
+                                    entry.state = Object.assign({}, getDefaultProposalState(), fresh);
+                                    if (proposalStateCacheRef.current) proposalStateCacheRef.current[hid] = entry.state;
+                                    if (window.n88BoardRfqStateCache) window.n88BoardRfqStateCache[hid] = entry.state;
+                                });
+                            })).then(function() { return resultEntries; });
+                        };
+                        if (batchOptions.requireGroupedBids && ajaxUrl && nonce) {
+                            var batchItemIdsForRequest = resolveBatchItemIdsForRequest();
+                            if (batchItemIdsForRequest.length < 2) {
+                                return runSingleFetches();
+                            }
+                            var batchRequestKey = batchItemIdsForRequest.join(',') + '|grouped';
+                            if (proposalStateRequestRef.current && proposalStateRequestRef.current[batchRequestKey]) {
+                                return proposalStateRequestRef.current[batchRequestKey];
+                            }
+                            proposalStateRequestRef.current[batchRequestKey] = fetch(ajaxUrl, {
+                                method: 'POST',
+                                body: (function() {
+                                    var fd = new FormData();
+                                    fd.append('action', 'n88_get_items_rfq_state_batch');
+                                    fd.append('item_ids', JSON.stringify(batchItemIdsForRequest));
+                                    fd.append('skip_timeline', '1');
+                                    fd.append('_ajax_nonce', nonce);
+                                    return fd;
+                                })(),
+                                credentials: 'same-origin'
+                            }).then(function(response) {
+                                return response.text().then(function(rawText) {
+                                    var text = typeof rawText === 'string' ? rawText.trim() : '';
+                                    if (!text) {
+                                        throw new Error('Empty batch proposal response received.');
+                                    }
+                                    return JSON.parse(text);
+                                });
+                            }).then(function(data) {
+                                if (!data || !data.success || !data.data || !data.data.items) {
+                                    throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to load batch proposal states.');
+                                }
+                                var statesByItemId = data.data.items || {};
+                                var results = missingCandidateItems.map(function(it) {
+                                    var itemId = toNumericItemId(it && it.id);
+                                    if (!(itemId > 0)) {
+                                        return { item: it, state: getDefaultProposalState(), error: '' };
+                                    }
+                                    var state = statesByItemId[itemId] || statesByItemId[String(itemId)] || getDefaultProposalState();
+                                    var resolvedState = Object.assign({}, getDefaultProposalState(), state);
+                                    var layoutBatchPrimary = it && (parseInt(it.batch_primary_proposal_group_id, 10) || 0);
+                                    var layoutBatchIds = it && Array.isArray(it.batch_proposal_group_ids) ? it.batch_proposal_group_ids : [];
+                                    if (layoutBatchPrimary > 0 && !(parseInt(resolvedState.batch_primary_proposal_group_id, 10) > 0)) {
+                                        resolvedState.batch_primary_proposal_group_id = layoutBatchPrimary;
+                                    }
+                                    if (layoutBatchIds.length && (!Array.isArray(resolvedState.batch_proposal_group_ids) || !resolvedState.batch_proposal_group_ids.length)) {
+                                        resolvedState.batch_proposal_group_ids = layoutBatchIds.slice();
+                                    }
+                                    if (it && isTruthyValue(it.has_batch_proposals) && !isTruthyValue(resolvedState.has_batch_proposals)) {
+                                        resolvedState.has_batch_proposals = it.has_batch_proposals;
+                                    }
+                                    var enrichGroupId = layoutBatchPrimary || (parseInt(resolvedState.batch_primary_proposal_group_id, 10) || 0);
+                                    if (enrichGroupId > 0 && Array.isArray(resolvedState.bids) && resolvedState.bids.length) {
+                                        resolvedState.bids = resolvedState.bids.map(function(b) {
+                                            if (!b || (parseInt(b.proposal_group_id, 10) || 0) > 0) return b;
+                                            return Object.assign({}, b, { proposal_group_id: enrichGroupId });
+                                        });
+                                    }
+                                    if (proposalStateCacheRef.current) {
+                                        proposalStateCacheRef.current[itemId] = resolvedState;
+                                    }
+                                    if (window.n88BoardRfqStateCache) {
+                                        window.n88BoardRfqStateCache[itemId] = resolvedState;
+                                    }
+                                    return { item: it, state: resolvedState, error: '' };
+                                });
+                                return hydrateBatchEntriesIfQuotedMismatch(results).then(function() {
+                                    var fetchedCandidateIdMap = {};
+                                    missingCandidateItems.forEach(function(it) {
+                                        var mid = toNumericItemId(it && it.id);
+                                        if (mid > 0) fetchedCandidateIdMap[mid] = true;
+                                    });
+                                    Object.keys(statesByItemId).forEach(function(key) {
+                                        var cid = parseInt(key, 10) || 0;
+                                        if (!(cid > 0) || fetchedCandidateIdMap[cid]) return;
+                                        var st = statesByItemId[key];
+                                        if (!st || typeof st !== 'object') return;
+                                        var primed = Object.assign({}, getDefaultProposalState(), st);
+                                        if (proposalStateCacheRef.current) proposalStateCacheRef.current[cid] = primed;
+                                        if (window.n88BoardRfqStateCache) window.n88BoardRfqStateCache[cid] = primed;
+                                    });
+                                    if (onProgress) {
+                                        var mergedProgressResults = mergeResultsInOriginalOrder(results);
+                                        mergedProgressResults.forEach(function(entry, index) {
+                                            onProgress(entry, index + 1, mergedProgressResults.length, mergedProgressResults.slice(0, index + 1));
+                                        });
+                                    }
+                                    return mergeResultsInOriginalOrder(results);
+                                });
+                            }).catch(function() {
+                                return runSingleFetches();
+                            }).finally(function() {
+                                if (proposalStateRequestRef.current) {
+                                    delete proposalStateRequestRef.current[batchRequestKey];
+                                }
+                            });
+                            return proposalStateRequestRef.current[batchRequestKey];
+                        }
+                        return runSingleFetches();
                     };
                     var getItemMeta = function(item) {
                         return item && item.meta && typeof item.meta === 'object' ? item.meta : {};
@@ -25650,6 +26972,78 @@ class N88_RFQ_Admin {
                             return true;
                         });
                     };
+                    var getBatchSampleActionButtonLabel = function() {
+                        var sampleGroups = getBatchActionQuotedGroups('sample');
+                        if (!sampleGroups.length) {
+                            return 'Batch Request Sample';
+                        }
+                        var hasApproved = false;
+                        var hasReceived = false;
+                        var hasShipped = false;
+                        var hasInPreparation = false;
+                        var hasRequested = false;
+                        var hasAnySampleFlow = false;
+                        sampleGroups.forEach(function(group) {
+                            var validationState = getProposalGroupValidationState(group);
+                            var validationStatus = validationState && validationState.sample_status ? String(validationState.sample_status).toLowerCase() : '';
+                            var statusText = String(getProposalGroupStatusText(group) || '').toLowerCase();
+                            if (
+                                validationStatus === 'samples_approved' ||
+                                statusText === 'samples approved'
+                            ) {
+                                hasApproved = true;
+                                hasAnySampleFlow = true;
+                                return;
+                            }
+                            if (
+                                validationStatus === 'samples_received' ||
+                                validationStatus === 'under_review' ||
+                                statusText === 'samples received' ||
+                                statusText === 'sample received'
+                            ) {
+                                hasReceived = true;
+                                hasAnySampleFlow = true;
+                                return;
+                            }
+                            if (
+                                validationStatus === 'supplier_submitted' ||
+                                validationStatus === 'sample_submitted' ||
+                                validationStatus === 'samples_shipped' ||
+                                validationStatus === 'shipped' ||
+                                validationStatus === 'in_transit' ||
+                                validationStatus === 'delivered' ||
+                                statusText === 'samples shipped'
+                            ) {
+                                hasShipped = true;
+                                hasAnySampleFlow = true;
+                                return;
+                            }
+                            if (
+                                validationStatus === 'in_preparation' ||
+                                statusText === 'samples in preparation'
+                            ) {
+                                hasInPreparation = true;
+                                hasAnySampleFlow = true;
+                                return;
+                            }
+                            if (
+                                validationStatus === 'sample_requested' ||
+                                statusText === 'samples requested' ||
+                                statusText === 'sample request created' ||
+                                proposalGroupHasSampleRequest(group)
+                            ) {
+                                hasRequested = true;
+                                hasAnySampleFlow = true;
+                            }
+                        });
+                        if (hasApproved) return 'View Approved Samples';
+                        if (hasReceived) return 'View Received Samples';
+                        if (hasShipped) return 'View Shipped Samples';
+                        if (hasInPreparation) return 'View Samples In Preparation';
+                        if (hasRequested) return 'View Requested Samples';
+                        if (hasAnySampleFlow) return 'View Sample Status';
+                        return 'Batch Request Sample';
+                    };
                     var getProposalGroupAwardedBid = function(group) {
                         var suppliers = group && Array.isArray(group.suppliers) ? group.suppliers : [];
                         var awardedEntry = suppliers.find(function(entry) {
@@ -25730,6 +27124,11 @@ class N88_RFQ_Admin {
                         var poReady = !!((commitmentState.po_file && commitmentState.po_file.url) || commitmentState.po_uploaded_at);
                         var depositReady = ['confirmed', 'paid', 'recorded'].indexOf(String(commitmentState.deposit_status || '').toLowerCase()) !== -1 || !!commitmentState.deposit_confirmed_at;
                         var comReady = !comApplicable || ['com_delivered', 'received', 'confirmed'].indexOf(String(commitmentState.com_status || '').toLowerCase()) !== -1 || !!commitmentState.com_delivered_at;
+                        var executionActivation = commitmentState.execution_activation && typeof commitmentState.execution_activation === 'object' ? commitmentState.execution_activation : {};
+                        var executionPaymentStatus = String((executionActivation.payment_status || validationState.execution_payment_status || 'not_started')).toLowerCase();
+                        var executionAwardedItemCount = Number(executionActivation.awarded_item_count || validationState.execution_awarded_item_count || 1) || 1;
+                        var executionFeeTotal = Number(executionActivation.fee_total || validationState.execution_fee_total || (executionAwardedItemCount * 750)) || 0;
+                        var executionLocked = executionAwardedItemCount > 0 && executionPaymentStatus !== 'confirmed';
                         return {
                             itemId: itemId,
                             title: item && item.title ? item.title : ('Item ' + itemId),
@@ -25756,7 +27155,13 @@ class N88_RFQ_Admin {
                             hasPo: poReady,
                             hasDeposit: depositReady,
                             hasCom: comReady,
-                            isReadyForExecution: !!(poReady && depositReady && comReady)
+                            isReadyForExecution: !!(poReady && depositReady && comReady),
+                            executionPaymentStatus: executionPaymentStatus,
+                            executionLocked: executionLocked,
+                            executionFeeTotal: executionFeeTotal,
+                            executionAwardedItemCount: executionAwardedItemCount,
+                            executionReferenceId: executionActivation.reference_id || '',
+                            executionPaymentMethod: executionActivation.payment_method || ''
                         };
                     };
                     var buildGroupedCommitmentRows = function() {
@@ -25950,6 +27355,19 @@ class N88_RFQ_Admin {
                             )
                         );
                     };
+                    var boardCanvasMediaMatchesSearch = function(entry, query) {
+                        var normalizedQuery = query ? String(query).toLowerCase().trim() : '';
+                        if (!normalizedQuery) return true;
+                        var haystack = [
+                            entry && entry.title ? entry.title : '',
+                            entry && entry.material_name ? entry.material_name : '',
+                            entry && entry.description ? entry.description : '',
+                            entry && entry.material_code ? entry.material_code : '',
+                            entry && entry.material_type ? entry.material_type : '',
+                            entry && Array.isArray(entry.tags) ? entry.tags.join(' ') : ''
+                        ].join(' ').toLowerCase();
+                        return haystack.indexOf(normalizedQuery) !== -1;
+                    };
                     var renderBoardCanvasSupportMediaCards = function(mediaItems, options) {
                         mediaItems = Array.isArray(mediaItems) ? mediaItems : [];
                         options = options || {};
@@ -26103,8 +27521,68 @@ class N88_RFQ_Admin {
                             approvedSelectedSupplierSamples: approvedSelectedSupplierSamples,
                             approvedSelectedSupplierSampleLabels: approvedSelectedSupplierSampleLabels,
                             approvedAt: validationReview && validationReview.approved_at ? validationReview.approved_at : '',
-                            isLocked: proposalGroupHasSampleRequest(group)
+                            isLocked: proposalGroupHasSampleRequest(group),
+                            useSameAsAbove: false,
+                            useSameReviewAsAbove: false
                         };
+                    };
+                    var areBatchSampleStringListsEqual = function(a, b) {
+                        var left = Array.isArray(a) ? a : [];
+                        var right = Array.isArray(b) ? b : [];
+                        if (left.length !== right.length) return false;
+                        for (var idx = 0; idx < left.length; idx++) {
+                            if (String(left[idx]) !== String(right[idx])) return false;
+                        }
+                        return true;
+                    };
+                    var areBatchSampleFilesEqual = function(a, b) {
+                        var left = Array.isArray(a) ? a : [];
+                        var right = Array.isArray(b) ? b : [];
+                        if (left.length !== right.length) return false;
+                        for (var idx = 0; idx < left.length; idx++) {
+                            var leftFile = left[idx] || {};
+                            var rightFile = right[idx] || {};
+                            var leftName = leftFile.name || leftFile.title || '';
+                            var rightName = rightFile.name || rightFile.title || '';
+                            if (String(leftName) !== String(rightName)) return false;
+                            if (String(leftFile.size || '') !== String(rightFile.size || '')) return false;
+                            if (String(leftFile.lastModified || '') !== String(rightFile.lastModified || '')) return false;
+                        }
+                        return true;
+                    };
+                    var getBatchSampleInheritedRowFields = function(sourceRow) {
+                        var source = sourceRow && typeof sourceRow === 'object' ? sourceRow : {};
+                        return {
+                            sampleTypes: Array.isArray(source.sampleTypes) ? source.sampleTypes.slice() : [],
+                            selectedMaterialRefs: Array.isArray(source.selectedMaterialRefs) ? source.selectedMaterialRefs.slice() : [],
+                            instructions: source.instructions || '',
+                            shippingAddressFields: boardCanvasNormalizeAddressFields(source.shippingAddressFields || {}),
+                            referenceFiles: Array.isArray(source.referenceFiles) ? source.referenceFiles.slice() : []
+                        };
+                    };
+                    var getBatchSampleReviewInheritedFields = function(sourceRow) {
+                        var source = sourceRow && typeof sourceRow === 'object' ? sourceRow : {};
+                        return {
+                            approvedMaterialCodes: source.approvedMaterialCodes != null ? String(source.approvedMaterialCodes) : '',
+                            approvedFinishCodes: source.approvedFinishCodes != null ? String(source.approvedFinishCodes) : '',
+                            reviewNotes: source.reviewNotes != null ? String(source.reviewNotes) : ''
+                        };
+                    };
+                    var batchSampleRowMatchesReviewInheritedFields = function(row, inherited) {
+                        var r = row && typeof row === 'object' ? row : {};
+                        var i = inherited && typeof inherited === 'object' ? inherited : {};
+                        return String(r.approvedMaterialCodes || '') === String(i.approvedMaterialCodes || '')
+                            && String(r.approvedFinishCodes || '') === String(i.approvedFinishCodes || '')
+                            && String(r.reviewNotes || '') === String(i.reviewNotes || '');
+                    };
+                    var batchSampleRowMatchesInheritedFields = function(row, inheritedFields) {
+                        var currentRow = row && typeof row === 'object' ? row : {};
+                        var currentFields = getBatchSampleInheritedRowFields(currentRow);
+                        return areBatchSampleStringListsEqual(currentFields.sampleTypes, inheritedFields.sampleTypes)
+                            && areBatchSampleStringListsEqual(currentFields.selectedMaterialRefs, inheritedFields.selectedMaterialRefs)
+                            && String(currentFields.instructions || '') === String(inheritedFields.instructions || '')
+                            && JSON.stringify(boardCanvasNormalizeAddressFields(currentFields.shippingAddressFields)) === JSON.stringify(boardCanvasNormalizeAddressFields(inheritedFields.shippingAddressFields))
+                            && areBatchSampleFilesEqual(currentFields.referenceFiles, inheritedFields.referenceFiles);
                     };
                     var getBatchSampleRowStatus = function(row) {
                         var validationState = row && row.validationState && typeof row.validationState === 'object' ? row.validationState : {};
@@ -26247,6 +27725,50 @@ class N88_RFQ_Admin {
                                 });
                         });
                     }, [batchActionDetailModalOpen, batchActionSampleRows]);
+                    React.useEffect(function() {
+                        if (!batchActionDetailModalOpen) return;
+                        var hasChanges = false;
+                        var nextRows = (batchActionSampleRows || []).map(function(row, rowIndex, rows) {
+                            if (!row || row.isLocked || !row.useSameAsAbove || rowIndex === 0) {
+                                return row;
+                            }
+                            var previousRow = rows[rowIndex - 1];
+                            if (!previousRow) {
+                                return row;
+                            }
+                            var inheritedFields = getBatchSampleInheritedRowFields(previousRow);
+                            if (batchSampleRowMatchesInheritedFields(row, inheritedFields)) {
+                                return row;
+                            }
+                            hasChanges = true;
+                            return Object.assign({}, row, inheritedFields);
+                        });
+                        if (hasChanges) {
+                            setBatchActionSampleRows(nextRows);
+                        }
+                    }, [batchActionDetailModalOpen, batchActionSampleRows]);
+                    React.useEffect(function() {
+                        if (!batchActionDetailModalOpen) return;
+                        var hasReviewSync = false;
+                        var nextRows = (batchActionSampleRows || []).map(function(row, rowIndex, rows) {
+                            if (!row || !row.isLocked || !row.useSameReviewAsAbove || rowIndex === 0) {
+                                return row;
+                            }
+                            var previousRow = rows[rowIndex - 1];
+                            if (!previousRow) {
+                                return row;
+                            }
+                            var inheritedReview = getBatchSampleReviewInheritedFields(previousRow);
+                            if (batchSampleRowMatchesReviewInheritedFields(row, inheritedReview)) {
+                                return row;
+                            }
+                            hasReviewSync = true;
+                            return Object.assign({}, row, inheritedReview, { useSameReviewAsAbove: true });
+                        });
+                        if (hasReviewSync) {
+                            setBatchActionSampleRows(nextRows);
+                        }
+                    }, [batchActionDetailModalOpen, batchActionSampleRows]);
                     var submitBatchAwardSelection = function() {
                         var selectedGroups = getBatchActionQuotedGroups('award').filter(function(group) {
                             return !!batchActionSelection[toNumericItemId(group && group.item && group.item.id)];
@@ -26262,6 +27784,8 @@ class N88_RFQ_Admin {
                             return;
                         }
                         setBatchActionSubmitting(true);
+                        setBatchMarkReceiving(false);
+                        setBatchSampleApproving(false);
                         setBatchActionMessage('');
                         setBatchActionError('');
                         var successes = 0;
@@ -26300,7 +27824,12 @@ class N88_RFQ_Admin {
                                 setBatchActionSelectionModalOpen(false);
                                 setBatchCommitmentMessage((successes === 1 ? '1 item awarded in this batch.' : (successes + ' items awarded in this batch.')) + (failures.length ? ' Some items still need attention below.' : ''));
                                 setBatchCommitmentError(failures.length ? failures.join('\n') : '');
-                                refreshGroupedProposalItems().catch(function() {});
+                                window.setTimeout(function() {
+                                    if (failures.length) {
+                                        alert((successes === 1 ? '1 item awarded in this batch.' : (successes + ' items awarded in this batch.')) + '\n\nSome items failed:\n' + failures.join('\n'));
+                                    }
+                                    window.location.reload();
+                                }, failures.length ? 50 : 150);
                                 return;
                             }
                             setBatchActionError(failures.length ? failures.join('\n') : 'Failed to award selected items.');
@@ -26324,6 +27853,8 @@ class N88_RFQ_Admin {
                             return;
                         }
                         setBatchActionSubmitting(true);
+                        setBatchMarkReceiving(false);
+                        setBatchSampleApproving(false);
                         setBatchActionMessage('');
                         setBatchActionError('');
                         var successes = 0;
@@ -26417,6 +27948,8 @@ class N88_RFQ_Admin {
                             return;
                         }
                         setBatchActionSubmitting(true);
+                        setBatchMarkReceiving(false);
+                        setBatchSampleApproving(!!approveSamples);
                         setBatchActionMessage('');
                         setBatchActionError('');
                         var successes = 0;
@@ -26453,6 +27986,7 @@ class N88_RFQ_Admin {
                             });
                         });
                         chain.finally(function() {
+                            setBatchSampleApproving(false);
                             setBatchActionSubmitting(false);
                             if (successes > 0) {
                                 alert((approveSamples ? 'Samples approved for ' : 'Sample review saved for ') + successes + ' item' + (successes === 1 ? '' : 's') + '.' + (failures.length ? ('\n\nSome items failed:\n' + failures.join('\n')) : ''));
@@ -26496,18 +28030,31 @@ class N88_RFQ_Admin {
                         files = Array.isArray(files) ? files : [];
                         options = options && typeof options === 'object' ? options : {};
                         if (!files.length) return null;
+                        var resolveBatchSampleFileUrl = function(entry) {
+                            if (!entry || typeof entry !== 'object') return '';
+                            var u = entry.url || entry.link || entry.src || entry.file_url || entry.href || '';
+                            return typeof u === 'string' ? u.trim() : '';
+                        };
                         return React.createElement('div', {
-                            style: { display: 'grid', gap: '8px' }
+                            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }
                         }, files.map(function(file, fileIdx) {
                             var fileTitle = (file && (file.title || file.name)) ? String(file.title || file.name) : ((options.defaultTitlePrefix || 'File') + ' ' + (fileIdx + 1));
-                            var fileUrl = file && file.url ? String(file.url) : '#';
+                            var fileUrl = resolveBatchSampleFileUrl(file);
+                            var safeHref = fileUrl || '#';
                             var normalizedUrl = String(fileUrl || '').split('?')[0].toLowerCase();
-                            var isImageFile = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(normalizedUrl);
+                            var nameLower = String(fileTitle || '').toLowerCase();
+                            var isImageFile = /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(normalizedUrl) || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(nameLower);
+                            var isPdfFile = /\.pdf(\?|$)/i.test(normalizedUrl) || nameLower.endsWith('.pdf');
                             return React.createElement('a', {
                                 key: (options.keyPrefix || 'batch-file-') + fileIdx,
-                                href: fileUrl,
+                                href: safeHref,
                                 target: '_blank',
                                 rel: 'noopener noreferrer',
+                                onClick: function(e) {
+                                    if (!fileUrl) {
+                                        e.preventDefault();
+                                    }
+                                },
                                 style: {
                                     display: 'block',
                                     padding: '10px 12px',
@@ -26520,17 +28067,19 @@ class N88_RFQ_Admin {
                                     lineHeight: 1.5
                                 }
                             },
-                                isImageFile ? React.createElement('div', {
+                                isImageFile && fileUrl ? React.createElement('div', {
                                     style: {
                                         marginBottom: '8px',
                                         borderRadius: '6px',
                                         overflow: 'hidden',
                                         border: '1px solid rgba(255,255,255,0.1)',
-                                        background: '#000'
+                                        background: '#000',
+                                        minHeight: '100px'
                                     }
                                 }, React.createElement('img', {
                                     src: fileUrl,
                                     alt: fileTitle,
+                                    loading: 'lazy',
                                     style: {
                                         display: 'block',
                                         width: '100%',
@@ -26539,11 +28088,41 @@ class N88_RFQ_Admin {
                                         background: '#000'
                                     }
                                 })) : null,
+                                isPdfFile && fileUrl ? React.createElement('div', {
+                                    style: {
+                                        marginBottom: '8px',
+                                        borderRadius: '6px',
+                                        overflow: 'hidden',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        background: '#1a1a1a',
+                                        height: '200px'
+                                    }
+                                }, React.createElement('iframe', {
+                                    title: fileTitle,
+                                    src: fileUrl,
+                                    style: { width: '100%', height: '100%', border: 'none' }
+                                })) : null,
+                                !isImageFile && !isPdfFile && fileUrl ? React.createElement('div', {
+                                    style: {
+                                        marginBottom: '8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        background: '#0d0d0d',
+                                        padding: '24px 8px',
+                                        textAlign: 'center',
+                                        fontSize: '12px',
+                                        fontWeight: '700',
+                                        color: '#fff',
+                                        letterSpacing: '0.06em'
+                                    }
+                                }, 'FILE') : null,
                                 React.createElement('div', {
                                     style: {
-                                        wordBreak: 'break-word'
+                                        wordBreak: 'break-word',
+                                        color: fileUrl ? boardCanvasGreenAccent : '#888'
                                     }
-                                }, fileTitle)
+                                }, fileTitle),
+                                fileUrl ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: '#9e9e9e' } }, isImageFile ? 'Open image' : (isPdfFile ? 'Open PDF' : 'Open file')) : React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: '#c62828' } }, 'Missing file URL — refresh the board.')
                             );
                         }));
                     };
@@ -26589,6 +28168,8 @@ class N88_RFQ_Admin {
                             return;
                         }
                         setBatchActionSubmitting(true);
+                        setBatchMarkReceiving(true);
+                        setBatchSampleApproving(false);
                         setBatchActionMessage('');
                         setBatchActionError('');
                         var successes = 0;
@@ -26615,6 +28196,7 @@ class N88_RFQ_Admin {
                             });
                         });
                         chain.finally(function() {
+                            setBatchMarkReceiving(false);
                             setBatchActionSubmitting(false);
                             if (successes > 0) {
                                 alert('Samples marked received for ' + successes + ' item' + (successes === 1 ? '' : 's') + '.' + (failures.length ? ('\n\nSome items failed:\n' + failures.join('\n')) : ''));
@@ -26658,9 +28240,28 @@ class N88_RFQ_Admin {
                         };
                     }, [saveHook]);
                     
-                    // Refresh board item status (CAD requested, payment, etc.) so designer card updates
+                    // Refresh lightweight board item status so designer cards update
                     var updateLayout = useBoardStore ? useBoardStore(function(state) { return state.updateLayout; }) : null;
                     var boardStatusRequestRef = React.useRef(null);
+                    var boardStatusLastFetchAtRef = React.useRef(0);
+                    var boardStatusMinIntervalMs = 45000;
+                    var boardStatusRefreshDebounceRef = React.useRef(null);
+                    var boardScopeRef = React.useRef({ projectId: 0, roomId: 0 });
+                    React.useEffect(function() {
+                        try {
+                            var params = new URLSearchParams(window.location.search || '');
+                            var projectId = parseInt(params.get('project_id') || '0', 10) || 0;
+                            var roomId = parseInt(params.get('room_id') || '0', 10) || 0;
+                            var dataProj = window.n88BoardData ? (parseInt(window.n88BoardData.boardProjectId, 10) || 0) : 0;
+                            var dataRoom = window.n88BoardData ? (parseInt(window.n88BoardData.boardRoomId, 10) || 0) : 0;
+                            boardScopeRef.current = {
+                                projectId: projectId > 0 ? projectId : dataProj,
+                                roomId: roomId > 0 ? roomId : dataRoom
+                            };
+                        } catch (e) {
+                            boardScopeRef.current = { projectId: 0, roomId: 0 };
+                        }
+                    }, []);
                     var applyBoardStatusRowsToLayout = React.useCallback(function(rows) {
                         if (!Array.isArray(rows) || typeof updateLayout !== 'function') return [];
                         rows.forEach(function(row) {
@@ -26676,13 +28277,6 @@ class N88_RFQ_Admin {
                                 updateLayout(row.id, {
                                     has_rfq: row.rfq_state && (row.rfq_state.has_rfq === true || row.rfq_state.has_rfq === 1 || row.rfq_state.has_rfq === '1' || row.rfq_state.has_rfq === 'true'),
                                     has_bids: row.rfq_state && (row.rfq_state.has_bids === true || row.rfq_state.has_bids === 1 || row.rfq_state.has_bids === '1' || row.rfq_state.has_bids === 'true'),
-                                    has_prototype_payment: row.has_prototype_payment,
-                                    prototype_payment_status: row.prototype_payment_status,
-                                    cad_status: row.cad_status,
-                                    cad_current_version: row.cad_current_version,
-                                    prototype_status: row.prototype_status,
-                                    has_prototype_video_submitted: row.has_prototype_video_submitted,
-                                    has_payment_receipt_uploaded: row.has_payment_receipt_uploaded,
                                     has_awarded_bid: row.has_awarded_bid,
                                     has_batch_proposals: row.has_batch_proposals,
                                     batch_proposal_group_ids: row.batch_proposal_group_ids,
@@ -26703,20 +28297,68 @@ class N88_RFQ_Admin {
                         });
                         return rows;
                     }, [updateLayout]);
-                    var refreshBoardItemsStatus = React.useCallback(function() {
-                        if (!boardId || boardId <= 0 || typeof updateLayout !== 'function') return;
+                    var refreshBoardItemsStatus = React.useCallback(function(forceRefresh) {
+                        forceRefresh = !!forceRefresh;
+                        if (!boardId || boardId <= 0 || typeof updateLayout !== 'function') return Promise.resolve([]);
                         if (boardStatusRequestRef.current) return boardStatusRequestRef.current;
+                        var nowTs = Date.now();
+                        var scopePeek = boardScopeRef.current || { projectId: 0, roomId: 0 };
+                        var cacheScopeMatches = function(entry) {
+                            if (!entry || entry.boardId !== boardId) return false;
+                            var ep = parseInt(entry.projectId, 10) || 0;
+                            var er = parseInt(entry.roomId, 10) || 0;
+                            var sp = parseInt(scopePeek.projectId, 10) || 0;
+                            var sr = parseInt(scopePeek.roomId, 10) || 0;
+                            return ep === sp && er === sr;
+                        };
+                        if (
+                            !forceRefresh &&
+                            boardStatusLastFetchAtRef.current > 0 &&
+                            (nowTs - boardStatusLastFetchAtRef.current) < boardStatusMinIntervalMs &&
+                            boardStatusCacheRef.current &&
+                            cacheScopeMatches(boardStatusCacheRef.current) &&
+                            Array.isArray(boardStatusCacheRef.current.rows)
+                        ) {
+                            return Promise.resolve(applyBoardStatusRowsToLayout(boardStatusCacheRef.current.rows));
+                        }
+                        if (
+                            !forceRefresh &&
+                            boardStatusCacheRef.current &&
+                            cacheScopeMatches(boardStatusCacheRef.current) &&
+                            Array.isArray(boardStatusCacheRef.current.rows) &&
+                            boardStatusCacheRef.current.fetchedAt > 0
+                        ) {
+                            return Promise.resolve(applyBoardStatusRowsToLayout(boardStatusCacheRef.current.rows));
+                        }
                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_board_items_status) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
-                        if (!nonce) return;
+                        if (!nonce) return Promise.resolve([]);
                         var formData = new FormData();
+                        var scope = boardScopeRef.current || { projectId: 0, roomId: 0 };
                         formData.append('action', 'n88_get_board_items_status');
                         formData.append('board_id', String(boardId));
+                        if (scope.projectId > 0) formData.append('project_id', String(scope.projectId));
+                        if (scope.roomId > 0) formData.append('room_id', String(scope.roomId));
                         formData.append('_ajax_nonce', nonce);
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
                         boardStatusRequestRef.current = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
                             .then(function(r) { return r.json(); })
                             .then(function(data) {
                                 if (data.success && data.data && Array.isArray(data.data.items)) {
+                                    boardStatusLastFetchAtRef.current = Date.now();
+                                    boardStatusCacheRef.current = {
+                                        boardId: boardId,
+                                        projectId: parseInt(scope.projectId, 10) || 0,
+                                        roomId: parseInt(scope.roomId, 10) || 0,
+                                        rows: data.data.items,
+                                        fetchedAt: Date.now()
+                                    };
+                                    try {
+                                        var cacheKey = 'n88_board_status_cache_' + String(boardId) + '_' + String(scope.projectId || 0) + '_' + String(scope.roomId || 0);
+                                        window.sessionStorage.setItem(cacheKey, JSON.stringify({
+                                            fetchedAt: boardStatusCacheRef.current.fetchedAt,
+                                            rows: data.data.items
+                                        }));
+                                    } catch (e) {}
                                     return applyBoardStatusRowsToLayout(data.data.items);
                                 }
                                 return [];
@@ -26729,10 +28371,29 @@ class N88_RFQ_Admin {
                     }, [boardId, updateLayout, applyBoardStatusRowsToLayout]);
                     React.useEffect(function() {
                         if (!boardId || boardId <= 0) return;
+                        try {
+                            var scope = boardScopeRef.current || { projectId: 0, roomId: 0 };
+                            var cacheKey = 'n88_board_status_cache_' + String(boardId) + '_' + String(scope.projectId || 0) + '_' + String(scope.roomId || 0);
+                            var raw = window.sessionStorage.getItem(cacheKey);
+                            if (raw) {
+                                var parsed = JSON.parse(raw);
+                                if (parsed && Array.isArray(parsed.rows) && parsed.rows.length) {
+                                    boardStatusCacheRef.current = {
+                                        boardId: boardId,
+                                        projectId: parseInt(scope.projectId, 10) || 0,
+                                        roomId: parseInt(scope.roomId, 10) || 0,
+                                        rows: parsed.rows,
+                                        fetchedAt: parsed.fetchedAt || Date.now()
+                                    };
+                                    boardStatusLastFetchAtRef.current = boardStatusCacheRef.current.fetchedAt || Date.now();
+                                    applyBoardStatusRowsToLayout(parsed.rows);
+                                }
+                            }
+                        } catch (e) {}
                         var idleHandle = null;
                         var timeoutHandle = null;
                         var runDeferredRefresh = function() {
-                            refreshBoardItemsStatus();
+                            refreshBoardItemsStatus(false);
                         };
                         if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
                             idleHandle = window.requestIdleCallback(runDeferredRefresh, { timeout: 2500 });
@@ -26747,20 +28408,34 @@ class N88_RFQ_Admin {
                                 window.clearTimeout(timeoutHandle);
                             }
                         };
-                    }, [boardId, refreshBoardItemsStatus]);
+                    }, [boardId, refreshBoardItemsStatus, applyBoardStatusRowsToLayout]);
                     React.useEffect(function() {
                         if (!boardId || boardId <= 0) return;
                         function onVisible() {
-                            if (document.visibilityState === 'visible') refreshBoardItemsStatus();
+                            if (document.visibilityState === 'visible') refreshBoardItemsStatus(false);
                         }
                         document.addEventListener('visibilitychange', onVisible);
                         return function() { document.removeEventListener('visibilitychange', onVisible); };
                     }, [boardId, refreshBoardItemsStatus]);
                     React.useEffect(function() {
                         if (!boardId || boardId <= 0) return;
-                        function onRefreshEvent() { refreshBoardItemsStatus(); }
+                        function onRefreshEvent(evt) {
+                            var forceRefresh = !!(evt && evt.detail && evt.detail.forceRefresh);
+                            if (boardStatusRefreshDebounceRef.current) {
+                                window.clearTimeout(boardStatusRefreshDebounceRef.current);
+                            }
+                            boardStatusRefreshDebounceRef.current = window.setTimeout(function() {
+                                refreshBoardItemsStatus(forceRefresh);
+                            }, forceRefresh ? 120 : 600);
+                        }
                         window.addEventListener('n88-board-refresh-status', onRefreshEvent);
-                        return function() { window.removeEventListener('n88-board-refresh-status', onRefreshEvent); };
+                        return function() {
+                            window.removeEventListener('n88-board-refresh-status', onRefreshEvent);
+                            if (boardStatusRefreshDebounceRef.current) {
+                                window.clearTimeout(boardStatusRefreshDebounceRef.current);
+                                boardStatusRefreshDebounceRef.current = null;
+                            }
+                        };
                     }, [boardId, refreshBoardItemsStatus]);
                     React.useEffect(function() {
                         if (!Array.isArray(items) || !items.length || typeof updateLayout !== 'function') return;
@@ -26816,34 +28491,39 @@ class N88_RFQ_Admin {
                             setBatchModalOpen(false);
                             setBatchError('');
                             setProposalError('');
+                            setProposalSupportMediaContext({ itemId: 0, bidId: 0, supplierId: 0, supplierName: '' });
+                            setProposalSupportMediaSearch('');
+                            setProposalSupportMediaFilter('our_work');
                             if (selectedCount > 0) {
                                 openProposalModal();
                                 return;
                             }
                             setBatchSelected({});
-                            setProposalItems([]);
                             setExpandedProposalSuppliers({});
                             setProposalContext({ mode: 'grouped', source: 'board', anchorItemId: 0, groupId: 0 });
+                            setProposalItems([]);
                             setProposalModalOpen(true);
                             setProposalLoading(true);
                             setProposalError('');
-                            var boardStatusPromise = typeof refreshBoardItemsStatus === 'function' ? refreshBoardItemsStatus() : boardStatusRequestRef.current;
-                            if (boardStatusPromise && typeof boardStatusPromise.then === 'function') {
-                                boardStatusPromise.then(function(rows) {
-                                    openGroupedProposalModal({
-                                        source: 'board',
-                                        hydratedBoardRows: Array.isArray(rows) ? rows : [],
-                                        hydratedOnce: true,
-                                        allowWhileLoading: true
-                                    });
-                                }).catch(function(err) {
-                                    setProposalLoading(false);
-                                    setProposalItems([]);
-                                    setProposalError(err && err.message ? err.message : 'Failed to load board proposal status.');
+                            var openFromRows = function(rows) {
+                                openGroupedProposalModal({
+                                    source: 'board',
+                                    hydratedBoardRows: Array.isArray(rows) ? rows : [],
+                                    hydratedOnce: true,
+                                    allowWhileLoading: true,
+                                    forceRefresh: true,
+                                    waitForFullBidFetch: true
                                 });
-                                return;
+                            };
+                            if (typeof refreshBoardItemsStatus === 'function') {
+                                refreshBoardItemsStatus(true).then(function(rows) {
+                                    openFromRows(rows);
+                                }).catch(function() {
+                                    openFromRows([]);
+                                });
+                            } else {
+                                openFromRows([]);
                             }
-                            openGroupedProposalModal({ source: 'board', allowWhileLoading: true });
                         };
                         var onCancel = function() {
                             setSelectionMode(null);
@@ -26895,9 +28575,43 @@ class N88_RFQ_Admin {
                         return function() { clearTimeout(timer); };
                     }, [proposalModalOpen, proposalItems, proposalContext]);
                     React.useEffect(function() {
+                        if (!proposalModalOpen || !proposalSupportMediaContext || !proposalSupportMediaContext.supplierId) {
+                            setProposalSupportMediaLibrary(getEmptyBoardCanvasSupplierMediaLibrary());
+                            setProposalSupportMediaLoading(false);
+                            setProposalSupportMediaError('');
+                            return;
+                        }
+                        var supplierId = parseInt(proposalSupportMediaContext.supplierId, 10) || 0;
+                        var cancelled = false;
+                        setProposalSupportMediaLibrary(getCachedBoardCanvasSupplierMediaLibrary(supplierId));
+                        setProposalSupportMediaLoading(true);
+                        setProposalSupportMediaError('');
+                        fetchBoardCanvasSupplierMediaLibrary(supplierId).then(function(libraryData) {
+                            if (cancelled) return;
+                            setProposalSupportMediaLibrary(libraryData && typeof libraryData === 'object' ? libraryData : getEmptyBoardCanvasSupplierMediaLibrary());
+                            setProposalSupportMediaLoading(false);
+                            setProposalSupportMediaError('');
+                        }).catch(function(error) {
+                            if (cancelled) return;
+                            setProposalSupportMediaLoading(false);
+                            setProposalSupportMediaError(error && error.message ? error.message : 'Failed to load supplier materials.');
+                        });
+                        return function() { cancelled = true; };
+                    }, [proposalModalOpen, proposalSupportMediaContext && proposalSupportMediaContext.supplierId]);
+                    React.useEffect(function() {
+                        if (proposalModalOpen) return;
+                        setProposalSupportMediaContext({ itemId: 0, bidId: 0, supplierId: 0, supplierName: '' });
+                        setProposalSupportMediaFilter('our_work');
+                        setProposalSupportMediaSearch('');
+                        setProposalSupportMediaLibrary(getEmptyBoardCanvasSupplierMediaLibrary());
+                        setProposalSupportMediaLoading(false);
+                        setProposalSupportMediaError('');
+                    }, [proposalModalOpen]);
+                    React.useEffect(function() {
                         if (!batchModalOpen) return;
                         (batchRows || []).forEach(function(row) {
                             if (!row || !row.category) return;
+                            if (!row.expanded) return;
                             if (row.available_keywords_loading) return;
                             if (row.available_keywords_category === row.category && Array.isArray(row.available_keywords)) return;
                             setBatchRows(function(prev) {
@@ -27000,18 +28714,43 @@ class N88_RFQ_Admin {
                             return Promise.resolve(getDefaultProposalState());
                         }
                         var stateHasGroupedProposalBids = function(state) {
-                            if (!state || !Array.isArray(state.bids) || !state.bids.length) {
+                            if (!state || typeof state !== 'object') {
                                 return false;
                             }
-                            return state.bids.some(function(bid) {
-                                return (parseInt(getBidProposalGroupId(bid), 10) || 0) > 0;
-                            });
+                            if (isTruthyValue(state.has_batch_proposals)) {
+                                return true;
+                            }
+                            if (parseInt(state.batch_primary_proposal_group_id, 10) > 0) {
+                                return true;
+                            }
+                            if (Array.isArray(state.batch_proposal_group_ids) && state.batch_proposal_group_ids.some(function(id) {
+                                return (parseInt(id, 10) || 0) > 0;
+                            })) {
+                                return true;
+                            }
+                            if (Array.isArray(state.bids) && state.bids.length > 0) {
+                                return true;
+                            }
+                            return false;
                         };
                         if (options.useCache !== false) {
                             var cachedState = getCachedProposalState(numericItemId);
                             var cachedStateEligible = !!cachedState;
                             if (cachedStateEligible && options.requireGroupedBids) {
-                                cachedStateEligible = stateHasGroupedProposalBids(cachedState);
+                                cachedStateEligible = Array.isArray(cachedState.bids) && cachedState.bids.length > 0;
+                            }
+                            var sectionName = String(options.section || 'bids_summary');
+                            if (cachedStateEligible && sectionName === 'bids') {
+                                if (!Array.isArray(cachedState.bids) || !cachedState.bids.length) {
+                                    cachedStateEligible = false;
+                                } else if (cachedState.loaded_sections && cachedState.loaded_sections.bids === false) {
+                                    cachedStateEligible = false;
+                                }
+                            }
+                            if (cachedStateEligible && isTruthyValue(cachedState && cachedState.has_bids)) {
+                                if (!Array.isArray(cachedState.bids) || !cachedState.bids.length) {
+                                    cachedStateEligible = false;
+                                }
                             }
                             if (cachedStateEligible) {
                                 return Promise.resolve(cachedState);
@@ -27028,7 +28767,7 @@ class N88_RFQ_Admin {
                         var formData = new FormData();
                         formData.append('action', 'n88_get_item_rfq_state');
                         formData.append('item_id', String(numericItemId));
-                        formData.append('section', 'bids_summary');
+                        formData.append('section', options.section || 'bids_summary');
                         formData.append('_ajax_nonce', nonce);
                         var parseJsonResponseSafe = function(response) {
                             return response.text().then(function(rawText) {
@@ -27070,16 +28809,30 @@ class N88_RFQ_Admin {
                     };
                     var getBidProposalGroupId = function(bid) {
                         if (!bid) return 0;
-                        return parseInt(bid.proposal_group_id, 10) || 0;
+                        var top = parseInt(bid.proposal_group_id, 10) || 0;
+                        if (top > 0) return top;
+                        if (bid.meta && typeof bid.meta === 'object') {
+                            var m = parseInt(bid.meta.proposal_group_id, 10) || 0;
+                            if (m > 0) return m;
+                        }
+                        return 0;
                     };
                     var filterProposalStateToBatchGroups = function(state, allowedGroupIds) {
                         var allowed = Array.isArray(allowedGroupIds) ? allowedGroupIds.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; }) : [];
                         var bids = state && Array.isArray(state.bids) ? state.bids : [];
-                        var filteredBids = bids.filter(function(bid) {
-                            var proposalGroupId = getBidProposalGroupId(bid);
-                            if (!(proposalGroupId > 0)) return false;
-                            return !allowed.length || allowed.indexOf(proposalGroupId) !== -1;
-                        });
+                        var filteredBids;
+                        if (!allowed.length) {
+                            filteredBids = bids.slice();
+                        } else {
+                            filteredBids = bids.filter(function(bid) {
+                                var proposalGroupId = getBidProposalGroupId(bid);
+                                if (proposalGroupId > 0) return allowed.indexOf(proposalGroupId) !== -1;
+                                return false;
+                            });
+                            if (!filteredBids.length && bids.length) {
+                                filteredBids = bids.slice();
+                            }
+                        }
                         return Object.assign({}, state || getDefaultProposalState(), {
                             bids: filteredBids,
                             has_bids: filteredBids.length > 0
@@ -27093,6 +28846,16 @@ class N88_RFQ_Admin {
                     };
                     var openGroupedProposalModal = function(options) {
                         options = options || {};
+                        if (options.forceRefresh && groupedProposalModalCacheRef.current) {
+                            try {
+                                delete groupedProposalModalCacheRef.current.board_default;
+                                Object.keys(groupedProposalModalCacheRef.current).forEach(function(k) {
+                                    if (String(k).indexOf('grouped|') === 0) {
+                                        delete groupedProposalModalCacheRef.current[k];
+                                    }
+                                });
+                            } catch (e) {}
+                        }
                         console.log('[N88][GroupedModal] openGroupedProposalModal called', {
                             options: options,
                             proposalLoading: proposalLoading
@@ -27105,6 +28868,53 @@ class N88_RFQ_Admin {
                         }
                         var anchorItemId = toNumericItemId(options.anchorItemId || 0);
                         var requestedGroupId = parseInt(options.groupId, 10) || 0;
+                        var inferUniqueProjectIdFromLayout = function(layoutArr) {
+                            if (!Array.isArray(layoutArr) || !layoutArr.length) return 0;
+                            var pids = layoutArr.map(function(it) {
+                                if (!it || typeof it !== 'object') return 0;
+                                var m = it.meta && typeof it.meta === 'object' ? it.meta : null;
+                                return parseInt(it.project_id || it.projectId || (m && m.project_id) || (m && m.projectId) || 0, 10) || 0;
+                            }).filter(function(p) { return p > 0; });
+                            var u = Array.from(new Set(pids));
+                            return u.length === 1 ? u[0] : 0;
+                        };
+                        var inferUniqueRoomIdFromLayout = function(layoutArr) {
+                            if (!Array.isArray(layoutArr) || !layoutArr.length) return 0;
+                            var rids = layoutArr.map(function(it) {
+                                if (!it || typeof it !== 'object') return 0;
+                                return parseInt(it.room_id || it.roomId || (it.meta && it.meta.room_id) || 0, 10) || 0;
+                            }).filter(function(r) { return r > 0; });
+                            var u = Array.from(new Set(rids));
+                            return u.length === 1 ? u[0] : 0;
+                        };
+                        var resolvePreHydrationModalScope = function() {
+                            var pid = parseInt(options.projectId, 10) || 0;
+                            var rid = parseInt(options.roomId, 10) || 0;
+                            if (boardScopeRef && boardScopeRef.current) {
+                                if (parseInt(boardScopeRef.current.projectId, 10) > 0) {
+                                    pid = parseInt(boardScopeRef.current.projectId, 10) || pid;
+                                }
+                                if (parseInt(boardScopeRef.current.roomId, 10) > 0) {
+                                    rid = parseInt(boardScopeRef.current.roomId, 10) || rid;
+                                }
+                            }
+                            try {
+                                var scopeUrl = new URL(window.location.href);
+                                var up = parseInt(scopeUrl.searchParams.get('project_id') || '0', 10) || 0;
+                                var ur = parseInt(scopeUrl.searchParams.get('room_id') || '0', 10) || 0;
+                                if (up > 0) pid = up;
+                                if (ur > 0) rid = ur;
+                            } catch (errScope) {}
+                            if (window.n88BoardData) {
+                                if (!(pid > 0)) pid = parseInt(window.n88BoardData.boardProjectId, 10) || 0;
+                                if (!(rid > 0)) rid = parseInt(window.n88BoardData.boardRoomId, 10) || 0;
+                            }
+                            var layoutSlice = Array.isArray(items) ? items : [];
+                            if (!(pid > 0)) pid = inferUniqueProjectIdFromLayout(layoutSlice);
+                            if (!(rid > 0)) rid = inferUniqueRoomIdFromLayout(layoutSlice);
+                            return { projectId: pid, roomId: rid };
+                        };
+                        var preHydrationScope = resolvePreHydrationModalScope();
                         var sourceItems = Array.isArray(items) ? items.slice() : [];
                         if (Array.isArray(options.hydratedBoardRows) && options.hydratedBoardRows.length) {
                             var hydratedBoardRowMap = {};
@@ -27126,7 +28936,16 @@ class N88_RFQ_Admin {
                                     return toNumericItemId(it && it.id) === hydratedItemId;
                                 });
                                 if (!alreadyPresent) {
-                                    sourceItems.push(Object.assign({}, hydratedBoardRowMap[hydratedItemId]));
+                                    var ghostRow = Object.assign({}, hydratedBoardRowMap[hydratedItemId]);
+                                    if (preHydrationScope.projectId > 0) {
+                                        var gpid = parseInt(ghostRow.project_id || ghostRow.projectId || 0, 10) || 0;
+                                        if (gpid !== preHydrationScope.projectId) return;
+                                    }
+                                    if (preHydrationScope.roomId > 0) {
+                                        var grid = parseInt(ghostRow.room_id || ghostRow.roomId || 0, 10) || 0;
+                                        if (grid > 0 && grid !== preHydrationScope.roomId) return;
+                                    }
+                                    sourceItems.push(ghostRow);
                                 }
                             });
                         } else if (!sourceItems.length && !anchorItemId && !requestedGroupId && boardStatusRequestRef.current) {
@@ -27157,6 +28976,139 @@ class N88_RFQ_Admin {
                         var anchorItem = sourceItems.find(function(it) {
                             return toNumericItemId(it && it.id) === anchorItemId;
                         }) || null;
+                        var getItemProjectId = function(it) {
+                            if (!it || typeof it !== 'object') return 0;
+                            var meta = it.meta && typeof it.meta === 'object' ? it.meta : null;
+                            var direct = parseInt(
+                                it.project_id ||
+                                it.projectId ||
+                                (meta && meta.project_id) ||
+                                (meta && meta.projectId) ||
+                                0,
+                                10
+                            ) || 0;
+                            if (direct > 0) {
+                                return direct;
+                            }
+                            var lookupId = toNumericItemId(it && it.id);
+                            if (lookupId > 0 && boardStatusCacheRef && boardStatusCacheRef.current && Array.isArray(boardStatusCacheRef.current.rows)) {
+                                var cachedRow = boardStatusCacheRef.current.rows.find(function(r) {
+                                    return toNumericItemId(r && r.id) === lookupId;
+                                });
+                                if (cachedRow && typeof cachedRow === 'object') {
+                                    var cmeta = cachedRow.meta && typeof cachedRow.meta === 'object' ? cachedRow.meta : null;
+                                    return parseInt(
+                                        cachedRow.project_id ||
+                                        cachedRow.projectId ||
+                                        (cmeta && cmeta.project_id) ||
+                                        (cmeta && cmeta.projectId) ||
+                                        0,
+                                        10
+                                    ) || 0;
+                                }
+                            }
+                            return 0;
+                        };
+                        var getItemRoomId = function(it) {
+                            if (!it || typeof it !== 'object') return 0;
+                            return parseInt(
+                                it.room_id ||
+                                it.roomId ||
+                                (it.meta && it.meta.room_id) ||
+                                0,
+                                10
+                            ) || 0;
+                        };
+                        var getCurrentBoardRoomId = function() {
+                            if (parseInt(options.roomId, 10) > 0) {
+                                return parseInt(options.roomId, 10) || 0;
+                            }
+                            if (boardScopeRef && boardScopeRef.current && parseInt(boardScopeRef.current.roomId, 10) > 0) {
+                                return parseInt(boardScopeRef.current.roomId, 10) || 0;
+                            }
+                            try {
+                                var currentUrl = new URL(window.location.href);
+                                var urlRoomId = parseInt(currentUrl.searchParams.get('room_id') || '0', 10) || 0;
+                                if (urlRoomId > 0) {
+                                    return urlRoomId;
+                                }
+                            } catch (err) {}
+                            return 0;
+                        };
+                        var scopedProjectId = preHydrationScope.projectId > 0 ? preHydrationScope.projectId : getItemProjectId(anchorItem);
+                        var scopedRoomId = preHydrationScope.roomId > 0 ? preHydrationScope.roomId : getCurrentBoardRoomId();
+                        var scopedBoardItemIds = (function() {
+                            var rows = boardStatusCacheRef && boardStatusCacheRef.current && Array.isArray(boardStatusCacheRef.current.rows)
+                                ? boardStatusCacheRef.current.rows
+                                : [];
+                            var sp = scopedProjectId;
+                            var sr = scopedRoomId;
+                            var filteredRows = rows.filter(function(row) {
+                                if (!row) return false;
+                                if (sp > 0) {
+                                    var rp = parseInt(row.project_id || row.projectId || 0, 10) || 0;
+                                    if (rp !== sp) return false;
+                                }
+                                if (sr > 0) {
+                                    var rr = parseInt(row.room_id || row.roomId || 0, 10) || 0;
+                                    if (rr > 0 && rr !== sr) return false;
+                                }
+                                return true;
+                            });
+                            var ids = filteredRows.map(function(row) {
+                                return toNumericItemId(row && row.id);
+                            }).filter(function(id) { return id > 0; });
+                            return Array.from(new Set(ids));
+                        })();
+                        var sourceLayoutItemIds = (sourceItems || []).map(function(it) { return toNumericItemId(it && it.id); }).filter(function(id) { return id > 0; });
+                        if (scopedBoardItemIds.length && sourceLayoutItemIds.length) {
+                            var boardStatusMissingFromLayout = sourceLayoutItemIds.some(function(id) { return scopedBoardItemIds.indexOf(id) === -1; });
+                            if (boardStatusMissingFromLayout) {
+                                scopedBoardItemIds = [];
+                            }
+                        }
+                        var groupedCacheKey = !anchorItemId && !requestedGroupId ? 'board_default' : ('grouped|' + String(anchorItemId || 0) + '|' + String(requestedGroupId || 0) + '|' + String(scopedProjectId || 0));
+                        if (
+                            !options.forceRefresh &&
+                            groupedProposalModalCacheRef.current &&
+                            groupedProposalModalCacheRef.current[groupedCacheKey] &&
+                            Array.isArray(groupedProposalModalCacheRef.current[groupedCacheKey].items)
+                        ) {
+                            var groupedCachedEntry = groupedProposalModalCacheRef.current[groupedCacheKey];
+                            var groupedCachedItems = groupedCachedEntry.items || [];
+                            if (!groupedCachedItems.length) {
+                                delete groupedProposalModalCacheRef.current[groupedCacheKey];
+                            } else {
+                            var groupedCacheStale = groupedCachedItems.some(function(cEntry) {
+                                var st = cEntry && cEntry.state ? cEntry.state : null;
+                                var bidCount = st && Array.isArray(st.bids) ? st.bids.length : 0;
+                                if (bidCount > 0) return false;
+                                var cit = cEntry && cEntry.item;
+                                if (!cit) return false;
+                                return !!(
+                                    isTruthyValue(cit.has_bids) ||
+                                    isTruthyValue(cit.has_batch_proposals) ||
+                                    (parseInt(cit.batch_proposal_bid_count, 10) > 0)
+                                );
+                            });
+                            if (groupedCacheStale) {
+                                delete groupedProposalModalCacheRef.current[groupedCacheKey];
+                            } else {
+                            setProposalLoading(false);
+                            setProposalError('');
+                            setExpandedProposalSuppliers({});
+                            setProposalItems(groupedCachedItems);
+                            setProposalContext(groupedCachedEntry.context || {
+                                mode: 'grouped',
+                                source: options.source || (anchorItemId ? 'item' : 'board'),
+                                anchorItemId: anchorItemId,
+                                groupId: requestedGroupId
+                            });
+                            setProposalModalOpen(true);
+                            return true;
+                            }
+                            }
+                        }
                         var initialResolvedGroupIds = requestedGroupId > 0 ? [requestedGroupId] : [];
                         if (!initialResolvedGroupIds.length && anchorItem && Array.isArray(anchorItem.batch_proposal_group_ids)) {
                             initialResolvedGroupIds = anchorItem.batch_proposal_group_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; });
@@ -27209,6 +29161,23 @@ class N88_RFQ_Admin {
                             }
                             return Array.from(new Set(itemGroupIds.filter(function(id) { return id > 0; })));
                         };
+                        var isItemInProduction = function(it) {
+                            if (!it || typeof it !== 'object') return false;
+                            var validationState = it.validation_state && typeof it.validation_state === 'object'
+                                ? it.validation_state
+                                : ((it.meta && it.meta.material_validation && typeof it.meta.material_validation === 'object') ? it.meta.material_validation : {});
+                            var commitmentState = validationState.commitment && typeof validationState.commitment === 'object'
+                                ? validationState.commitment
+                                : {};
+                            var cardText = String((validationState && validationState.card_status_text) || it.validation_card_status_text || '').toLowerCase().trim();
+                            var productionStatus = String(commitmentState.production_status || '').toLowerCase().replace(/-/g, '_').trim();
+                            return !!(
+                                validationState.production_started ||
+                                commitmentState.production_started_at ||
+                                productionStatus === 'in_production' ||
+                                /(^|\b)in production(\b|$)/.test(cardText)
+                            );
+                        };
                         var itemHasProposalSignals = function(it) {
                             if (!it) return false;
                             var rfqState = it.rfq_state && typeof it.rfq_state === 'object' ? it.rfq_state : null;
@@ -27233,6 +29202,72 @@ class N88_RFQ_Admin {
                                 getItemKnownProposalGroupIds(it).length > 0
                             );
                         };
+                        var itemHasReceivedQuotes = function(it) {
+                            if (!it) return false;
+                            var iid = toNumericItemId(it && it.id);
+                            if (parseInt(it.batch_proposal_bid_count, 10) > 0) return true;
+                            if (Array.isArray(it.bids) && it.bids.length > 0) return true;
+                            if (isTruthyValue(it.has_bids) || isTruthyValue(it.has_awarded_bid)) return true;
+                            var rfqState = it.rfq_state && typeof it.rfq_state === 'object' ? it.rfq_state : null;
+                            if (rfqState) {
+                                if (Array.isArray(rfqState.bids) && rfqState.bids.length > 0) return true;
+                                if (isTruthyValue(rfqState.has_bids) || isTruthyValue(rfqState.has_awarded_bid)) return true;
+                            }
+                            var cachedProposalState = getCachedProposalState(iid);
+                            if (cachedProposalState) {
+                                if (Array.isArray(cachedProposalState.bids) && cachedProposalState.bids.length > 0) return true;
+                                if (isTruthyValue(cachedProposalState.has_bids) || isTruthyValue(cachedProposalState.has_awarded_bid)) return true;
+                            }
+                            return false;
+                        };
+                        var itemBelongsToBatchRfq = function(it) {
+                            if (!it) return false;
+                            var validationStateBatch = it.validation_state && typeof it.validation_state === 'object'
+                                ? it.validation_state
+                                : ((it.meta && it.meta.material_validation && typeof it.meta.material_validation === 'object') ? it.meta.material_validation : {});
+                            var validationCardTextBatch = String((validationStateBatch && validationStateBatch.card_status_text) || it.validation_card_status_text || '').toLowerCase().trim();
+                            if (
+                                validationCardTextBatch.indexOf('batch rfq sent') !== -1 ||
+                                validationCardTextBatch.indexOf('batch proposal received') !== -1 ||
+                                validationCardTextBatch.indexOf('proposal received') !== -1 ||
+                                validationCardTextBatch.indexOf('proposals received') !== -1
+                            ) {
+                                return true;
+                            }
+                            if (isTruthyValue(it.has_batch_proposals)) return true;
+                            if (parseInt(it.batch_proposal_bid_count, 10) > 0) return true;
+                            if (parseInt(it.batch_primary_proposal_group_id, 10) > 0) return true;
+                            if (Array.isArray(it.batch_proposal_group_ids) && it.batch_proposal_group_ids.length > 0) return true;
+                            if (parseInt(it.batch_item_count, 10) > 1) return true;
+                            if (Array.isArray(it.batch_request_item_ids) && it.batch_request_item_ids.length > 1) return true;
+                            var rs = it.rfq_state && typeof it.rfq_state === 'object' ? it.rfq_state : null;
+                            if (rs) {
+                                var rsCardText = String(rs.card_status_text || rs.validation_card_status_text || '').toLowerCase().trim();
+                                if (
+                                    rsCardText.indexOf('batch rfq sent') !== -1 ||
+                                    rsCardText.indexOf('batch proposal received') !== -1 ||
+                                    rsCardText.indexOf('proposal received') !== -1 ||
+                                    rsCardText.indexOf('proposals received') !== -1
+                                ) return true;
+                                if (isTruthyValue(rs.has_batch_proposals)) return true;
+                                if (parseInt(rs.batch_proposal_bid_count, 10) > 0) return true;
+                                if (parseInt(rs.batch_primary_proposal_group_id, 10) > 0) return true;
+                                if (Array.isArray(rs.batch_proposal_group_ids) && rs.batch_proposal_group_ids.length > 0) return true;
+                                if (parseInt(rs.batch_item_count, 10) > 1) return true;
+                                if (Array.isArray(rs.batch_request_item_ids) && rs.batch_request_item_ids.length > 1) return true;
+                            }
+                            var iidBatch = toNumericItemId(it && it.id);
+                            var cachedBatch = getCachedProposalState(iidBatch);
+                            if (cachedBatch) {
+                                if (isTruthyValue(cachedBatch.has_batch_proposals)) return true;
+                                if (parseInt(cachedBatch.batch_proposal_bid_count, 10) > 0) return true;
+                                if (parseInt(cachedBatch.batch_primary_proposal_group_id, 10) > 0) return true;
+                                if (Array.isArray(cachedBatch.batch_proposal_group_ids) && cachedBatch.batch_proposal_group_ids.length > 0) return true;
+                                if (parseInt(cachedBatch.batch_item_count, 10) > 1) return true;
+                                if (Array.isArray(cachedBatch.batch_request_item_ids) && cachedBatch.batch_request_item_ids.length > 1) return true;
+                            }
+                            return getItemKnownProposalGroupIds(it).length > 0;
+                        };
                         var itemMatchesKnownGroup = function(it, allowedGroupIds) {
                             if (!it || !allowedGroupIds || !allowedGroupIds.length) return false;
                             var itemGroupIds = getItemKnownProposalGroupIds(it);
@@ -27240,35 +29275,116 @@ class N88_RFQ_Admin {
                                 return allowedGroupIds.indexOf(id) !== -1;
                             });
                         };
-                        var candidateItems = sourceItems.filter(function(it) {
+                        var scopeFilterItem = function(it) {
                             if (!it) return false;
-                            if (anchorItemId && toNumericItemId(it.id) === anchorItemId) return true;
+                            var candidateItemId = toNumericItemId(it && it.id);
+                            if (scopedBoardItemIds.length && scopedBoardItemIds.indexOf(candidateItemId) === -1) return false;
+                            if (scopedProjectId > 0 && getItemProjectId(it) !== scopedProjectId) return false;
+                            if (scopedRoomId > 0 && getItemRoomId(it) !== scopedRoomId) return false;
+                            return true;
+                        };
+                        var relaxBatchQuotes = !!options.relaxBatchProposalCandidates;
+                        var itemHasBatchStatusText = function(it) {
+                            if (!it) return false;
+                            var validationState = it.validation_state && typeof it.validation_state === 'object'
+                                ? it.validation_state
+                                : ((it.meta && it.meta.material_validation && typeof it.meta.material_validation === 'object') ? it.meta.material_validation : {});
+                            var cardText = String((validationState && validationState.card_status_text) || it.validation_card_status_text || '').toLowerCase().trim();
+                            var rs = it.rfq_state && typeof it.rfq_state === 'object' ? it.rfq_state : null;
+                            var rsText = String((rs && (rs.card_status_text || rs.validation_card_status_text)) || '').toLowerCase().trim();
+                            var joined = (cardText + ' ' + rsText).trim();
+                            return (
+                                joined.indexOf('batch rfq sent') !== -1 ||
+                                joined.indexOf('batch proposal received') !== -1 ||
+                                joined.indexOf('proposal received') !== -1 ||
+                                joined.indexOf('proposals received') !== -1
+                            );
+                        };
+                        var anchorBatchScopeItemIds = [];
+                        if (anchorItem && Array.isArray(anchorItem.batch_request_item_ids)) {
+                            anchorBatchScopeItemIds = anchorBatchScopeItemIds.concat(
+                                anchorItem.batch_request_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                            );
+                        }
+                        if (anchorItem && anchorItem.rfq_state && Array.isArray(anchorItem.rfq_state.batch_request_item_ids)) {
+                            anchorBatchScopeItemIds = anchorBatchScopeItemIds.concat(
+                                anchorItem.rfq_state.batch_request_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                            );
+                        }
+                        var anchorCachedState = anchorItemId > 0 ? getCachedProposalState(anchorItemId) : null;
+                        if (anchorCachedState && Array.isArray(anchorCachedState.batch_request_item_ids)) {
+                            anchorBatchScopeItemIds = anchorBatchScopeItemIds.concat(
+                                anchorCachedState.batch_request_item_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; })
+                            );
+                        }
+                        if (anchorItemId > 0) {
+                            anchorBatchScopeItemIds.push(anchorItemId);
+                        }
+                        anchorBatchScopeItemIds = Array.from(new Set(anchorBatchScopeItemIds.filter(function(id) { return id > 0; })));
+                        var candidateItems = sourceItems.filter(function(it) {
+                            if (!scopeFilterItem(it)) return false;
+                            if (isItemInProduction(it)) return false;
+                            var currentItemId = toNumericItemId(it && it.id);
+                            if (anchorItemId && anchorBatchScopeItemIds.length > 1) {
+                                return anchorBatchScopeItemIds.indexOf(currentItemId) !== -1;
+                            }
+                            if (anchorItemId && currentItemId === anchorItemId) return itemBelongsToBatchRfq(it);
+                            var quotesOk = itemHasReceivedQuotes(it) || (relaxBatchQuotes && itemHasProposalSignals(it));
                             if (initialResolvedGroupIds.length) {
-                                return itemMatchesKnownGroup(it, initialResolvedGroupIds);
+                                return itemBelongsToBatchRfq(it) && itemMatchesKnownGroup(it, initialResolvedGroupIds) && quotesOk;
                             }
                             if (!anchorItemId && !requestedGroupId) {
-                                return itemHasProposalSignals(it);
+                                return itemBelongsToBatchRfq(it);
                             }
                             return false;
                         });
-                        if (!candidateItems.length && !anchorItemId && !requestedGroupId) {
+                        if (!candidateItems.length && initialResolvedGroupIds.length) {
                             candidateItems = sourceItems.filter(function(it) {
-                                return !!it;
+                                if (!scopeFilterItem(it)) return false;
+                                if (isItemInProduction(it)) return false;
+                                return itemBelongsToBatchRfq(it) && itemMatchesKnownGroup(it, initialResolvedGroupIds);
                             });
                         }
-                        if (!candidateItems.length && anchorItem) {
+                        if (!candidateItems.length && !anchorItemId && !requestedGroupId) {
+                            candidateItems = sourceItems.filter(function(it) {
+                                if (!scopeFilterItem(it)) return false;
+                                if (isItemInProduction(it)) return false;
+                                return itemBelongsToBatchRfq(it);
+                            });
+                            if (!candidateItems.length) {
+                                candidateItems = sourceItems.filter(function(it) {
+                                    if (!scopeFilterItem(it)) return false;
+                                    if (isItemInProduction(it)) return false;
+                                    var hasRfq = !!(
+                                        isTruthyValue(it.has_rfq) ||
+                                        (it.rfq_state && isTruthyValue(it.rfq_state.has_rfq))
+                                    );
+                                    return hasRfq && itemHasBatchStatusText(it);
+                                });
+                            }
+                        }
+                        if (!candidateItems.length && anchorBatchScopeItemIds.length > 1) {
+                            candidateItems = sourceItems.filter(function(it) {
+                                if (!scopeFilterItem(it)) return false;
+                                if (isItemInProduction(it)) return false;
+                                var cid = toNumericItemId(it && it.id);
+                                return anchorBatchScopeItemIds.indexOf(cid) !== -1;
+                            });
+                        }
+                        if (!candidateItems.length && anchorItem && itemBelongsToBatchRfq(anchorItem) && !isItemInProduction(anchorItem)) {
                             candidateItems = [anchorItem];
                         }
                         console.log('[N88][GroupedModal] candidate items', {
                             anchorItemId: anchorItemId,
                             requestedGroupId: requestedGroupId,
                             initialResolvedGroupIds: initialResolvedGroupIds,
+                            scopedProjectId: scopedProjectId,
                             candidateItemIds: candidateItems.map(function(it) {
                                 return toNumericItemId(it && it.id);
                             })
                         });
                         if (!candidateItems.length) {
-                            if (!options.hydratedOnce && !anchorItemId && !requestedGroupId && typeof refreshBoardItemsStatus === 'function') {
+                            if (!anchorItemId && !requestedGroupId && !options.boardRefetchAttempted) {
                                 setProposalLoading(true);
                                 setProposalError('');
                                 setExpandedProposalSuppliers({});
@@ -27280,17 +29396,11 @@ class N88_RFQ_Admin {
                                 });
                                 setProposalModalOpen(true);
                                 setProposalItems([]);
-                                refreshBoardItemsStatus().then(function(rows) {
-                                    setProposalLoading(false);
-                                    openGroupedProposalModal(Object.assign({}, options, {
-                                        hydratedBoardRows: Array.isArray(rows) ? rows : [],
-                                        hydratedOnce: true
-                                    }));
-                                }).catch(function(err) {
-                                    setProposalLoading(false);
-                                    setProposalItems([]);
-                                    setProposalError(err && err.message ? err.message : 'Failed to load board proposal status.');
-                                });
+                                openGroupedProposalModal(Object.assign({}, options, {
+                                    boardRefetchAttempted: true,
+                                    relaxBatchProposalCandidates: true,
+                                    allowWhileLoading: true
+                                }));
                                 return true;
                             }
                             console.warn('[N88][GroupedModal] no candidate items found', {
@@ -27311,18 +29421,92 @@ class N88_RFQ_Admin {
                             return false;
                         }
 
+                        var cacheFilterGroupIds = initialResolvedGroupIds.slice();
+                        var entryHasBids = function(st) { return st && Array.isArray(st.bids) && st.bids.length > 0; };
+                        var cachedGroupedEntries = primeProposalItemsFromCache(candidateItems, function(state) {
+                            return filterProposalStateToBatchGroups(state, cacheFilterGroupIds);
+                        }).filter(function(entry) {
+                            return entry && entry.state && (entryHasBids(entry.state) || (entry.item && itemBelongsToBatchRfq(entry.item)));
+                        });
                         setProposalLoading(true);
                         setProposalError('');
                         setExpandedProposalSuppliers({});
-                        setProposalContext({
+                        var nextGroupedContext = {
                             mode: 'grouped',
                             source: options.source || (anchorItemId ? 'item' : 'board'),
                             anchorItemId: anchorItemId,
                             groupId: requestedGroupId
-                        });
+                        };
+                        setProposalContext(nextGroupedContext);
                         setProposalModalOpen(true);
-                        setProposalItems([]);
-                        fetchProposalStatesBatch(candidateItems, { requireGroupedBids: true }).then(function(results) {
+                        var cacheSufficientForGroupedView = !cachedGroupedEntries.length ? false : !cachedGroupedEntries.some(function(entry) {
+                            if (!entry || !entry.state) {
+                                return true;
+                            }
+                            var st = entry.state;
+                            var it = entry.item;
+                            var boardHintsBids = !!(
+                                isTruthyValue(it && it.has_bids) ||
+                                (it && it.rfq_state && isTruthyValue(it.rfq_state.has_bids)) ||
+                                (parseInt(it && it.batch_proposal_bid_count, 10) > 0) ||
+                                isTruthyValue(st.has_bids) ||
+                                (parseInt(st.batch_proposal_bid_count, 10) > 0)
+                            );
+                            if (!boardHintsBids) {
+                                return false;
+                            }
+                            if (entryHasBids(st)) {
+                                return false;
+                            }
+                            if (st.loaded_sections && st.loaded_sections.bids === false) {
+                                return true;
+                            }
+                            return true;
+                        });
+                        if (cachedGroupedEntries.length && cacheSufficientForGroupedView) {
+                            setProposalItems(cachedGroupedEntries);
+                            groupedProposalModalCacheRef.current[groupedCacheKey] = {
+                                items: cachedGroupedEntries,
+                                context: nextGroupedContext
+                            };
+                            setProposalLoading(false);
+                            return true;
+                        }
+                        if (!cachedGroupedEntries.length) {
+                            setProposalItems([]);
+                        } else if (options.waitForFullBidFetch) {
+                            setProposalItems([]);
+                        }
+                        var batchScopeItemIds = candidateItems.map(function(it) { return toNumericItemId(it && it.id); }).filter(function(id) { return id > 0; });
+                        batchScopeItemIds = Array.from(new Set(batchScopeItemIds)).sort(function(a, b) { return a - b; });
+                        fetchProposalStatesBatch(candidateItems, {
+                            requireGroupedBids: true,
+                            batchScopeItemIds: batchScopeItemIds,
+                            concurrency: 3,
+                            onProgress: function() {
+                                if (options.waitForFullBidFetch) {
+                                    return;
+                                }
+                                if (cachedGroupedEntries.length) {
+                                    return;
+                                }
+                                var partialEntries = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : [];
+                                var partialGroupedEntries = partialEntries.map(function(entry) {
+                                    return Object.assign({}, entry, {
+                                        state: filterProposalStateToBatchGroups(entry.state, cacheFilterGroupIds)
+                                    });
+                                }).filter(function(entry) {
+                                    return entry && entry.state && (entryHasBids(entry.state) || (entry.item && itemBelongsToBatchRfq(entry.item)));
+                                });
+                                if (partialGroupedEntries.length) {
+                                    setProposalItems(partialGroupedEntries);
+                                    groupedProposalModalCacheRef.current[groupedCacheKey] = {
+                                        items: partialGroupedEntries,
+                                        context: nextGroupedContext
+                                    };
+                                }
+                            }
+                        }).then(function(results) {
                             console.log('[N88][GroupedModal] fetched proposal states', {
                                 anchorItemId: anchorItemId,
                                 requestedGroupId: requestedGroupId,
@@ -27334,7 +29518,7 @@ class N88_RFQ_Admin {
                                     state: filterProposalStateToBatchGroups(entry.state, [])
                                 });
                             }).filter(function(entry) {
-                                return entry.state && Array.isArray(entry.state.bids) && entry.state.bids.length > 0;
+                                return entry && entry.state && (entryHasBids(entry.state) || (entry.item && itemBelongsToBatchRfq(entry.item)));
                             });
                             if (!resolvedGroupIds.length && anchorItemId > 0) {
                                 var anchorEntry = results.find(function(entry) { return toNumericItemId(entry.item && entry.item.id) === anchorItemId; });
@@ -27353,27 +29537,50 @@ class N88_RFQ_Admin {
                                     state: filterProposalStateToBatchGroups(entry.state, resolvedGroupIds)
                                 });
                             }).filter(function(entry) {
-                                return entry.state && Array.isArray(entry.state.bids) && entry.state.bids.length > 0;
+                                return entry && entry.state && (entryHasBids(entry.state) || (entry.item && itemBelongsToBatchRfq(entry.item)));
                             }) : allGroupedResults;
+                            if (scopedProjectId > 0) {
+                                filteredResults = filteredResults.filter(function(entry) {
+                                    var pid = getItemProjectId(entry && entry.item);
+                                    return pid === 0 || pid === scopedProjectId;
+                                });
+                                allGroupedResults = allGroupedResults.filter(function(entry) {
+                                    var pid = getItemProjectId(entry && entry.item);
+                                    return pid === 0 || pid === scopedProjectId;
+                                });
+                            }
                             if (!filteredResults.length && allGroupedResults.length) {
                                 filteredResults = allGroupedResults;
                                 resolvedGroupIds = Array.from(new Set(allGroupedResults.reduce(function(acc, entry) {
                                     return acc.concat(getStateProposalGroupIds(entry.state));
                                 }, [])));
                             }
-                            if (!filteredResults.length) {
-                                if (!options.hydratedOnce && !anchorItemId && !requestedGroupId && typeof refreshBoardItemsStatus === 'function') {
-                                    refreshBoardItemsStatus().then(function(rows) {
-                                        setProposalLoading(false);
-                                        openGroupedProposalModal(Object.assign({}, options, {
-                                            hydratedBoardRows: Array.isArray(rows) ? rows : [],
-                                            hydratedOnce: true
-                                        }));
-                                    }).catch(function(err) {
-                                        setProposalItems([]);
-                                        setProposalError(err && err.message ? err.message : 'Failed to load board proposal status.');
-                                        setProposalLoading(false);
+                            if (!filteredResults.length && Array.isArray(results) && results.length) {
+                                var relaxedGroupFilter = resolvedGroupIds.length ? resolvedGroupIds : cacheFilterGroupIds;
+                                filteredResults = results.map(function(entry) {
+                                    var baseState = entry && entry.state ? entry.state : getDefaultProposalState();
+                                    return Object.assign({}, entry, {
+                                        state: filterProposalStateToBatchGroups(baseState, relaxedGroupFilter)
                                     });
+                                }).filter(function(entry) {
+                                    return entry && entry.state && (entryHasBids(entry.state) || (entry.item && itemBelongsToBatchRfq(entry.item)));
+                                });
+                            }
+                            if (!filteredResults.length && Array.isArray(results) && results.length) {
+                                filteredResults = results.map(function(entry) {
+                                    var baseState = entry && entry.state ? entry.state : getDefaultProposalState();
+                                    return Object.assign({}, entry, { state: baseState });
+                                });
+                            }
+                            if (!filteredResults.length) {
+                                if (!options.fetchRetryAfterEmptyResults && !anchorItemId && !requestedGroupId) {
+                                    setProposalLoading(false);
+                                    openGroupedProposalModal(Object.assign({}, options, {
+                                        fetchRetryAfterEmptyResults: true,
+                                        relaxBatchProposalCandidates: true,
+                                        forceRefresh: true,
+                                        allowWhileLoading: true
+                                    }));
                                     return;
                                 }
                                 console.warn('[N88][GroupedModal] no grouped proposals matched entry point', {
@@ -27395,11 +29602,14 @@ class N88_RFQ_Admin {
                             });
                             setProposalItems(filteredResults);
                             setProposalError('');
-                            setProposalContext(function(prevContext) {
-                                return Object.assign({}, prevContext || {}, {
-                                    groupId: resolvedGroupIds.length === 1 ? resolvedGroupIds[0] : 0
-                                });
+                            var finalGroupedContext = Object.assign({}, nextGroupedContext, {
+                                groupId: resolvedGroupIds.length === 1 ? resolvedGroupIds[0] : 0
                             });
+                            groupedProposalModalCacheRef.current[groupedCacheKey] = {
+                                items: filteredResults,
+                                context: finalGroupedContext
+                            };
+                            setProposalContext(finalGroupedContext);
                         }).catch(function(err) {
                             setProposalItems([]);
                             setProposalError(err && err.message ? err.message : 'Failed to load grouped proposals.');
@@ -27419,6 +29629,9 @@ class N88_RFQ_Admin {
                         setProposalLoading(true);
                         setProposalError('');
                         setExpandedProposalSuppliers({});
+                        setProposalSupportMediaContext({ itemId: 0, bidId: 0, supplierId: 0, supplierName: '' });
+                        setProposalSupportMediaSearch('');
+                        setProposalSupportMediaFilter('our_work');
                         setProposalContext({ mode: 'selected', source: 'selection', anchorItemId: 0, groupId: 0 });
                         setProposalModalOpen(true);
                         setProposalItems([]);
@@ -27532,7 +29745,7 @@ class N88_RFQ_Admin {
                             itemGroups: itemGroups,
                             batchGroups: batchGroups
                         };
-                    }, [proposalItems]);
+                    }, [proposalItems, proposalContext && proposalContext.mode]);
                     var proposalItemGroups = proposalReviewData.itemGroups;
                     var proposalSupplierCount = proposalReviewData.supplierCount;
                     var proposalBatchGroups = proposalReviewData.batchGroups || [];
@@ -27581,9 +29794,35 @@ class N88_RFQ_Admin {
                         var counterpartyNames = Object.keys(counterpartyMap);
                         var counterpartyLabel = counterpartyNames.length === 1 ? counterpartyNames[0] : (counterpartyNames.length > 1 ? (counterpartyNames.length + ' suppliers') : 'No supplier');
                         var batchIdentifier = proposalContext && proposalContext.groupId ? ('Batch #' + proposalContext.groupId) : (proposalBatchGroups.length === 1 ? ('Batch #' + proposalBatchGroups[0].proposalGroupId) : 'Batch Proposal');
+                        var counterpartySupplierId = 0;
+                        var counterpartySupplierEmail = '';
+                        if (proposalContext && proposalContext.mode === 'grouped' && proposalContext.groupId && proposalBatchGroups.length) {
+                            var gidLook = parseInt(proposalContext.groupId, 10) || 0;
+                            for (var bi = 0; bi < proposalBatchGroups.length; bi++) {
+                                var gRow = proposalBatchGroups[bi];
+                                if (!gRow || parseInt(gRow.proposalGroupId, 10) !== gidLook) continue;
+                                var gItems = Array.isArray(gRow.items) ? gRow.items : [];
+                                for (var bj = 0; bj < gItems.length; bj++) {
+                                    var sups = gItems[bj] && gItems[bj].suppliers;
+                                    if (!Array.isArray(sups) || !sups.length) continue;
+                                    var firstSup = sups[0] || {};
+                                    var sid0 = parseInt(firstSup.supplierId || firstSup.supplier_id || (firstSup.bid && (firstSup.bid.supplier_id || firstSup.bid.supplierId)), 10) || 0;
+                                    var sem0 = (firstSup.supplierEmail || firstSup.supplier_email || (firstSup.bid && (firstSup.bid.supplier_email || firstSup.bid.supplierEmail)) || '').trim();
+                                    if (sid0 > 0) {
+                                        counterpartySupplierId = sid0;
+                                        if (sem0) counterpartySupplierEmail = sem0;
+                                        break;
+                                    }
+                                    if (!counterpartySupplierEmail && sem0) counterpartySupplierEmail = sem0;
+                                }
+                                if (counterpartySupplierId) break;
+                            }
+                        }
                         return {
                             batchIdentifier: batchIdentifier,
                             counterpartyLabel: counterpartyLabel,
+                            counterpartySupplierId: counterpartySupplierId,
+                            counterpartySupplierEmail: counterpartySupplierEmail,
                             quotedCount: quotedCount,
                             sampleSelectedCount: sampleSelectedCount,
                             awardedCount: awardedCount,
@@ -27591,6 +29830,40 @@ class N88_RFQ_Admin {
                             itemCards: itemCards
                         };
                     }, [proposalItemGroups, proposalContext, proposalBatchGroups]);
+                    var proposalConversationSupplierPicklist = React.useMemo(function() {
+                        var byKey = {};
+                        var pushSupplier = function(raw) {
+                            if (!raw || typeof raw !== 'object') return;
+                            var sid = parseInt(raw.supplierId || raw.supplier_id || (raw.bid && (raw.bid.supplier_id || raw.bid.supplierId)), 10) || 0;
+                            var sem = String(raw.supplierEmail || raw.supplier_email || (raw.bid && (raw.bid.supplier_email || raw.bid.supplierEmail)) || '').trim();
+                            var name = String(raw.supplierName || raw.supplier_name || raw.supplierDisplayLabel || (raw.bid && raw.bid.supplier_name) || '').trim();
+                            var key = sid > 0 ? ('id:' + sid) : (sem ? ('email:' + sem.toLowerCase()) : '');
+                            if (!key || byKey[key]) return;
+                            byKey[key] = {
+                                supplier_id: sid,
+                                supplier_email: sem,
+                                display_name: name || sem || ('Supplier #' + sid)
+                            };
+                        };
+                        (proposalBatchGroups || []).forEach(function(group) {
+                            if (!group || !Array.isArray(group.items)) return;
+                            group.items.forEach(function(itemRow) {
+                                var sups = itemRow && Array.isArray(itemRow.suppliers) ? itemRow.suppliers : [];
+                                sups.forEach(pushSupplier);
+                            });
+                        });
+                        (proposalItemGroups || []).forEach(function(group) {
+                            var sups = group && Array.isArray(group.suppliers) ? group.suppliers : [];
+                            sups.forEach(pushSupplier);
+                        });
+                        var list = Object.keys(byKey).map(function(k) { return byKey[k]; });
+                        list.sort(function(a, b) {
+                            var an = String(a.display_name || '').toLowerCase();
+                            var bn = String(b.display_name || '').toLowerCase();
+                            return an < bn ? -1 : (an > bn ? 1 : 0);
+                        });
+                        return list;
+                    }, [proposalBatchGroups, proposalItemGroups]);
                     React.useEffect(function() {
                         var awardedRows = buildGroupedCommitmentRows().filter(function(row) { return row.isAwarded; });
                         if (!awardedRows.length) {
@@ -27607,37 +29880,6 @@ class N88_RFQ_Admin {
                         }
                     }, [proposalItemGroups, batchCommitmentDepositSupplierName, batchCommitmentDepositAmount]);
                     var proposalItemsStillLoading = !!proposalLoading;
-                    React.useEffect(function() {
-                        if (!(window.n88BoardData && window.n88BoardData.enableProposalPrefetch)) return;
-                        var proposalCandidates = (items || []).filter(function(it) {
-                            if (!it) return false;
-                            return isTruthyValue(it.has_batch_proposals) || !!it.has_bids || !!it.has_awarded_bid;
-                        }).slice(0, 8);
-                        if (!proposalCandidates.length) return;
-                        var idleHandle = null;
-                        var timeoutHandle = null;
-                        var runPrefetch = function() {
-                            proposalCandidates.forEach(function(it) {
-                                var itemId = toNumericItemId(it.id);
-                                if (!(itemId > 0)) return;
-                                if (getCachedProposalState(itemId)) return;
-                                fetchItemProposalState(itemId).catch(function() {});
-                            });
-                        };
-                        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-                            idleHandle = window.requestIdleCallback(runPrefetch, { timeout: 6000 });
-                        } else {
-                            timeoutHandle = window.setTimeout(runPrefetch, 5000);
-                        }
-                        return function() {
-                            if (typeof window !== 'undefined' && idleHandle !== null && typeof window.cancelIdleCallback === 'function') {
-                                window.cancelIdleCallback(idleHandle);
-                            }
-                            if (timeoutHandle !== null) {
-                                window.clearTimeout(timeoutHandle);
-                            }
-                        };
-                    }, [items]);
                     var toggleProposalSupplierPanel = function(panelKey) {
                         setExpandedProposalSuppliers(function(prev) {
                             var next = Object.assign({}, prev || {});
@@ -27816,6 +30058,449 @@ class N88_RFQ_Admin {
                             });
                         });
                     };
+                    var runWithConcurrency = function(items, limit, worker) {
+                        var list = Array.isArray(items) ? items : [];
+                        var maxWorkers = Math.max(1, parseInt(limit, 10) || 1);
+                        if (!list.length) return Promise.resolve([]);
+                        var results = new Array(list.length);
+                        var cursor = 0;
+                        var active = 0;
+                        return new Promise(function(resolve) {
+                            var launchNext = function() {
+                                while (active < maxWorkers && cursor < list.length) {
+                                    (function(index) {
+                                        active++;
+                                        Promise.resolve()
+                                            .then(function() { return worker(list[index], index); })
+                                            .then(function(value) {
+                                                results[index] = { success: true, value: value };
+                                            })
+                                            .catch(function(error) {
+                                                results[index] = { success: false, error: error };
+                                            })
+                                            .finally(function() {
+                                                active--;
+                                                if (cursor >= list.length && active === 0) {
+                                                    resolve(results);
+                                                    return;
+                                                }
+                                                launchNext();
+                                            });
+                                    })(cursor++);
+                                }
+                            };
+                            launchNext();
+                        });
+                    };
+                    var normalizeBatchInvitedSuppliers = function(row) {
+                        var suppliers = Array.isArray(row && row.invited_suppliers) ? row.invited_suppliers : [];
+                        return suppliers.map(function(entry) {
+                            return String(entry || '').trim();
+                        }).filter(Boolean);
+                    };
+                    var getAjaxPayloadMessage = function(data) {
+                        if (!data || data.success) return '';
+                        if (data.data && typeof data.data === 'object' && data.data.message) return String(data.data.message);
+                        if (typeof data.data === 'string') return data.data;
+                        return '';
+                    };
+                    var getBoardNonceGetItemMessages = function() {
+                        return (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_messages) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                    };
+                    var getBoardNonceSendItemMessage = function() {
+                        return (window.n88BoardNonce && window.n88BoardNonce.nonce_send_item_message) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                    };
+                    var getBoardNonceGetItemRfqState = function() {
+                        return (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                    };
+                    var intersectBatchSupplierOptions = function(perRowOptArrays) {
+                        var rowsArr = (perRowOptArrays || []).filter(function(arr) { return Array.isArray(arr) && arr.length; });
+                        if (!rowsArr.length) return [];
+                        if (rowsArr.length === 1) return rowsArr[0].slice();
+                        var maps = rowsArr.map(function(arr) {
+                            var m = {};
+                            arr.forEach(function(opt) {
+                                var id = parseInt(opt && opt.supplier_id, 10) || 0;
+                                var em = (opt && opt.supplier_email ? String(opt.supplier_email) : '').trim().toLowerCase();
+                                var key = id > 0 ? ('id:' + id) : (em ? ('email:' + em) : '');
+                                if (key) m[key] = opt;
+                            });
+                            return m;
+                        });
+                        var firstMap = maps[0];
+                        var out = [];
+                        Object.keys(firstMap).forEach(function(k) {
+                            var ok = maps.every(function(mapRow) { return !!mapRow[k]; });
+                            if (ok) out.push(firstMap[k]);
+                        });
+                        return out;
+                    };
+                    var sortSupplierPicklistForBatch = function(list) {
+                        return (list || []).slice().sort(function(a, b) {
+                            var aw = a && a.is_wireframe_supplier ? 1 : 0;
+                            var bw = b && b.is_wireframe_supplier ? 1 : 0;
+                            if (aw !== bw) return aw - bw;
+                            var an = (a && a.display_name ? String(a.display_name) : '').toLowerCase();
+                            var bn = (b && b.display_name ? String(b.display_name) : '').toLowerCase();
+                            return an < bn ? -1 : (an > bn ? 1 : 0);
+                        });
+                    };
+                    var intersectBatchInviteIdentifiers = function(rows) {
+                        var rowsArr = Array.isArray(rows) ? rows : [];
+                        if (!rowsArr.length) return [];
+                        var firstList = normalizeBatchInvitedSuppliers(rowsArr[0]);
+                        if (!firstList.length) return [];
+                        var out = [];
+                        firstList.forEach(function(inv) {
+                            var norm = String(inv || '').trim().toLowerCase();
+                            if (!norm) return;
+                            var ok = rowsArr.every(function(row) {
+                                var set = normalizeBatchInvitedSuppliers(row).map(function(x) { return String(x || '').trim().toLowerCase(); });
+                                return set.indexOf(norm) !== -1;
+                            });
+                            if (ok) out.push(String(inv || '').trim());
+                        });
+                        return out;
+                    };
+                    var buildMergedBatchSupplierPicklist = function(rawPick, commonInviteIds) {
+                        var merged = [];
+                        var seen = {};
+                        (rawPick || []).forEach(function(opt) {
+                            var id = parseInt(opt && opt.supplier_id, 10) || 0;
+                            var em = (opt && opt.supplier_email ? String(opt.supplier_email) : '').trim().toLowerCase();
+                            var key = id > 0 ? ('id:' + id) : (em ? ('email:' + em) : ('name:' + String(opt && opt.display_name ? opt.display_name : '').toLowerCase()));
+                            if (!key || seen[key]) return;
+                            seen[key] = true;
+                            merged.push(opt);
+                        });
+                        (commonInviteIds || []).forEach(function(inv) {
+                            var raw = String(inv || '').trim();
+                            if (!raw) return;
+                            var norm = raw.toLowerCase();
+                            var byId = null;
+                            for (var i = 0; i < merged.length; i++) {
+                                var p = merged[i] || {};
+                                var pem = (p.supplier_email ? String(p.supplier_email) : '').trim().toLowerCase();
+                                var pdn = (p.display_name ? String(p.display_name) : '').trim().toLowerCase();
+                                if (pem && pem === norm) { byId = p; break; }
+                                if (pdn && pdn === norm) { byId = p; break; }
+                            }
+                            if (byId) return;
+                            if (norm.indexOf('@') !== -1) {
+                                var emKey = 'email:' + norm;
+                                if (seen[emKey]) return;
+                                seen[emKey] = true;
+                                merged.push({
+                                    supplier_id: 0,
+                                    supplier_email: raw,
+                                    display_name: raw,
+                                    is_wireframe_supplier: false
+                                });
+                            } else {
+                                var nmKey = 'name:' + norm;
+                                if (seen[nmKey]) return;
+                                seen[nmKey] = true;
+                                merged.push({
+                                    supplier_id: 0,
+                                    supplier_email: '',
+                                    display_name: raw,
+                                    is_wireframe_supplier: false
+                                });
+                            }
+                        });
+                        return merged;
+                    };
+                    var fetchBoardItemRfqSummaryForBatch = function(itemId) {
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceRfq = getBoardNonceGetItemRfqState();
+                        if (!itemId || !nonceRfq) {
+                            return Promise.resolve({ options: [], err: !nonceRfq ? 'Could not load maker list (missing token).' : '' });
+                        }
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_item_rfq_state');
+                        fd.append('item_id', String(itemId));
+                        fd.append('section', 'summary');
+                        fd.append('_ajax_nonce', nonceRfq);
+                        return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r) { return r.text(); })
+                            .then(function(txt) {
+                                var data = null;
+                                try { data = JSON.parse(txt); } catch (e1) { data = null; }
+                                if (!data || !data.success || !data.data) {
+                                    return { options: [], err: getAjaxPayloadMessage(data) || 'Could not read item state.' };
+                                }
+                                var opts = Array.isArray(data.data.direct_supplier_options) ? data.data.direct_supplier_options : [];
+                                return { options: opts, err: '' };
+                            })
+                            .catch(function() {
+                                return { options: [], err: 'Network error loading maker list.' };
+                            });
+                    };
+                    var fetchBoardBatchRfqChatMessageList = function(params) {
+                        params = params || {};
+                        var ajaxUrlChat = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceChat = getBoardNonceGetItemMessages();
+                        if (!nonceChat) return Promise.reject(new Error('Security token missing.'));
+                        var fdLoad = new FormData();
+                        fdLoad.append('action', 'n88_get_item_messages');
+                        fdLoad.append('item_id', String(params.anchorItemId));
+                        fdLoad.append('thread_type', 'designer_supplier');
+                        fdLoad.append('context_type', 'batch_proposal');
+                        fdLoad.append('batch_thread_key', params.threadKey || '');
+                        var sid = parseInt(params.supplierUserId, 10) || 0;
+                        if (sid > 0) fdLoad.append('supplier_id', String(sid));
+                        else if (params.supplierEmail) fdLoad.append('supplier_email', String(params.supplierEmail));
+                        fdLoad.append('_ajax_nonce', nonceChat);
+                        return fetch(ajaxUrlChat, { method: 'POST', body: fdLoad, credentials: 'same-origin' })
+                            .then(function(r) { return r.text(); })
+                            .then(function(txt) {
+                                var data2 = null;
+                                try { data2 = JSON.parse(txt); } catch (e2) { data2 = null; }
+                                if (!data2 || !data2.success) {
+                                    throw new Error(getAjaxPayloadMessage(data2) || 'Could not load messages.');
+                                }
+                                var msgs = (data2.data && data2.data.messages) ? data2.data.messages : [];
+                                var supId = (data2.data && data2.data.supplier_id) ? (parseInt(data2.data.supplier_id, 10) || 0) : sid;
+                                return { messages: msgs, supplier_id: supId };
+                            });
+                    };
+                    var getBatchRoutingGroupKey = function(row) {
+                        var suppliers = normalizeBatchInvitedSuppliers(row).slice().sort();
+                        var allowSystem = row && row.allow_system_invites ? 1 : 0;
+                        return JSON.stringify({
+                            invited_suppliers: suppliers,
+                            allow_system_invites: allowSystem
+                        });
+                    };
+                    React.useEffect(function() {
+                        var emptyChat = { messages: [], loading: false, input: '', error: '', threadKey: '', supplierEmail: '', supplierUserId: 0, anchorItemId: 0, supplierPicklist: [], picklistLoading: false, selectedSupplierId: 0, messageFiles: [] };
+                        if (!batchModalOpen) {
+                            setBoardBatchRfqChat(emptyChat);
+                            return;
+                        }
+                        var rows = batchRows || [];
+                        if (!rows.length) return;
+                        var routeKeys = {};
+                        rows.forEach(function(r) { routeKeys[getBatchRoutingGroupKey(r)] = true; });
+                        if (Object.keys(routeKeys).length !== 1) {
+                            setBoardBatchRfqChat(Object.assign({}, emptyChat, { error: 'Use one shared maker invite list on every row to unlock batch chat.' }));
+                            return;
+                        }
+                        var anchorId = rows[0].item_id;
+                        var idList = rows.map(function(r) { return r.item_id; });
+                        var ajaxUrlChat = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceChat = getBoardNonceGetItemMessages();
+                        if (!nonceChat) {
+                            setBoardBatchRfqChat(Object.assign({}, emptyChat, { error: 'Security token missing for messages.' }));
+                            return;
+                        }
+                        var commonInvites = intersectBatchInviteIdentifiers(rows);
+                        var emailPick = '';
+                        commonInvites.forEach(function(x) { if (String(x).indexOf('@') !== -1 && !emailPick) emailPick = String(x).trim(); });
+                        setBoardBatchRfqChat(Object.assign({}, emptyChat, { loading: true, picklistLoading: true, anchorItemId: anchorId }));
+                        var cancelledRfq = false;
+                        runWithConcurrency(idList, 3, function(itemId) {
+                            return fetchBoardItemRfqSummaryForBatch(itemId);
+                        }).then(function(summaryResults) {
+                            if (cancelledRfq) return;
+                            var hardErr = null;
+                            summaryResults.forEach(function(entry) {
+                                if (entry && !entry.success && entry.error) {
+                                    var em = entry.error && entry.error.message ? String(entry.error.message) : (typeof entry.error === 'string' ? entry.error : 'Request failed');
+                                    hardErr = hardErr || em;
+                                }
+                            });
+                            if (hardErr) {
+                                throw new Error(hardErr);
+                            }
+                            var perOpts = summaryResults.map(function(entry) {
+                                return entry && entry.success && entry.value ? entry.value.options : [];
+                            });
+                            var errFromRow = summaryResults.map(function(entry) {
+                                return entry && entry.success && entry.value && entry.value.err ? entry.value.err : '';
+                            }).find(Boolean);
+                            if (errFromRow) {
+                                throw new Error(errFromRow);
+                            }
+                            if (rows.length > 1 && perOpts.some(function(arr) { return !Array.isArray(arr) || !arr.length; })) {
+                                throw new Error('Some batch rows have no linked maker yet. Save the same invites on every row, reload the board, or drop items that are not set up.');
+                            }
+                            var rawPick = intersectBatchSupplierOptions(perOpts);
+                            var pick = sortSupplierPicklistForBatch(buildMergedBatchSupplierPicklist(rawPick, commonInvites));
+                            var defaultOpt = pick.length ? pick[0] : null;
+                            var defaultSid = defaultOpt ? (parseInt(defaultOpt.supplier_id, 10) || 0) : 0;
+                            var defaultEmail = (defaultOpt && defaultOpt.supplier_email) ? String(defaultOpt.supplier_email).trim() : '';
+                            if (!pick.length) {
+                                if (rows.length > 1 && perOpts.length === rows.length && perOpts.every(function(arr) { return Array.isArray(arr) && arr.length; })) {
+                                    throw new Error('These batch items are not linked to the same maker account. Use one maker across all rows, or message from each item card.');
+                                }
+                                if (!emailPick) {
+                                    throw new Error('No maker resolved yet. Add the same maker email/username on each row (Invite Suppliers), then reopen this batch modal.');
+                                }
+                            }
+                            var fdKey = new FormData();
+                            fdKey.append('action', 'n88_compute_batch_message_thread_key');
+                            fdKey.append('item_ids', JSON.stringify(idList));
+                            fdKey.append('_ajax_nonce', nonceChat);
+                            return fetch(ajaxUrlChat, { method: 'POST', body: fdKey, credentials: 'same-origin' })
+                                .then(function(r) { return r.json(); })
+                                .then(function(data) {
+                                    if (cancelledRfq) return;
+                                    if (!data || !data.success || !data.data || !data.data.batch_message_thread_key) {
+                                        throw new Error(getAjaxPayloadMessage(data) || 'Thread key failed');
+                                    }
+                                    var tk = data.data.batch_message_thread_key;
+                                    var loadSid = defaultSid;
+                                    var loadEmail = defaultSid ? defaultEmail : (emailPick || defaultEmail);
+                                    return fetchBoardBatchRfqChatMessageList({
+                                        anchorItemId: anchorId,
+                                        threadKey: tk,
+                                        supplierUserId: loadSid,
+                                        supplierEmail: loadEmail
+                                    }).then(function(bundle) {
+                                        if (cancelledRfq) return;
+                                        setBoardBatchRfqChat({
+                                            messages: bundle.messages,
+                                            loading: false,
+                                            input: '',
+                                            error: '',
+                                            threadKey: tk,
+                                            supplierEmail: loadSid ? '' : loadEmail,
+                                            supplierUserId: bundle.supplier_id || loadSid,
+                                            anchorItemId: anchorId,
+                                            supplierPicklist: pick,
+                                            picklistLoading: false,
+                                            selectedSupplierId: loadSid || (pick[0] ? (parseInt(pick[0].supplier_id, 10) || 0) : 0)
+                                        });
+                                    });
+                                });
+                        }).catch(function(err) {
+                            if (cancelledRfq) return;
+                            setBoardBatchRfqChat(function(prev) {
+                                return Object.assign({}, prev, {
+                                    loading: false,
+                                    picklistLoading: false,
+                                    error: err && err.message ? err.message : 'Batch chat unavailable',
+                                    messages: [],
+                                    threadKey: '',
+                                    supplierPicklist: []
+                                });
+                            });
+                        });
+                        return function() { cancelledRfq = true; };
+                    }, [batchModalOpen, batchRows]);
+                    var getResolvedProposalBatchScope = function() {
+                        var anchorId = proposalContext && proposalContext.anchorItemId ? (parseInt(proposalContext.anchorItemId, 10) || 0) : 0;
+                        var groupId = proposalContext && proposalContext.groupId ? (parseInt(proposalContext.groupId, 10) || 0) : 0;
+                        if (!groupId && Array.isArray(proposalBatchGroups) && proposalBatchGroups.length === 1) {
+                            groupId = parseInt(proposalBatchGroups[0] && proposalBatchGroups[0].proposalGroupId, 10) || 0;
+                        }
+                        if (!anchorId && Array.isArray(proposalItems) && proposalItems.length > 0) {
+                            var firstEntry = proposalItems[0];
+                            anchorId = toNumericItemId(firstEntry && firstEntry.item && firstEntry.item.id);
+                        }
+                        return { anchorItemId: anchorId, groupId: groupId };
+                    };
+                    React.useEffect(function() {
+                        var scope = getResolvedProposalBatchScope();
+                        if (!proposalModalOpen || !proposalContext || proposalContext.mode !== 'grouped' || !scope.groupId || !scope.anchorItemId) {
+                            setBoardBatchProposalChat({ messages: [], loading: false, input: '', error: '', supplierEmail: '', supplierUserId: 0, selectedSupplierId: 0, supplierPicklist: [], messageFiles: [] });
+                            return;
+                        }
+                        var picklist = Array.isArray(proposalConversationSupplierPicklist) ? proposalConversationSupplierPicklist : [];
+                        var selectedSupplierFromState = parseInt(boardBatchProposalChat.selectedSupplierId, 10) || 0;
+                        var selectedEmailFromState = String(boardBatchProposalChat.supplierEmail || '').trim();
+                        var sidProp = selectedSupplierFromState || proposalBatchSummary.counterpartySupplierId || (picklist[0] ? (parseInt(picklist[0].supplier_id, 10) || 0) : 0);
+                        var semProp = selectedEmailFromState || (proposalBatchSummary.counterpartySupplierEmail || '').trim() || (picklist[0] && picklist[0].supplier_email ? String(picklist[0].supplier_email).trim() : '');
+                        if (!sidProp && !semProp) {
+                            setBoardBatchProposalChat(function(prev) {
+                                return Object.assign({}, prev || {}, { messages: [], loading: false, error: 'Batch supplier context is still loading.', supplierPicklist: picklist, supplierUserId: 0, selectedSupplierId: 0, supplierEmail: '' });
+                            });
+                            return;
+                        }
+                        var ajaxUrlP = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceP = getBoardNonceGetItemMessages();
+                        if (!nonceP) {
+                            setBoardBatchProposalChat(function(prev) {
+                                return Object.assign({}, prev || {}, { messages: [], loading: false, error: 'Security token missing.', supplierEmail: semProp || '', supplierUserId: sidProp || 0, selectedSupplierId: sidProp || 0, supplierPicklist: picklist });
+                            });
+                            return;
+                        }
+                        setBoardBatchProposalChat(function(prev) {
+                            return Object.assign({}, prev || {}, { messages: [], loading: true, error: '', supplierEmail: semProp || '', supplierUserId: sidProp || 0, selectedSupplierId: sidProp || 0, supplierPicklist: picklist });
+                        });
+                        var fdP = new FormData();
+                        fdP.append('action', 'n88_get_item_messages');
+                        fdP.append('item_id', String(scope.anchorItemId));
+                        fdP.append('thread_type', 'designer_supplier');
+                        if (sidProp > 0) fdP.append('supplier_id', String(sidProp));
+                        else fdP.append('supplier_email', semProp);
+                        fdP.append('context_type', 'batch_proposal');
+                        fdP.append('proposal_group_id', String(scope.groupId));
+                        fdP.append('_ajax_nonce', nonceP);
+                        var cancelledP = false;
+                        fetch(ajaxUrlP, { method: 'POST', body: fdP, credentials: 'same-origin' })
+                            .then(function(r) { return r.text(); })
+                            .then(function(txt) {
+                                if (cancelledP) return;
+                                var dataP = null;
+                                try { dataP = JSON.parse(txt); } catch (eP) { dataP = null; }
+                                var msgsP = (dataP && dataP.success && dataP.data && dataP.data.messages) ? dataP.data.messages : [];
+                                setBoardBatchProposalChat(function(prev) {
+                                    return Object.assign({}, prev || {}, { messages: msgsP, loading: false, error: '', supplierEmail: semProp || '', supplierUserId: sidProp || 0, selectedSupplierId: sidProp || 0, supplierPicklist: picklist });
+                                });
+                            })
+                            .catch(function() {
+                                if (cancelledP) return;
+                                setBoardBatchProposalChat(function(prev) {
+                                    return Object.assign({}, prev || {}, { messages: [], loading: false, error: 'Could not load batch messages.', supplierEmail: semProp || '', supplierUserId: sidProp || 0, selectedSupplierId: sidProp || 0, supplierPicklist: picklist });
+                                });
+                            });
+                        return function() { cancelledP = true; };
+                    }, [proposalModalOpen, proposalContext && proposalContext.mode, proposalContext && proposalContext.groupId, proposalContext && proposalContext.anchorItemId, proposalBatchSummary.counterpartySupplierId, proposalBatchSummary.counterpartySupplierEmail, proposalItems, proposalBatchGroups, proposalConversationSupplierPicklist, boardBatchProposalChat.selectedSupplierId, boardBatchProposalChat.supplierEmail]);
+                    var buildBatchRfqItemPayload = function(row) {
+                        return {
+                            item_id: row.item_id,
+                            quantity: parseInt(row.quantity, 10),
+                            category: row.category || '',
+                            width: (row.measurement_type || n88GetCategoryMeasurementType(row.category || '')) === 'dimensions' ? parseFloat(row.width) : 0,
+                            depth: (row.measurement_type || n88GetCategoryMeasurementType(row.category || '')) === 'dimensions' ? parseFloat(row.depth) : 0,
+                            height: (row.measurement_type || n88GetCategoryMeasurementType(row.category || '')) === 'dimensions' ? parseFloat(row.height) : 0,
+                            dimension_unit: row.dimension_unit || 'in',
+                            measurement_type: row.measurement_type || n88GetCategoryMeasurementType(row.category || ''),
+                            measurement_area: row.measurement_area ? parseFloat(row.measurement_area) : 0,
+                            measurement_area_unit: row.measurement_area_unit || 'sq_ft',
+                            measurement_length: row.measurement_length ? parseFloat(row.measurement_length) : 0,
+                            measurement_length_unit: row.measurement_length_unit || 'ft',
+                            custom_specification: row.custom_specification || '',
+                            selected_keyword_ids: Array.isArray(row.selected_keyword_ids) ? row.selected_keyword_ids.slice() : [],
+                            delivery_country: row.delivery_country || '',
+                            delivery_postal: row.delivery_postal || '',
+                            preferred_delivery_date: row.preferred_delivery_date || '',
+                            rfq_overall_notes: row.rfq_overall_notes || '',
+                            rfq_fabric_supplied_flag: row.rfq_fabric_supplied_flag === 'no' ? 'no' : 'yes',
+                            rfq_fabric_notes: row.rfq_fabric_notes || ''
+                        };
+                    };
+                    var submitBatchRoutingGroup = function(groupRows, nonceRfq, ajaxUrl) {
+                        var firstRow = groupRows && groupRows[0] ? groupRows[0] : {};
+                        var invitedSuppliers = normalizeBatchInvitedSuppliers(firstRow);
+                        var allowSystemInvites = !!(firstRow && firstRow.allow_system_invites);
+                        var fd = new FormData();
+                        fd.append('action', 'n88_submit_rfq');
+                        fd.append('items', JSON.stringify(groupRows.map(buildBatchRfqItemPayload)));
+                        fd.append('invited_suppliers', JSON.stringify(invitedSuppliers));
+                        fd.append('allow_system_invites', allowSystemInvites ? '1' : '0');
+                        fd.append('_ajax_nonce', nonceRfq);
+                        return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    throw new Error((data && data.data && data.data.message) ? data.data.message : 'RFQ submission failed for one batch group.');
+                                }
+                                return data;
+                            });
+                    };
 
                     var submitBatchRfq = function() {
                         if (batchSubmitting) return;
@@ -27838,45 +30523,29 @@ class N88_RFQ_Admin {
                         }
                         setBatchSubmitting(true);
                         setBatchError('');
-
-                        var chain = Promise.resolve();
+                        var groupsByKey = {};
                         rows.forEach(function(row) {
-                            chain = chain.then(function() {
-                                return saveBatchRowToItem(row).then(function() {
-                                    var fd = new FormData();
-                                    fd.append('action', 'n88_submit_rfq');
-                                    fd.append('items', JSON.stringify([{
-                                        item_id: row.item_id,
-                                        quantity: parseInt(row.quantity, 10),
-                                        width: (row.measurement_type || n88GetCategoryMeasurementType(row.category || '')) === 'dimensions' ? parseFloat(row.width) : 0,
-                                        depth: (row.measurement_type || n88GetCategoryMeasurementType(row.category || '')) === 'dimensions' ? parseFloat(row.depth) : 0,
-                                        height: (row.measurement_type || n88GetCategoryMeasurementType(row.category || '')) === 'dimensions' ? parseFloat(row.height) : 0,
-                                        dimension_unit: row.dimension_unit || 'in',
-                                        measurement_type: row.measurement_type || n88GetCategoryMeasurementType(row.category || ''),
-                                        measurement_area: row.measurement_area ? parseFloat(row.measurement_area) : 0,
-                                        measurement_area_unit: row.measurement_area_unit || 'sq_ft',
-                                        measurement_length: row.measurement_length ? parseFloat(row.measurement_length) : 0,
-                                        measurement_length_unit: row.measurement_length_unit || 'ft',
-                                        custom_specification: row.custom_specification || '',
-                                        delivery_country: row.delivery_country || '',
-                                        delivery_postal: row.delivery_postal || '',
-                                        preferred_delivery_date: row.preferred_delivery_date || ''
-                                    }]));
-                                    fd.append('invited_suppliers', JSON.stringify(Array.isArray(row.invited_suppliers) ? row.invited_suppliers : []));
-                                    fd.append('allow_system_invites', row.allow_system_invites ? '1' : '0');
-                                    fd.append('_ajax_nonce', nonceRfq);
-                                    return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
-                                        .then(function(r) { return r.json(); })
-                                        .then(function(data) {
-                                            if (!data || !data.success) {
-                                                throw new Error((data && data.data && data.data.message) ? data.data.message : ('RFQ failed for item #' + row.item_id));
-                                            }
-                                        });
-                                });
-                            });
+                            var key = getBatchRoutingGroupKey(row);
+                            if (!groupsByKey[key]) groupsByKey[key] = [];
+                            groupsByKey[key].push(row);
                         });
+                        var groupedRows = Object.keys(groupsByKey).map(function(key) { return groupsByKey[key]; });
 
-                        chain.then(function() {
+                        runWithConcurrency(groupedRows, 2, function(groupRows) {
+                            return submitBatchRoutingGroup(groupRows, nonceRfq, ajaxUrl);
+                        }).then(function(groupResults) {
+                            var groupFailures = [];
+                            groupResults.forEach(function(result, idx) {
+                                if (result && !result.success) {
+                                    var groupItemIds = (groupedRows[idx] || []).map(function(row) { return row.item_id; }).join(', ');
+                                    var groupError = result.error && result.error.message ? result.error.message : 'RFQ group submission failed.';
+                                    groupFailures.push('Items [' + groupItemIds + ']: ' + groupError);
+                                }
+                            });
+                            if (groupFailures.length) {
+                                throw new Error(groupFailures.slice(0, 4).join('\n') + (groupFailures.length > 4 ? ('\n...and ' + (groupFailures.length - 4) + ' more') : ''));
+                            }
+                        }).then(function() {
                             alert('Batch RFQ submitted successfully for ' + rows.length + ' item(s).');
                             setBatchSubmitting(false);
                             setBatchModalOpen(false);
@@ -27887,6 +30556,479 @@ class N88_RFQ_Admin {
                             setBatchSubmitting(false);
                             setBatchError(err && err.message ? err.message : 'Batch RFQ failed. Please try again.');
                         });
+                    };
+                    var sendBoardBatchRfqDesignerChat = function() {
+                        var st = boardBatchRfqChat;
+                        var text = (st.input || '').trim();
+                        if (!text || !st.threadKey || !st.anchorItemId) return;
+                        var sidToSend = parseInt(st.supplierUserId, 10) || 0;
+                        var semToSend = (st.supplierEmail || '').trim();
+                        if (!sidToSend && !semToSend) {
+                            var asked = window.prompt('Enter supplier email for this batch conversation:');
+                            semToSend = asked ? String(asked).trim() : '';
+                            if (!semToSend || semToSend.indexOf('@') === -1) {
+                                setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { error: 'Please choose supplier or enter a valid supplier email.' }); });
+                                return;
+                            }
+                            setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { supplierEmail: semToSend, selectedSupplierId: 0, supplierUserId: 0 }); });
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceSend = getBoardNonceSendItemMessage();
+                        if (!nonceSend) {
+                            alert('Security token missing.');
+                            return;
+                        }
+                        var fd = new FormData();
+                        fd.append('action', 'n88_send_item_message');
+                        fd.append('item_id', String(st.anchorItemId));
+                        fd.append('thread_type', 'designer_supplier');
+                        fd.append('message_text', text);
+                        fd.append('category', '');
+                        fd.append('context_type', 'batch_proposal');
+                        fd.append('batch_thread_key', st.threadKey);
+                        if (sidToSend > 0) {
+                            fd.append('supplier_id', String(sidToSend));
+                        } else if (semToSend) {
+                            fd.append('supplier_email', semToSend);
+                        }
+                        var filesToSendRfq = Array.isArray(st.messageFiles) ? st.messageFiles : [];
+                        filesToSendRfq.slice(0, 5).forEach(function(file) {
+                            if (file) fd.append('message_attachments[]', file);
+                        });
+                        fd.append('_ajax_nonce', nonceSend);
+                        setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { loading: true, error: '' }); });
+                        fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    throw new Error(getAjaxPayloadMessage(data) || 'Send failed');
+                                }
+                                setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { input: '', loading: false, messageFiles: [] }); });
+                                return fetchBoardBatchRfqChatMessageList({
+                                    anchorItemId: st.anchorItemId,
+                                    threadKey: st.threadKey,
+                                    supplierUserId: sidToSend,
+                                    supplierEmail: semToSend
+                                });
+                            })
+                            .then(function(bundle) {
+                                if (!bundle) return;
+                                setBoardBatchRfqChat(function(p) {
+                                    return Object.assign({}, p, {
+                                        messages: bundle.messages,
+                                        supplierUserId: bundle.supplier_id || p.supplierUserId
+                                    });
+                                });
+                            })
+                            .catch(function(err) {
+                                setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { loading: false, error: err && err.message ? err.message : 'Send failed' }); });
+                                alert(err && err.message ? err.message : 'Send failed');
+                            });
+                    };
+                    var sendBoardBatchProposalDesignerChat = function() {
+                        var st = boardBatchProposalChat;
+                        var text = (st.input || '').trim();
+                        if (!text) return;
+                        var scope = getResolvedProposalBatchScope();
+                        if (!proposalContext || !scope.anchorItemId || !scope.groupId) {
+                            var missingScope = 'Batch message scope missing. Please close and reopen Batch Proposal Sheet.';
+                            setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { error: missingScope }); });
+                            alert(missingScope);
+                            return;
+                        }
+                        var sid = parseInt(st.selectedSupplierId || st.supplierUserId, 10) || proposalBatchSummary.counterpartySupplierId || 0;
+                        var sem = (st.supplierEmail || proposalBatchSummary.counterpartySupplierEmail || '').trim();
+                        if (!sid && !sem) {
+                            var askedProposalEmail = window.prompt('Enter supplier email for this batch proposal conversation:');
+                            sem = askedProposalEmail ? String(askedProposalEmail).trim() : '';
+                            if (!sem || sem.indexOf('@') === -1) {
+                                setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { error: 'Please enter a valid supplier email to send this message.' }); });
+                                return;
+                            }
+                            setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { supplierEmail: sem, error: '' }); });
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceSend = getBoardNonceSendItemMessage();
+                        if (!nonceSend) {
+                            alert('Security token missing.');
+                            return;
+                        }
+                        var fd = new FormData();
+                        fd.append('action', 'n88_send_item_message');
+                        fd.append('item_id', String(scope.anchorItemId));
+                        fd.append('thread_type', 'designer_supplier');
+                        if (sid > 0) fd.append('supplier_id', String(sid));
+                        else fd.append('supplier_email', sem);
+                        fd.append('message_text', text);
+                        fd.append('category', '');
+                        fd.append('context_type', 'batch_proposal');
+                        fd.append('proposal_group_id', String(scope.groupId));
+                        var filesToSend = Array.isArray(st.messageFiles) ? st.messageFiles : [];
+                        filesToSend.slice(0, 5).forEach(function(file) {
+                            if (file) fd.append('message_attachments[]', file);
+                        });
+                        fd.append('_ajax_nonce', nonceSend);
+                        setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { loading: true }); });
+                        fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    throw new Error(getAjaxPayloadMessage(data) || 'Send failed');
+                                }
+                                setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { input: '', loading: false, messageFiles: [] }); });
+                                var nonceGet = getBoardNonceGetItemMessages();
+                                if (!nonceGet) return;
+                                var fdL = new FormData();
+                                fdL.append('action', 'n88_get_item_messages');
+                                fdL.append('item_id', String(scope.anchorItemId));
+                                fdL.append('thread_type', 'designer_supplier');
+                                if (sid > 0) fdL.append('supplier_id', String(sid));
+                                else if (sem) fdL.append('supplier_email', sem);
+                                fdL.append('context_type', 'batch_proposal');
+                                fdL.append('proposal_group_id', String(scope.groupId));
+                                fdL.append('_ajax_nonce', nonceGet);
+                                return fetch(ajaxUrl, { method: 'POST', body: fdL, credentials: 'same-origin' }).then(function(r) { return r.text(); });
+                            })
+                            .then(function(txt) {
+                                if (!txt) return;
+                                var d = null;
+                                try { d = JSON.parse(txt); } catch (e) { return; }
+                                if (d && d.success && d.data && d.data.messages) {
+                                    setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { messages: d.data.messages }); });
+                                }
+                            })
+                            .catch(function(err) {
+                                setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { loading: false, error: err && err.message ? err.message : 'Send failed' }); });
+                                alert(err && err.message ? err.message : 'Send failed');
+                            });
+                    };
+                    var renderBoardBatchRfqChatColumn = function() {
+                        var scrollStyle = { flex: '1 1 auto', minHeight: '200px', maxHeight: '58vh', overflowY: 'auto', padding: '10px', background: '#1a1a1a', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' };
+                        var picklist = boardBatchRfqChat.supplierPicklist || [];
+                        var makerSelectEl = null;
+                        var getPickValue = function(opt, fallbackIndex) {
+                            var supplierId = parseInt(opt && opt.supplier_id, 10) || 0;
+                            if (supplierId > 0) return 'id:' + supplierId;
+                            var supplierEmail = (opt && opt.supplier_email ? String(opt.supplier_email) : '').trim().toLowerCase();
+                            if (supplierEmail) return 'email:' + supplierEmail;
+                            return 'row:' + String(fallbackIndex || 0);
+                        };
+                        var resolveActivePickValue = function() {
+                            var selectedSupplierId = parseInt(boardBatchRfqChat.selectedSupplierId, 10) || 0;
+                            var selectedSupplierEmail = (boardBatchRfqChat.supplierEmail || '').trim().toLowerCase();
+                            if (selectedSupplierId > 0) return 'id:' + selectedSupplierId;
+                            if (selectedSupplierEmail) return 'email:' + selectedSupplierEmail;
+                            return getPickValue(picklist[0] || {}, 0);
+                        };
+                        if (picklist.length >= 1) {
+                            var selVal = resolveActivePickValue();
+                            makerSelectEl = React.createElement('div', { style: { fontSize: '12px' } },
+                                React.createElement('label', { style: { display: 'block', color: '#bbb', marginBottom: '4px' } }, 'Maker'),
+                                React.createElement('select', {
+                                    value: selVal,
+                                    onChange: function(e) {
+                                        var selectedValue = String(e.target.value || '');
+                                        var sid = 0;
+                                        var em = '';
+                                        if (selectedValue.indexOf('id:') === 0) {
+                                            sid = parseInt(selectedValue.slice(3), 10) || 0;
+                                        } else if (selectedValue.indexOf('email:') === 0) {
+                                            em = selectedValue.slice(6).trim();
+                                        }
+                                        var opt = picklist.filter(function(o, idx) { return getPickValue(o, idx) === selectedValue; })[0] || {};
+                                        if (!sid && !em && opt && opt.supplier_email) {
+                                            em = String(opt.supplier_email).trim();
+                                        }
+                                        if (!sid && !em && opt && opt.display_name && String(opt.display_name).indexOf('@') !== -1) {
+                                            em = String(opt.display_name).trim();
+                                        }
+                                        if (!sid && !em) {
+                                            var typedEmail = window.prompt('Enter supplier email for "' + (opt && opt.display_name ? String(opt.display_name) : 'selected supplier') + '"');
+                                            if (typedEmail && String(typedEmail).indexOf('@') !== -1) {
+                                                em = String(typedEmail).trim();
+                                            }
+                                        }
+                                        if (!boardBatchRfqChat.threadKey) return;
+                                        setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { loading: true, error: '', selectedSupplierId: sid, supplierUserId: sid, supplierEmail: sid ? '' : em }); });
+                                        fetchBoardBatchRfqChatMessageList({
+                                            anchorItemId: boardBatchRfqChat.anchorItemId,
+                                            threadKey: boardBatchRfqChat.threadKey,
+                                            supplierUserId: sid,
+                                            supplierEmail: sid ? '' : em
+                                        }).then(function(bundle) {
+                                            setBoardBatchRfqChat(function(p) {
+                                                return Object.assign({}, p, {
+                                                    messages: bundle.messages,
+                                                    loading: false,
+                                                    supplierUserId: bundle.supplier_id || sid
+                                                });
+                                            });
+                                        }).catch(function(err2) {
+                                            setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { loading: false, error: err2 && err2.message ? err2.message : 'Could not switch maker' }); });
+                                        });
+                                    },
+                                    style: { width: '100%', padding: '6px', borderRadius: '6px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', fontSize: '12px' }
+                                }, picklist.map(function(o, idx) {
+                                    var oid = parseInt(o.supplier_id, 10) || 0;
+                                    var label = (o.display_name || ('Supplier #' + oid));
+                                    if (o.supplier_email) label += ' · ' + o.supplier_email;
+                                    if (o.is_wireframe_supplier) label += ' (Wireframe)';
+                                    var optionValue = getPickValue(o, idx);
+                                    return React.createElement('option', { key: 'mk-' + optionValue, value: optionValue }, label);
+                                }))
+                            );
+                        } else if ((boardBatchRfqChat.supplierEmail || '').indexOf('@') !== -1) {
+                            makerSelectEl = React.createElement('div', { style: { fontSize: '11px', color: '#ccc', lineHeight: 1.4 } }, 'Messaging: ' + boardBatchRfqChat.supplierEmail);
+                        } else {
+                            makerSelectEl = React.createElement('div', { style: { fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' } },
+                                React.createElement('label', { style: { display: 'block', color: '#bbb' } }, 'Supplier Email'),
+                                React.createElement('input', {
+                                    type: 'email',
+                                    value: boardBatchRfqChat.supplierEmail || '',
+                                    placeholder: 'supplier@example.com',
+                                    onChange: function(e) {
+                                        var nextEmail = String(e.target.value || '').trim();
+                                        setBoardBatchRfqChat(function(p) {
+                                            return Object.assign({}, p, {
+                                                supplierEmail: nextEmail,
+                                                supplierUserId: 0,
+                                                selectedSupplierId: 0,
+                                                error: ''
+                                            });
+                                        });
+                                    },
+                                    style: { width: '100%', padding: '6px', borderRadius: '6px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', fontSize: '12px' }
+                                }),
+                                React.createElement('div', { style: { fontSize: '10px', color: '#999', lineHeight: 1.3 } }, 'If supplier is not listed, enter their account email to send batch conversation message.')
+                            );
+                        }
+                        var sorted = (boardBatchRfqChat.messages || []).slice().sort(function(a, b) {
+                            return (new Date(a.created_at || 0)).getTime() - (new Date(b.created_at || 0)).getTime();
+                        });
+                        var rfqFileBadges = (boardBatchRfqChat.messageFiles || []).map(function(file, idx) {
+                            var fileName = file && file.name ? file.name : 'file';
+                            var isImage = /^image\//i.test(file && file.type ? file.type : '') || /\.(jpe?g|png|gif|webp)$/i.test(String(fileName));
+                            var previewUrl = '';
+                            if (isImage && file) {
+                                try { previewUrl = URL.createObjectURL(file); } catch (ePreviewRfq) { previewUrl = ''; }
+                            }
+                            return React.createElement('div', { key: 'rfq-msg-file-' + idx, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', fontSize: '10px', color: '#ddd', maxWidth: '100%', background: '#111' } },
+                                previewUrl ? React.createElement('img', { src: previewUrl, alt: fileName, style: { width: '28px', height: '28px', borderRadius: '4px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' } }) : React.createElement('span', { style: { fontSize: '10px', color: '#bfe6ff' } }, 'FILE'),
+                                React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' } }, fileName),
+                                React.createElement('button', { type: 'button', onClick: function() { removeBoardBatchRfqMessageFile(idx); }, style: { border: 'none', background: 'none', color: '#ff9dc7', cursor: 'pointer', fontSize: '10px', padding: 0, marginLeft: 'auto' } }, 'x')
+                            );
+                        });
+                        var bubbles = sorted.map(function(msg) {
+                            var isMine = String(msg.sender_role) === 'designer';
+                            return React.createElement('div', {
+                                key: msg.message_id || String(msg.created_at) + '-' + String((msg.message_text || '').slice(0, 12)),
+                                style: { marginBottom: '8px', textAlign: isMine ? 'right' : 'left' }
+                            }, React.createElement('div', {
+                                style: {
+                                    display: 'inline-block',
+                                    maxWidth: '94%',
+                                    padding: '8px 10px',
+                                    borderRadius: '8px',
+                                    background: isMine ? 'rgba(255,0,101,0.22)' : '#2a2a2a',
+                                    fontSize: '12px',
+                                    color: '#eee',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word'
+                                }
+                            }, msg.message_text || ''));
+                        });
+                        return React.createElement('div', {
+                            style: {
+                                flex: '0 0 20%',
+                                minWidth: '260px',
+                                maxWidth: '400px',
+                                borderLeft: '1px solid rgba(255,255,255,0.12)',
+                                paddingLeft: '12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                                boxSizing: 'border-box'
+                            }
+                        },
+                            React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, color: '#ff9bc2' } }, 'Batch conversation'),
+                            React.createElement('div', { style: { fontSize: '11px', color: '#aaa', lineHeight: 1.45 } }, 'Scoped to this batch only; not the single-item detail thread.'),
+                            boardBatchRfqChat.picklistLoading && !boardBatchRfqChat.threadKey ? React.createElement('div', { style: { fontSize: '12px', color: '#bbb' } }, 'Resolving makers for this batch…') : null,
+                            boardBatchRfqChat.error ? React.createElement('div', { style: { fontSize: '12px', color: '#ffb3b3' } }, boardBatchRfqChat.error) : null,
+                            makerSelectEl,
+                            boardBatchRfqChat.loading ? React.createElement('div', { style: scrollStyle }, 'Loading…') : React.createElement('div', { style: scrollStyle }, bubbles.length ? bubbles : React.createElement('div', { style: { fontSize: '12px', color: '#888', padding: '8px' } }, 'No messages yet.')),
+                            React.createElement('textarea', {
+                                rows: 2,
+                                value: boardBatchRfqChat.input || '',
+                                onChange: function(e) { setBoardBatchRfqChat(function(p) { return Object.assign({}, p, { input: e.target.value }); }); },
+                                placeholder: 'Message the maker…',
+                                style: { width: '100%', resize: 'vertical', minHeight: '44px', padding: '8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', background: '#111', color: '#fff', boxSizing: 'border-box', fontSize: '12px' }
+                            }),
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' } },
+                                React.createElement('button', {
+                                    type: 'button',
+                                    onClick: function() {
+                                        var fileEl = document.getElementById('n88-rfq-chat-files');
+                                        if (fileEl) fileEl.click();
+                                    },
+                                    style: { padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', background: '#111', color: '#fff', cursor: 'pointer', fontSize: '11px' }
+                                }, 'Attach File'),
+                                React.createElement('input', {
+                                    id: 'n88-rfq-chat-files',
+                                    type: 'file',
+                                    multiple: true,
+                                    accept: '.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.pdf,.doc,.docx,.txt',
+                                    style: { display: 'none' },
+                                    onChange: function(e) { appendBoardBatchRfqMessageFiles(e.target.files); e.target.value = ''; }
+                                })
+                            ),
+                            rfqFileBadges.length ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } }, rfqFileBadges) : null,
+                            React.createElement('button', {
+                                type: 'button',
+                                disabled: !!boardBatchRfqChat.loading || !(boardBatchRfqChat.input || '').trim() || !boardBatchRfqChat.threadKey,
+                                onClick: sendBoardBatchRfqDesignerChat,
+                                style: { alignSelf: 'flex-end', padding: '8px 14px', borderRadius: '6px', border: '1px solid #ff0065', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }
+                            }, boardBatchRfqChat.loading ? 'Sending...' : 'Send')
+                        );
+                    };
+                    var renderBoardBatchProposalChatColumn = function() {
+                        if (!proposalContext || proposalContext.mode !== 'grouped') return null;
+                        var scrollStyle = { flex: '1 1 auto', minHeight: '200px', maxHeight: '58vh', overflowY: 'auto', padding: '10px', background: '#1a1a1a', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' };
+                        var proposalPicklist = Array.isArray(boardBatchProposalChat.supplierPicklist) ? boardBatchProposalChat.supplierPicklist : [];
+                        var proposalSelectValue = String(parseInt(boardBatchProposalChat.selectedSupplierId, 10) || 0);
+                        var proposalSelectEl = proposalPicklist.length ? React.createElement('div', { style: { fontSize: '12px' } },
+                            React.createElement('label', { style: { display: 'block', color: '#bbb', marginBottom: '4px' } }, 'Select Supplier'),
+                            React.createElement('select', {
+                                value: proposalSelectValue,
+                                onChange: function(e) {
+                                    var sid = parseInt(e.target.value, 10) || 0;
+                                    var opt = proposalPicklist.filter(function(row) { return (parseInt(row.supplier_id, 10) || 0) === sid; })[0] || {};
+                                    var sem = (opt && opt.supplier_email) ? String(opt.supplier_email).trim() : '';
+                                    setBoardBatchProposalChat(function(p) {
+                                        return Object.assign({}, p, { selectedSupplierId: sid, supplierUserId: sid, supplierEmail: sem, error: '' });
+                                    });
+                                },
+                                style: { width: '100%', padding: '6px', borderRadius: '6px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', fontSize: '12px' }
+                            }, proposalPicklist.map(function(row) {
+                                var sid = parseInt(row && row.supplier_id, 10) || 0;
+                                var label = String(row && row.display_name ? row.display_name : ('Supplier #' + sid));
+                                if (row && row.supplier_email) label += ' · ' + row.supplier_email;
+                                return React.createElement('option', { key: 'proposal-supplier-' + sid, value: String(sid) }, label);
+                            }))
+                        ) : null;
+                        var proposalFileBadges = (boardBatchProposalChat.messageFiles || []).map(function(file, idx) {
+                            var fileName = file && file.name ? file.name : 'file';
+                            var isImage = /^image\//i.test(file && file.type ? file.type : '') || /\.(jpe?g|png|gif|webp)$/i.test(String(fileName));
+                            var previewUrl = '';
+                            if (isImage && file) {
+                                try { previewUrl = URL.createObjectURL(file); } catch (ePreview) { previewUrl = ''; }
+                            }
+                            return React.createElement('div', { key: 'proposal-msg-file-' + idx, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', fontSize: '10px', color: '#ddd', maxWidth: '100%', background: '#111' } },
+                                previewUrl ? React.createElement('img', { src: previewUrl, alt: fileName, style: { width: '28px', height: '28px', borderRadius: '4px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' } }) : React.createElement('span', { style: { fontSize: '10px', color: '#bfe6ff' } }, 'FILE'),
+                                React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' } }, fileName),
+                                React.createElement('button', { type: 'button', onClick: function() { removeBoardBatchProposalMessageFile(idx); }, style: { border: 'none', background: 'none', color: '#ff9dc7', cursor: 'pointer', fontSize: '10px', padding: 0, marginLeft: 'auto' } }, 'x')
+                            );
+                        });
+                        var sorted = (boardBatchProposalChat.messages || []).slice().sort(function(a, b) {
+                            return (new Date(a.created_at || 0)).getTime() - (new Date(b.created_at || 0)).getTime();
+                        });
+                        var bubbles = sorted.map(function(msg, idx) {
+                            var isMine = String(msg.sender_role) === 'designer';
+                            var attachments = [];
+                            try {
+                                if (msg && msg.message_attachments) {
+                                    var parsedAttachments = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments;
+                                    if (Array.isArray(parsedAttachments)) {
+                                        attachments = parsedAttachments;
+                                    }
+                                }
+                            } catch (eAttach) {}
+                            var attachmentNodes = attachments.map(function(file, fileIdx) {
+                                var fileUrl = file && file.url ? String(file.url) : '';
+                                var fileName = file && file.name ? String(file.name) : ('Attachment ' + (fileIdx + 1));
+                                if (!fileUrl) return null;
+                                var isImage = /\.(jpe?g|png|gif|webp)(\?.*)?$/i.test(fileUrl) || /\.(jpe?g|png|gif|webp)$/i.test(fileName);
+                                return React.createElement('a', {
+                                    key: 'proposal-attach-' + idx + '-' + fileIdx,
+                                    href: fileUrl,
+                                    target: '_blank',
+                                    rel: 'noopener noreferrer',
+                                    style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 8px', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '6px', color: '#bfe6ff', textDecoration: 'none', fontSize: '10px', marginTop: '4px', maxWidth: '100%', overflow: 'hidden' }
+                                },
+                                    isImage ? React.createElement('span', { style: { fontSize: '10px' } }, 'IMG') : React.createElement('span', { style: { fontSize: '10px' } }, 'FILE'),
+                                    React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px' } }, fileName)
+                                );
+                            }).filter(Boolean);
+                            return React.createElement('div', {
+                                key: (msg.message_id ? ('msg-' + msg.message_id) : (String(msg.created_at) + '-p-' + String((msg.message_text || '').slice(0, 12)))) + '-i-' + idx,
+                                style: { marginBottom: '8px', textAlign: isMine ? 'right' : 'left' }
+                            }, React.createElement('div', {
+                                style: {
+                                    display: 'inline-block',
+                                    maxWidth: '94%',
+                                    padding: '8px 10px',
+                                    borderRadius: '8px',
+                                    background: isMine ? 'rgba(255,0,101,0.22)' : '#2a2a2a',
+                                    fontSize: '12px',
+                                    color: '#eee',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word'
+                                }
+                            },
+                                React.createElement('div', null, msg.message_text || ''),
+                                attachmentNodes.length ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', marginTop: '6px' } }, attachmentNodes) : null
+                            ));
+                        });
+                        return React.createElement('div', {
+                            style: {
+                                flex: '0 0 20%',
+                                minWidth: '260px',
+                                maxWidth: '400px',
+                                borderLeft: '1px solid rgba(255,255,255,0.12)',
+                                paddingLeft: '12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                                boxSizing: 'border-box'
+                            }
+                        },
+                            React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, color: '#ff9bc2' } }, 'Batch conversation'),
+                            React.createElement('div', { style: { fontSize: '11px', color: '#aaa', lineHeight: 1.45 } }, 'Batch #' + (proposalContext.groupId || '') + ' — same channel as supplier batch modal.'),
+                            boardBatchProposalChat.error ? React.createElement('div', { style: { fontSize: '12px', color: '#ffb3b3' } }, boardBatchProposalChat.error) : null,
+                            proposalSelectEl,
+                            boardBatchProposalChat.loading ? React.createElement('div', { style: scrollStyle }, 'Loading…') : React.createElement('div', { style: scrollStyle }, bubbles.length ? bubbles : React.createElement('div', { style: { fontSize: '12px', color: '#888', padding: '8px' } }, 'No messages yet.')),
+                            React.createElement('textarea', {
+                                rows: 2,
+                                value: boardBatchProposalChat.input || '',
+                                onChange: function(e) { setBoardBatchProposalChat(function(p) { return Object.assign({}, p, { input: e.target.value }); }); },
+                                placeholder: 'Message the supplier…',
+                                style: { width: '100%', resize: 'vertical', minHeight: '44px', padding: '8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', background: '#111', color: '#fff', boxSizing: 'border-box', fontSize: '12px' }
+                            }),
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' } },
+                                React.createElement('button', {
+                                    type: 'button',
+                                    onClick: function() {
+                                        var fileEl = document.getElementById('n88-proposal-chat-files');
+                                        if (fileEl) fileEl.click();
+                                    },
+                                    style: { padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', background: '#111', color: '#fff', cursor: 'pointer', fontSize: '11px' }
+                                }, 'Attach File'),
+                                React.createElement('input', {
+                                    id: 'n88-proposal-chat-files',
+                                    type: 'file',
+                                    multiple: true,
+                                    accept: '.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.pdf,.doc,.docx,.txt',
+                                    style: { display: 'none' },
+                                    onChange: function(e) { appendBoardBatchProposalMessageFiles(e.target.files); e.target.value = ''; }
+                                })
+                            ),
+                            proposalFileBadges.length ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } }, proposalFileBadges) : null,
+                            React.createElement('button', {
+                                type: 'button',
+                                disabled: !!boardBatchProposalChat.loading || !(boardBatchProposalChat.input || '').trim(),
+                                onClick: sendBoardBatchProposalDesignerChat,
+                                style: { alignSelf: 'flex-end', padding: '8px 14px', borderRadius: '6px', border: '1px solid #ff0065', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }
+                            }, boardBatchProposalChat.loading ? 'Sending...' : 'Send')
+                        );
                     };
                     
                     if (!items || items.length === 0) {
@@ -27899,6 +31041,65 @@ class N88_RFQ_Admin {
                     if (!items || items.length === 0) {
                         console.warn('BoardCanvas: No items to render!');
                     }
+                    var itemsForRender = React.useMemo(function() {
+                        var source = Array.isArray(items) ? items : [];
+                        if (!source.length) return source;
+                        var batchUnreadByGroup = {};
+                        source.forEach(function(it) {
+                            var groupIds = [];
+                            if (Array.isArray(it && it.batch_proposal_group_ids)) {
+                                groupIds = groupIds.concat(it.batch_proposal_group_ids.map(function(gid) { return parseInt(gid, 10) || 0; }));
+                            }
+                            var primaryGid = parseInt(it && it.batch_primary_proposal_group_id, 10) || 0;
+                            if (primaryGid > 0) groupIds.push(primaryGid);
+                            groupIds = Array.from(new Set(groupIds.filter(function(gid) { return gid > 0; })));
+                            if (!groupIds.length) return;
+                            var unreadSupplier = parseInt(it && it.unread_supplier_messages, 10) || 0;
+                            var unreadOperator = parseInt(it && it.unread_operator_messages, 10) || 0;
+                            var hasUnreadSupplier = !!(it && it.has_unread_supplier_messages) || unreadSupplier > 0;
+                            var hasUnreadOperator = !!(it && it.has_unread_operator_messages) || unreadOperator > 0;
+                            groupIds.forEach(function(gid) {
+                                if (!batchUnreadByGroup[gid]) {
+                                    batchUnreadByGroup[gid] = { unreadSupplier: 0, unreadOperator: 0, hasUnreadSupplier: false, hasUnreadOperator: false };
+                                }
+                                batchUnreadByGroup[gid].unreadSupplier = Math.max(batchUnreadByGroup[gid].unreadSupplier, unreadSupplier);
+                                batchUnreadByGroup[gid].unreadOperator = Math.max(batchUnreadByGroup[gid].unreadOperator, unreadOperator);
+                                batchUnreadByGroup[gid].hasUnreadSupplier = batchUnreadByGroup[gid].hasUnreadSupplier || hasUnreadSupplier;
+                                batchUnreadByGroup[gid].hasUnreadOperator = batchUnreadByGroup[gid].hasUnreadOperator || hasUnreadOperator;
+                            });
+                        });
+                        return source.map(function(it) {
+                            var groupIds = [];
+                            if (Array.isArray(it && it.batch_proposal_group_ids)) {
+                                groupIds = groupIds.concat(it.batch_proposal_group_ids.map(function(gid) { return parseInt(gid, 10) || 0; }));
+                            }
+                            var primaryGid = parseInt(it && it.batch_primary_proposal_group_id, 10) || 0;
+                            if (primaryGid > 0) groupIds.push(primaryGid);
+                            groupIds = Array.from(new Set(groupIds.filter(function(gid) { return gid > 0; })));
+                            if (!groupIds.length) return it;
+                            var merged = {
+                                unreadSupplier: parseInt(it && it.unread_supplier_messages, 10) || 0,
+                                unreadOperator: parseInt(it && it.unread_operator_messages, 10) || 0,
+                                hasUnreadSupplier: !!(it && it.has_unread_supplier_messages),
+                                hasUnreadOperator: !!(it && it.has_unread_operator_messages)
+                            };
+                            groupIds.forEach(function(gid) {
+                                var groupUnread = batchUnreadByGroup[gid];
+                                if (!groupUnread) return;
+                                merged.unreadSupplier = Math.max(merged.unreadSupplier, groupUnread.unreadSupplier || 0);
+                                merged.unreadOperator = Math.max(merged.unreadOperator, groupUnread.unreadOperator || 0);
+                                merged.hasUnreadSupplier = merged.hasUnreadSupplier || !!groupUnread.hasUnreadSupplier;
+                                merged.hasUnreadOperator = merged.hasUnreadOperator || !!groupUnread.hasUnreadOperator;
+                            });
+                            return Object.assign({}, it, {
+                                unread_supplier_messages: merged.unreadSupplier,
+                                unread_operator_messages: merged.unreadOperator,
+                                has_unread_supplier_messages: merged.hasUnreadSupplier || merged.unreadSupplier > 0,
+                                has_unread_operator_messages: merged.hasUnreadOperator || merged.unreadOperator > 0,
+                                action_required: !!(it && it.action_required) || merged.hasUnreadSupplier || merged.hasUnreadOperator || merged.unreadSupplier > 0 || merged.unreadOperator > 0
+                            });
+                        });
+                    }, [items]);
                     return React.createElement(React.Fragment, null,
                         React.createElement('div', {
                             style: { 
@@ -27913,14 +31114,15 @@ class N88_RFQ_Admin {
                                 boxSizing: 'border-box',
                                 display: 'block'
                             },
-                        }, items && items.length > 0 ? items.map(function(item) {
+                        }, itemsForRender && itemsForRender.length > 0 ? itemsForRender.map(function(item, idx) {
                             console.log('Rendering item:', item.id, 'at position', item.x, item.y, 'size', item.width, 'x', item.height);
                             return React.createElement(BoardItemWrapper, {
-                                key: item.id,
+                                key: 'board-item-' + String(item && item.id != null ? item.id : 'na') + '-' + idx,
                                 item: item,
                                 onLayoutChanged: handleLayoutChanged,
                                 onSizeChange: saveHook && saveHook.saveNow ? saveHook.saveNow : undefined,
                                 boardId: testBoardId,
+                                batchActionDetailModalOpen: batchActionDetailModalOpen,
                                 _groupedModalBridge: { openGroupedProposalModal: openGroupedProposalModal },
                                 _batchSelection: {
                                     enabled: !!selectionMode,
@@ -27985,9 +31187,11 @@ class N88_RFQ_Admin {
                         }, React.createElement('div', {
                             className: 'n88-board-modal-box n88-batch-proposal-modal',
                             style: {
-                                width: 'min(980px, 96vw)',
+                                width: 'min(1176px, 96vw)',
                                 maxHeight: '90vh',
                                 overflow: 'auto',
+                                display: 'flex',
+                                flexDirection: 'column',
                                 background: '#323232',
                                 color: '#fff',
                                 border: '1px solid rgba(255,255,255,0.12)',
@@ -28007,7 +31211,7 @@ class N88_RFQ_Admin {
                             onClick: function() { if (!batchSubmitting) setBatchModalOpen(false); },
                             style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: batchSubmitting ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
                         }, 'x')),
-                        React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px' } },
+                        React.createElement('div', { style: { display: 'flex', flexDirection: 'row', flex: '1 1 auto', minHeight: 0, overflow: 'hidden', width: '100%' } }, React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px', flex: '1 1 0', minWidth: 0, overflowY: 'auto' } },
                             batchError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,0,101,0.12)', border: '1px solid rgba(255,0,101,0.45)', borderRadius: '6px', color: '#ffd7e8', fontSize: '13px' } }, batchError) : null,
                             (batchRows || []).map(function(row) {
                                 var missing = getBatchMissing(row);
@@ -28221,6 +31425,8 @@ class N88_RFQ_Admin {
                                 React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: function() { if (!batchSubmitting) setBatchModalOpen(false); }, style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'not-allowed' : 'pointer', fontSize: '13px' } }, 'Cancel'),
                                 React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: submitBatchRfq, style: { padding: '10px 16px', borderRadius: '4px', border: '1px solid rgb(255, 0, 101)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px' } }, batchSubmitting ? 'Sending...' : 'Submit Batch RFQ')
                             )
+                            )
+                            , renderBoardBatchRfqChatColumn()
                         ))), document.body) : null,
                         proposalModalOpen && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(React.createElement('div', {
                             className: 'n88-board-modal-backdrop n88-modal-open',
@@ -28241,8 +31447,8 @@ class N88_RFQ_Admin {
                         }, React.createElement('div', {
                             className: 'n88-board-modal-box n88-batch-proposal-modal',
                             style: {
-                                width: 'min(980px, 96vw)',
-                                maxWidth: 'min(980px, 96vw)',
+                                width: 'min(1176px, 96vw)',
+                                maxWidth: 'min(1176px, 96vw)',
                                 maxHeight: '94vh',
                                 overflow: 'hidden',
                                 display: 'flex',
@@ -28267,7 +31473,7 @@ class N88_RFQ_Admin {
                             onClick: function() { setProposalModalOpen(false); },
                             style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer', lineHeight: 1, padding: '2px 6px' }
                         }, 'x')),
-                        React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 } },
+                        React.createElement('div', { style: { display: 'flex', flexDirection: 'row', flex: '1 1 auto', minHeight: 0, overflow: 'hidden', width: '100%' } }, React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px', overflowY: 'auto', flex: '1 1 0', minWidth: 0, minHeight: 0 } },
                             proposalError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,152,0,0.12)', border: '1px solid rgba(255,152,0,0.45)', borderRadius: '6px', color: '#ffd8a8', fontSize: '13px' } }, proposalError) : null,
                             proposalContext && proposalContext.mode === 'grouped' ? React.createElement('div', { style: { marginBottom: '18px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', overflow: 'hidden' } },
                                 React.createElement('div', { style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: '#303030' } },
@@ -28292,17 +31498,48 @@ class N88_RFQ_Admin {
                                 var allAwardedHaveDeposit = !!awardedRows.length && awardedRows.every(function(row) { return row.hasDeposit; });
                                 var comApplicableRows = awardedRows.filter(function(row) { return row.comApplicable; });
                                 var allRequiredComReady = !comApplicableRows.length || comApplicableRows.every(function(row) { return row.hasCom; });
+                                var batchComShippedAll = !comApplicableRows.length || comApplicableRows.every(function(row) {
+                                    var c = row.commitmentState || {};
+                                    var s = String(c.com_status || '').toLowerCase();
+                                    if (['com_in_transit', 'shipped', 'in_transit', 'com_delivered', 'received', 'confirmed'].indexOf(s) !== -1) {
+                                        return true;
+                                    }
+                                    if (c.com_shipped_at && String(c.com_shipped_at).trim()) {
+                                        return true;
+                                    }
+                                    if (c.com_tracking_number && String(c.com_tracking_number).trim()) {
+                                        return true;
+                                    }
+                                    return false;
+                                });
                                 var readyForExecutionRows = awardedRows.filter(function(row) { return row.isReadyForExecution; });
+                                var batchExecutionLockedRows = readyForExecutionRows.filter(function(row) { return row.executionLocked; });
+                                var batchExecutionUnlockedRows = readyForExecutionRows.filter(function(row) { return !row.executionLocked; });
+                                var batchExecutionFeeTotal = batchExecutionLockedRows.reduce(function(sum, row) { return sum + (Number(row.executionFeeTotal) || 0); }, 0);
+                                var batchExecutionReferenceId = batchExecutionLockedRows.length && batchExecutionLockedRows[0].executionReferenceId ? batchExecutionLockedRows[0].executionReferenceId : '';
                                 var awardedSupplierName = awardedRows.length && awardedRows[0].supplierName ? awardedRows[0].supplierName : proposalBatchSummary.counterpartyLabel;
                                 var uploadedPoRow = awardedRows.find(function(row) { return row.poFile && row.poFile.url; }) || null;
                                 var uploadedPoUrl = uploadedPoRow && uploadedPoRow.poFile && uploadedPoRow.poFile.url ? uploadedPoRow.poFile.url : '';
-                                var uploadedPoName = uploadedPoUrl ? uploadedPoUrl.split('/').pop().split('?')[0] : 'PO attachment';
+                                var uploadedPoFileMeta = uploadedPoRow && uploadedPoRow.poFile ? uploadedPoRow.poFile : null;
+                                var uploadedPoName = (uploadedPoFileMeta && (uploadedPoFileMeta.title || uploadedPoFileMeta.name)) ? String(uploadedPoFileMeta.title || uploadedPoFileMeta.name) : (uploadedPoUrl ? boardCanvasPrettyFilenameFromUrl(uploadedPoUrl, 'PO attachment') : 'PO attachment');
                                 var uploadedPoAt = uploadedPoRow && uploadedPoRow.poUploadedAt ? uploadedPoRow.poUploadedAt : '';
+                                var batchGroupedSavedDepositReceipts = [];
+                                for (var _bdi = 0; _bdi < awardedRows.length; _bdi++) {
+                                    var _bcommit = awardedRows[_bdi] && awardedRows[_bdi].commitmentState;
+                                    if (_bcommit && Array.isArray(_bcommit.deposit_receipt_files) && _bcommit.deposit_receipt_files.length) {
+                                        batchGroupedSavedDepositReceipts = _bcommit.deposit_receipt_files;
+                                        break;
+                                    }
+                                }
+                                var shouldShowBatchCommitmentPanel = !!awardedRows.length;
+                                if (!shouldShowBatchCommitmentPanel) {
+                                    return null;
+                                }
                                 return React.createElement('div', { style: { marginBottom: '18px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', overflow: 'hidden' } },
                                     React.createElement('div', { style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: '#303030', display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' } },
                                         React.createElement('div', null,
                                             React.createElement('div', { style: { fontSize: '13px', color: '#fff', fontWeight: '700' } }, 'Step 03 - Batch Award + Commitment'),
-                                            React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px', lineHeight: 1.6 } }, awardableRows.length ? 'Samples approved items can now be awarded from this grouped surface. After award, keep PO, deposit, and COM actions here so supplier sees the same selected-item commitment result.' : 'This grouped surface now mirrors selected awarded items, PO state, deposit state, COM state, and readiness.')
+                                            React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px', lineHeight: 1.6 } }, 'This grouped surface now mirrors selected awarded items, PO state, deposit state, COM state, and readiness.')
                                         ),
                                         awardableRows.length ? React.createElement('button', {
                                             type: 'button',
@@ -28362,7 +31599,30 @@ class N88_RFQ_Admin {
                                                     ),
                                                     React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a' } },
                                                         React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'Attached PO Preview'),
-                                                        uploadedPoUrl ? React.createElement('a', { href: uploadedPoUrl, target: '_blank', rel: 'noopener noreferrer', style: { color: boardCanvasGreenAccent, textDecoration: 'none', fontSize: '12px', wordBreak: 'break-word' } }, uploadedPoName) : React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, 'PO file is attached to the awarded items.')
+                                                        uploadedPoUrl ? (function() {
+                                                            var low = uploadedPoUrl.split('?')[0].split('#')[0].toLowerCase();
+                                                            var imgLike = /\.(png|jpe?g|gif|webp|bmp)(\?|$)/.test(low);
+                                                            var pdfLike = /\.pdf(\?|$)/.test(low);
+                                                            if (imgLike) {
+                                                                return React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+                                                                    React.createElement('div', { style: { fontSize: '10px', color: '#bfbfbf', wordBreak: 'break-all' } }, uploadedPoName),
+                                                                    React.createElement('a', { href: uploadedPoUrl, target: '_blank', rel: 'noopener noreferrer', style: { display: 'block', maxWidth: '100%' } },
+                                                                        React.createElement('img', { src: uploadedPoUrl, alt: '', style: { maxWidth: '100%', maxHeight: '260px', objectFit: 'contain', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: '#0a0a0a' } })
+                                                                    )
+                                                                );
+                                                            }
+                                                            if (pdfLike) {
+                                                                return React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+                                                                    React.createElement('div', { style: { fontSize: '10px', color: '#bfbfbf', wordBreak: 'break-all' } }, uploadedPoName),
+                                                                    React.createElement('iframe', { title: 'PO PDF preview', src: uploadedPoUrl, style: { width: '100%', minHeight: '320px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', background: '#111' } }),
+                                                                    React.createElement('a', { href: uploadedPoUrl, target: '_blank', rel: 'noopener noreferrer', style: { color: boardCanvasGreenAccent, fontSize: '11px', textDecoration: 'none' } }, 'Open PDF in new tab')
+                                                                );
+                                                            }
+                                                            return React.createElement('div', { style: { display: 'grid', gap: '6px' } },
+                                                                React.createElement('div', { style: { fontSize: '10px', color: '#bfbfbf', wordBreak: 'break-all' } }, uploadedPoName),
+                                                                React.createElement('a', { href: uploadedPoUrl, target: '_blank', rel: 'noopener noreferrer', style: { color: boardCanvasGreenAccent, textDecoration: 'none', fontSize: '12px' } }, 'Open PO document')
+                                                            );
+                                                        })() : React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, 'PO file is attached to the awarded items.')
                                                     ),
                                                     React.createElement('div', { style: { display: 'grid', gap: '8px' } },
                                                         React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'PO Issued For'),
@@ -28397,7 +31657,14 @@ class N88_RFQ_Admin {
                                                                     if (batchCommitmentPoInputRef.current) batchCommitmentPoInputRef.current.value = '';
                                                                     setBatchCommitmentPoFile(null);
                                                                     if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
-                                                                    return refreshGroupedProposalItems();
+                                                                    if (result.successes > 0) {
+                                                                        window.setTimeout(function() {
+                                                                            if (result.failures && result.failures.length) {
+                                                                                alert('PO uploaded for ' + result.successes + ' awarded item' + (result.successes === 1 ? '' : 's') + '.\n\nSome items failed:\n' + result.failures.join('\n'));
+                                                                            }
+                                                                            window.location.reload();
+                                                                        }, (result.failures && result.failures.length) ? 50 : 150);
+                                                                    }
                                                                 })
                                                                 .catch(function(error) {
                                                                     setBatchCommitmentError(error && error.message ? error.message : 'Failed to upload batch PO.');
@@ -28428,11 +31695,12 @@ class N88_RFQ_Admin {
                                                         React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'Deposit Details'),
                                                         React.createElement('div', { style: { fontSize: '11px', color: '#d8d8d8' } }, 'Supplier / Payee: ' + (batchCommitmentDepositSupplierName || awardedSupplierName || 'Selected supplier')),
                                                         React.createElement('div', { style: { fontSize: '11px', color: boardCanvasGreenAccent, fontWeight: '700' } }, 'Deposit Confirmed')
-                                                    )
+                                                    ),
+                                                    batchGroupedSavedDepositReceipts.length ? boardCanvasRenderDepositReceiptPreviewBlock(batchGroupedSavedDepositReceipts, null, boardCanvasGreenAccent) : null
                                                 ) : React.createElement(React.Fragment, null,
                                                     React.createElement('input', { type: 'text', value: batchCommitmentDepositSupplierName, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentDepositSupplierName(e.target.value); }, placeholder: 'Supplier / payee name', style: { width: '100%', padding: '10px 12px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' } }),
-                                                    React.createElement('input', { ref: batchCommitmentDepositInputRef, type: 'file', multiple: true, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }),
-                                                    batchCommitmentDepositReceipts.length ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasGreenAccent } }, batchCommitmentDepositReceipts.map(function(file) { return file.name; }).join(', ')) : null
+                                                    React.createElement('input', { ref: batchCommitmentDepositInputRef, type: 'file', multiple: true, accept: 'image/*,.pdf,.doc,.docx', disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }),
+                                                    batchCommitmentDepositReceipts.length ? boardCanvasRenderDepositReceiptPreviewBlock(batchCommitmentDepositReceipts, batchCommitmentDepositPreviewUrls, boardCanvasGreenAccent) : null
                                                 ),
                                                 allAwardedHaveDeposit ? null : React.createElement('button', {
                                                     type: 'button',
@@ -28464,7 +31732,14 @@ class N88_RFQ_Admin {
                                                                 if (batchCommitmentDepositInputRef.current) batchCommitmentDepositInputRef.current.value = '';
                                                                 setBatchCommitmentDepositReceipts([]);
                                                                 if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
-                                                                return refreshGroupedProposalItems();
+                                                                if (result.successes > 0) {
+                                                                    window.setTimeout(function() {
+                                                                        if (result.failures && result.failures.length) {
+                                                                            alert('Deposit recorded for ' + result.successes + ' awarded item' + (result.successes === 1 ? '' : 's') + '.\n\nSome items failed:\n' + result.failures.join('\n'));
+                                                                        }
+                                                                        window.location.reload();
+                                                                    }, (result.failures && result.failures.length) ? 50 : 150);
+                                                                }
                                                             })
                                                             .catch(function(error) {
                                                                 setBatchCommitmentError(error && error.message ? error.message : 'Failed to save grouped deposit.');
@@ -28478,18 +31753,19 @@ class N88_RFQ_Admin {
                                             ) : null,
                                             allAwardedHavePo && allAwardedHaveDeposit && comApplicableRows.length ? React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#242424', display: 'grid', gap: '10px' } },
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, 'Batch COM / Fabric'),
-                                                React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', lineHeight: 1.6 } }, allRequiredComReady ? 'COM has been completed for the applicable awarded item scope.' : 'Use one tracking number for this grouped shipment. Supplier batch modal will mirror the same COM in-transit state per selected awarded item.'),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', lineHeight: 1.6 } }, allRequiredComReady ? 'COM has been completed for the applicable awarded item scope.' : (batchComShippedAll ? 'COM shipment is on file for all applicable items. Tracking is shown below; no further action needed here until delivery is confirmed.' : 'Use one tracking number for this grouped shipment. Supplier batch modal will mirror the same COM in-transit state per selected awarded item.')),
                                                 React.createElement('div', { style: { padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a', whiteSpace: 'pre-wrap', fontSize: '11px', color: '#fff', lineHeight: 1.6 } }, 'WireFrame (OS)\nWireFrame COM Receiving Address\n3520 W. Orange Ave\nAnaheim, CA 92804\nUnited States'),
-                                                allRequiredComReady ? React.createElement('div', { style: { padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a', display: 'grid', gap: '8px' } },
+                                                batchComShippedAll ? React.createElement('div', { style: { padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: '#1a1a1a', display: 'grid', gap: '8px' } },
                                                     React.createElement('div', { style: { fontSize: '11px', color: '#fff', fontWeight: '700' } }, 'COM Shipment Details'),
-                                                    React.createElement('div', { style: { fontSize: '11px', color: '#d8d8d8' } }, 'Tracking: ' + (batchCommitmentComTrackingNumber || comApplicableRows.map(function(row) { return row.commitmentState && row.commitmentState.com_tracking_number ? row.commitmentState.com_tracking_number : ''; }).filter(function(value) { return !!value; })[0] || 'Saved')),
+                                                    React.createElement('div', { style: { fontSize: '11px', color: '#d8d8d8' } }, 'Tracking: ' + (comApplicableRows.map(function(row) { return row.commitmentState && row.commitmentState.com_tracking_number ? String(row.commitmentState.com_tracking_number).trim() : ''; }).filter(function(value) { return !!value; })[0] || batchCommitmentComTrackingNumber || '—')),
+                                                    allRequiredComReady ? null : React.createElement('div', { style: { fontSize: '10px', color: '#aaa' } }, 'Status: in transit (awaiting delivery confirmation).'),
                                                     React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
                                                         comApplicableRows.map(function(row) {
                                                             return React.createElement('div', { key: 'com-item-' + row.itemId, style: { padding: '7px 10px', borderRadius: '999px', border: '1px solid ' + boardCanvasGreenAccent, background: 'rgba(78,196,94,0.12)', color: '#fff', fontSize: '11px', fontWeight: '600' } }, row.title);
                                                         })
                                                     )
                                                 ) : React.createElement('input', { type: 'text', value: batchCommitmentComTrackingNumber, disabled: batchCommitmentSubmitting, onChange: function(e) { setBatchCommitmentComTrackingNumber(e.target.value); }, placeholder: 'COM tracking number', style: { width: '100%', padding: '10px 12px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' } }),
-                                                allRequiredComReady ? null : React.createElement('button', {
+                                                batchComShippedAll ? null : React.createElement('button', {
                                                     type: 'button',
                                                     disabled: batchCommitmentSubmitting || !batchCommitmentComTrackingNumber,
                                                     onClick: function() {
@@ -28521,7 +31797,14 @@ class N88_RFQ_Admin {
                                                                 });
                                                                 setBatchCommitmentMessage('COM shipment recorded for ' + result.successes + ' applicable awarded item' + (result.successes === 1 ? '' : 's') + '.');
                                                                 if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
-                                                                return refreshGroupedProposalItems();
+                                                                if (result.successes > 0) {
+                                                                    window.setTimeout(function() {
+                                                                        if (result.failures && result.failures.length) {
+                                                                            alert('COM shipment recorded for ' + result.successes + ' applicable awarded item' + (result.successes === 1 ? '' : 's') + '.\n\nSome items failed:\n' + result.failures.join('\n'));
+                                                                        }
+                                                                        window.location.reload();
+                                                                    }, (result.failures && result.failures.length) ? 50 : 150);
+                                                                }
                                                             })
                                                             .catch(function(error) {
                                                                 setBatchCommitmentError(error && error.message ? error.message : 'Failed to save grouped COM details.');
@@ -28537,13 +31820,60 @@ class N88_RFQ_Admin {
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, readyForExecutionRows.length === awardedRows.length ? 'Ready For Next Execution Step' : 'Grouped Readiness'),
                                                 React.createElement('div', { style: { fontSize: '11px', color: readyForExecutionRows.length === awardedRows.length ? boardCanvasGreenAccent : '#bfbfbf', lineHeight: 1.6 } }, readyForExecutionRows.length === awardedRows.length ? 'All selected awarded items are ready for CAD / Production Kickoff.' : 'Keep completing PO, deposit, and COM on the selected awarded items. Unselected items remain unaffected.'),
                                                 React.createElement('div', { style: { fontSize: '11px', color: '#dcdcdc' } }, readyForExecutionRows.length + ' of ' + awardedRows.length + ' awarded item(s) are fully ready.')
-                                            ) : null
+                                            ) : null,
+                                            batchExecutionLockedRows.length ? React.createElement('div', { style: { padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,179,71,0.45)', background: 'rgba(255,179,71,0.08)', display: 'grid', gap: '10px' } },
+                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#ffcc80' } }, 'Activate Production (Batch Paywall)'),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#ffe0b2', lineHeight: 1.6 } }, 'Step 4 is locked until execution payment is confirmed.'),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#fff' } }, 'Locked awarded items: ' + batchExecutionLockedRows.length + ' | Total fee: $' + batchExecutionFeeTotal.toFixed(2)),
+                                                batchExecutionReferenceId ? React.createElement('div', { style: { fontSize: '10px', color: '#ffcc80' } }, 'Reference ID: ' + batchExecutionReferenceId) : null,
+                                                React.createElement('select', {
+                                                    value: batchExecutionPaymentMethod,
+                                                    disabled: batchExecutionPaymentSubmitting,
+                                                    onChange: function(e) { setBatchExecutionPaymentMethod(e.target.value || 'zelle'); },
+                                                    style: { width: '100%', padding: '9px 10px', background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', fontFamily: 'monospace' }
+                                                },
+                                                    React.createElement('option', { value: 'zelle' }, 'Zelle'),
+                                                    React.createElement('option', { value: 'wire' }, 'Wire'),
+                                                    React.createElement('option', { value: 'ach' }, 'ACH')
+                                                ),
+                                                React.createElement('button', {
+                                                    type: 'button',
+                                                    disabled: batchExecutionPaymentSubmitting,
+                                                    onClick: function() {
+                                                        setBatchExecutionPaymentSubmitting(true);
+                                                        setBatchCommitmentMessage('');
+                                                        setBatchCommitmentError('');
+                                                        submitGroupedCommitmentAction(batchExecutionLockedRows, 'n88_submit_execution_activation_payment', function() {
+                                                            return {
+                                                                payment_method: batchExecutionPaymentMethod,
+                                                                awarded_item_count: awardedRows.length
+                                                            };
+                                                        }, function() { return {}; }, 'nonce_get_item_rfq_state')
+                                                            .then(function(result) {
+                                                                setBatchCommitmentMessage('Execution payment submitted for ' + result.successes + ' item' + (result.successes === 1 ? '' : 's') + '. Awaiting admin verification.');
+                                                                if (result.failures && result.failures.length) setBatchCommitmentError(result.failures.join('\n'));
+                                                                if (result.successes > 0) window.setTimeout(function() { window.location.reload(); }, 120);
+                                                            })
+                                                            .catch(function(error) {
+                                                                setBatchCommitmentError(error && error.message ? error.message : 'Failed to submit execution payment.');
+                                                            })
+                                                            .finally(function() {
+                                                                setBatchExecutionPaymentSubmitting(false);
+                                                            });
+                                                    },
+                                                    style: { padding: '10px 14px', borderRadius: '6px', border: '1px solid #ffcc80', background: 'transparent', color: '#fff', cursor: batchExecutionPaymentSubmitting ? 'not-allowed' : 'pointer', opacity: batchExecutionPaymentSubmitting ? 0.5 : 1, fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
+                                                }, batchExecutionPaymentSubmitting ? 'Submitting...' : 'I Have Sent Payment')
+                                            ) : (batchExecutionUnlockedRows.length ? React.createElement('div', { style: { padding: '12px 14px', borderRadius: '8px', border: '1px solid rgba(78,196,94,0.35)', background: 'rgba(78,196,94,0.08)', color: '#c8f7cf', fontSize: '11px' } }, 'Execution payment confirmed. Production unlocked for ready awarded items.') : null),
+                                            readyForExecutionRows.length && !batchExecutionLockedRows.length ? React.createElement('div', { style: { fontSize: '11px', color: '#9de7a6' } }, 'Step 4 can proceed for all ready awarded items.') : null
                                         ) : null
                                     )
                                 );
                             })() : null,
                             proposalItemsStillLoading ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd', display: 'grid', gap: '8px' } },
-                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff' } }, proposalContext && proposalContext.mode === 'grouped' ? 'Fetching batch proposals...' : 'Loading proposals...'),
+                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '700', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '8px' } },
+                                    React.createElement('span', { style: { width: '9px', height: '9px', borderRadius: '50%', background: '#ff5ca8', boxShadow: '0 0 0 2px rgba(255,92,168,0.22)', display: 'inline-block', animation: 'n88PulseDot 1s ease-in-out infinite' } }),
+                                    proposalContext && proposalContext.mode === 'grouped' ? 'Fetching batch proposals...' : 'Loading proposals...'
+                                ),
                                 React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', lineHeight: 1.6 } }, proposalContext && proposalContext.mode === 'grouped' ? 'Board status and proposal data are loading for this batch view.' : 'Proposal data is loading.')
                             ) : null,
                             proposalItemGroups.length === 0 && !proposalItemsStillLoading && !proposalError ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'No batch proposals were found on this board yet.' : 'No proposals received for the selected items yet.') : null,
@@ -28559,9 +31889,12 @@ class N88_RFQ_Admin {
                                 var currentCommitmentRow = getProposalGroupCommitmentRow(group);
                                 var hasSampleRequest = proposalGroupHasSampleRequest(group);
                                 var currentGroupStatus = currentCommitmentRow && currentCommitmentRow.isAwarded
-                                    ? (currentCommitmentRow.isReadyForExecution ? 'Ready for Production' : (currentCommitmentRow.hasCom ? 'COM Shipped' : (currentCommitmentRow.hasDeposit ? 'Deposit Confirmed' : (currentCommitmentRow.hasPo ? 'PO Uploaded' : 'Project Awarded'))))
+                                    ? (currentCommitmentRow.isReadyForExecution
+                                        ? (currentCommitmentRow.executionLocked ? 'Awaiting Payment / Production Locked' : 'Ready for Production')
+                                        : (currentCommitmentRow.hasCom ? 'COM Shipped' : (currentCommitmentRow.hasDeposit ? 'Deposit Confirmed' : (currentCommitmentRow.hasPo ? 'PO Uploaded' : 'Project Awarded'))))
                                     : getProposalGroupStatusText(group);
                                 var itemStateLoading = !!(group && group.state && group.state.is_loading);
+                                var shouldOpenSingleOnStatus = currentGroupStatus === 'Activate Production' || currentGroupStatus === 'Awaiting Payment / Production Locked';
                                 return React.createElement('div', { id: 'n88-batch-proposal-anchor-item-' + currentItemId, key: 'proposal-item-' + currentItemId, style: { marginBottom: '18px', border: isAnchorItem ? '1px solid #FF0065' : '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', background: isAnchorItem ? '#33212a' : '#2a2a2a', boxShadow: isAnchorItem ? '0 0 0 2px rgba(255,0,101,0.18)' : 'none' } },
                                     React.createElement('div', { style: { padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', background: '#2f2f2f' } },
                                         React.createElement('div', null,
@@ -28572,18 +31905,101 @@ class N88_RFQ_Admin {
                                             proposalContext && proposalContext.mode === 'grouped' ? React.createElement('button', {
                                                 type: 'button',
                                                 onClick: function() {
+                                                    var boardRfq = currentItem && currentItem.rfq_state && typeof currentItem.rfq_state === 'object' ? currentItem.rfq_state : {};
+                                                    var batchGrp = group && group.state && typeof group.state === 'object' ? group.state : {};
+                                                    var mergedPreloadedRfqState = Object.assign(
+                                                        {},
+                                                        typeof getDefaultProposalState === 'function' ? getDefaultProposalState() : {},
+                                                        boardRfq,
+                                                        batchGrp,
+                                                        {
+                                                            loaded_sections: Object.assign(
+                                                                { summary: true, bids: true, workflow: true },
+                                                                boardRfq.loaded_sections && typeof boardRfq.loaded_sections === 'object' ? boardRfq.loaded_sections : {},
+                                                                batchGrp.loaded_sections && typeof batchGrp.loaded_sections === 'object' ? batchGrp.loaded_sections : {}
+                                                            ),
+                                                            loading_sections: { summary: false, bids: false, workflow: false },
+                                                            is_loading: false
+                                                        }
+                                                    );
+                                                    var batchBidLen = batchGrp && Array.isArray(batchGrp.bids) ? batchGrp.bids.length : 0;
+                                                    var boardBidLen = boardRfq && Array.isArray(boardRfq.bids) ? boardRfq.bids.length : 0;
+                                                    var cachedRfq = typeof getCachedProposalState === 'function' ? getCachedProposalState(currentItemId) : null;
+                                                    var cachedBidLen = cachedRfq && Array.isArray(cachedRfq.bids) ? cachedRfq.bids.length : 0;
+                                                    if (batchBidLen === 0 && boardBidLen > 0) {
+                                                        mergedPreloadedRfqState = Object.assign({}, mergedPreloadedRfqState, {
+                                                            bids: boardRfq.bids.slice(),
+                                                            has_bids: !!boardRfq.has_bids,
+                                                            has_rfq: !!boardRfq.has_rfq,
+                                                            has_awarded_bid: !!boardRfq.has_awarded_bid,
+                                                            has_batch_proposals: boardRfq.has_batch_proposals != null ? boardRfq.has_batch_proposals : mergedPreloadedRfqState.has_batch_proposals,
+                                                            batch_proposal_group_ids: boardRfq.batch_proposal_group_ids || mergedPreloadedRfqState.batch_proposal_group_ids,
+                                                            batch_primary_proposal_group_id: boardRfq.batch_primary_proposal_group_id || mergedPreloadedRfqState.batch_primary_proposal_group_id,
+                                                            validation_state: boardRfq.validation_state || mergedPreloadedRfqState.validation_state
+                                                        });
+                                                    } else if (batchBidLen === 0 && boardBidLen === 0 && cachedBidLen > 0) {
+                                                        mergedPreloadedRfqState = Object.assign({}, mergedPreloadedRfqState, {
+                                                            bids: cachedRfq.bids.slice(),
+                                                            has_bids: !!cachedRfq.has_bids,
+                                                            has_rfq: !!cachedRfq.has_rfq,
+                                                            has_awarded_bid: !!cachedRfq.has_awarded_bid,
+                                                            has_batch_proposals: cachedRfq.has_batch_proposals != null ? cachedRfq.has_batch_proposals : mergedPreloadedRfqState.has_batch_proposals,
+                                                            batch_proposal_group_ids: cachedRfq.batch_proposal_group_ids || mergedPreloadedRfqState.batch_proposal_group_ids,
+                                                            batch_primary_proposal_group_id: cachedRfq.batch_primary_proposal_group_id || mergedPreloadedRfqState.batch_primary_proposal_group_id,
+                                                            validation_state: cachedRfq.validation_state || mergedPreloadedRfqState.validation_state
+                                                        });
+                                                    }
+                                                    var rawTimelinePayload = batchGrp && batchGrp.timeline_payload && typeof batchGrp.timeline_payload === 'object'
+                                                        ? batchGrp.timeline_payload
+                                                        : (boardRfq && boardRfq.timeline_payload && typeof boardRfq.timeline_payload === 'object'
+                                                            ? boardRfq.timeline_payload
+                                                            : (mergedPreloadedRfqState && mergedPreloadedRfqState.timeline_payload && typeof mergedPreloadedRfqState.timeline_payload === 'object'
+                                                                ? mergedPreloadedRfqState.timeline_payload
+                                                                : (cachedRfq && cachedRfq.timeline_payload && typeof cachedRfq.timeline_payload === 'object'
+                                                                    ? cachedRfq.timeline_payload
+                                                                    : (currentItem && currentItem.timeline_payload && typeof currentItem.timeline_payload === 'object'
+                                                                        ? currentItem.timeline_payload
+                                                                        : null))));
+                                                    var preloadedTimelineData = rawTimelinePayload && rawTimelinePayload.timeline && typeof rawTimelinePayload.timeline === 'object'
+                                                        ? Object.assign({}, rawTimelinePayload.timeline, {
+                                                            evidence_by_step: rawTimelinePayload.evidence_by_step || {},
+                                                            can_add_evidence_comment: !!rawTimelinePayload.can_add_evidence_comment,
+                                                            steps_with_supplier_evidence: rawTimelinePayload.steps_with_supplier_evidence || {},
+                                                            supplier_step_evidence_by_step: rawTimelinePayload.supplier_step_evidence_by_step || {},
+                                                            step_456_videos: rawTimelinePayload.step_456_videos || { 4: [], 5: [], 6: [] },
+                                                            step_456_comments: rawTimelinePayload.step_456_comments || { 4: [], 5: [], 6: [] },
+                                                            validation_state: rawTimelinePayload.validation_state || null,
+                                                            is_operator: !!rawTimelinePayload.is_operator
+                                                        })
+                                                        : null;
                                                     setProposalModalOpen(false);
                                                     window.dispatchEvent(new CustomEvent('n88-open-item-detail-for-item', {
                                                         detail: {
                                                             itemId: currentItemId,
-                                                            initialTab: 'details'
+                                                            forceSingleItemModal: true,
+                                                            preloadedRfqState: mergedPreloadedRfqState,
+                                                            preloadedTimelineData: preloadedTimelineData
                                                         }
                                                     }));
                                                 },
                                                 style: { padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }
                                             }, 'View Item') : null,
                                             React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: itemStateLoading ? 'rgba(255,255,255,0.10)' : (group.suppliers.length ? 'rgba(76,175,80,0.18)' : 'rgba(255,152,0,0.18)'), border: itemStateLoading ? '1px solid rgba(255,255,255,0.18)' : (group.suppliers.length ? '1px solid rgba(76,175,80,0.4)' : '1px solid rgba(255,152,0,0.4)'), color: itemStateLoading ? '#e6e6e6' : (group.suppliers.length ? '#9cffb2' : '#ffd8a8') } }, itemStateLoading ? 'Loading quotes...' : (group.suppliers.length ? ('Quoted by ' + group.suppliers.length + ' supplier' + (group.suppliers.length === 1 ? '' : 's')) : 'Not Quoted')),
-                                            React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: hasSampleRequest ? 'rgba(255,0,101,0.14)' : 'rgba(255,255,255,0.06)', border: hasSampleRequest ? '1px solid rgba(255,0,101,0.38)' : '1px solid rgba(255,255,255,0.12)', color: hasSampleRequest ? '#ff9ac3' : '#d9d9d9' } }, currentGroupStatus)
+                                            shouldOpenSingleOnStatus
+                                                ? React.createElement('button', {
+                                                    type: 'button',
+                                                    onClick: function() {
+                                                        setProposalModalOpen(false);
+                                                        window.dispatchEvent(new CustomEvent('n88-open-item-detail-for-item', {
+                                                            detail: {
+                                                                itemId: currentItemId,
+                                                                forceSingleItemModal: true
+                                                            }
+                                                        }));
+                                                    },
+                                                    style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: 'rgba(255,179,71,0.14)', border: '1px solid rgba(255,179,71,0.55)', color: '#ffd59a', cursor: 'pointer' }
+                                                }, currentGroupStatus)
+                                                : React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: hasSampleRequest ? 'rgba(255,0,101,0.14)' : 'rgba(255,255,255,0.06)', border: hasSampleRequest ? '1px solid rgba(255,0,101,0.38)' : '1px solid rgba(255,255,255,0.12)', color: hasSampleRequest ? '#ff9ac3' : '#d9d9d9' } }, currentGroupStatus)
                                         )
                                     ),
                                     React.createElement('div', { style: { padding: '16px' } },
@@ -28622,18 +32038,7 @@ class N88_RFQ_Admin {
                                                     sampleRequestLocked: hasSampleRequest,
                                                     sampleRequestLockedLabel: currentGroupStatus,
                                                     onViewSupportMediaBid: function(selectedBid) {
-                                                        try {
-                                                            window.dispatchEvent(new CustomEvent('n88-open-support-media-for-item', {
-                                                                detail: {
-                                                                    itemId: currentItemId,
-                                                                    bidId: selectedBid && selectedBid.bid_id ? parseInt(selectedBid.bid_id, 10) : null,
-                                                                    supplierId: selectedBid && selectedBid.supplier_id ? parseInt(selectedBid.supplier_id, 10) : null
-                                                                }
-                                                            }));
-                                                            setProposalModalOpen(false);
-                                                        } catch (err) {
-                                                            console.error('Failed to open support media:', err);
-                                                        }
+                                                        openProposalSupportMediaForBid(currentItemId, selectedBid);
                                                     },
                                                     onRequestSampleBid: function(selectedBid) {
                                                         try {
@@ -28686,7 +32091,64 @@ class N88_RFQ_Admin {
                                                                 alert('Error awarding bid. Please try again.');
                                                             });
                                                     }
-                                                })
+                                                }),
+                                                proposalSupportMediaContext && proposalSupportMediaContext.itemId === currentItemId ? (function() {
+                                                    var proposalSupportMediaGroups = {
+                                                        our_work: Array.isArray(proposalSupportMediaLibrary.our_work) ? proposalSupportMediaLibrary.our_work : [],
+                                                        material_samples: Array.isArray(proposalSupportMediaLibrary.material_samples) ? proposalSupportMediaLibrary.material_samples : []
+                                                    };
+                                                    var proposalActiveSupportMediaItems = (proposalSupportMediaGroups[proposalSupportMediaFilter] || []).filter(function(entry) {
+                                                        return boardCanvasMediaMatchesSearch(entry, proposalSupportMediaSearch);
+                                                    });
+                                                    var proposalSupportMediaTitle = proposalSupportMediaFilter === 'material_samples' ? 'Material Samples' : 'Our Work';
+                                                    var proposalSupportMediaEmptyText = proposalSupportMediaFilter === 'material_samples'
+                                                        ? 'This supplier has not uploaded any Material Samples yet.'
+                                                        : 'This supplier has not uploaded any Our Work media yet.';
+                                                    return React.createElement('div', {
+                                                        id: 'n88-batch-proposal-support-media-' + currentItemId,
+                                                        ref: proposalSupportMediaSectionRef,
+                                                        style: { marginTop: '18px', border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '6px', padding: '16px', backgroundColor: '#0b0b0b' }
+                                                    },
+                                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' } },
+                                                            React.createElement('div', null,
+                                                                React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#fff' } }, ((proposalSupportMediaContext && proposalSupportMediaContext.supplierName) || 'Supplier') + ' Support Media'),
+                                                                React.createElement('div', { style: { fontSize: '11px', color: boardCanvasDarkText, marginTop: '4px' } }, 'Showing the supplier\'s uploaded ' + proposalSupportMediaTitle + ' below this batch proposal table.')
+                                                            ),
+                                                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginLeft: 'auto' } },
+                                                                React.createElement('input', { type: 'text', value: proposalSupportMediaSearch, onChange: function(e) { setProposalSupportMediaSearch(e.target.value || ''); }, placeholder: 'Search media', style: { width: '220px', maxWidth: '100%', padding: '7px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace' } }),
+                                                                React.createElement('button', {
+                                                                    type: 'button',
+                                                                    onClick: function() {
+                                                                        setProposalSupportMediaContext({ itemId: 0, bidId: 0, supplierId: 0, supplierName: '' });
+                                                                        setProposalSupportMediaSearch('');
+                                                                        setProposalSupportMediaFilter('our_work');
+                                                                    },
+                                                                    style: { padding: '7px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', fontSize: '10px', cursor: 'pointer', fontFamily: 'monospace' }
+                                                                }, 'Hide')
+                                                            )
+                                                        ),
+                                                        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '20% 1fr', gap: '16px', alignItems: 'start' } },
+                                                            React.createElement('div', { style: { border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '6px', padding: '12px', backgroundColor: '#050505', minWidth: 0 } },
+                                                                React.createElement('div', { style: { fontSize: '11px', color: boardCanvasDarkText, marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.08em' } }, 'Library'),
+                                                                ['our_work', 'material_samples'].map(function(filterKey) {
+                                                                    var isActive = proposalSupportMediaFilter === filterKey;
+                                                                    var label = filterKey === 'material_samples' ? 'Material Sample' : 'Our Work';
+                                                                    return React.createElement('label', { key: 'proposal-support-filter-' + currentItemId + '-' + filterKey, style: { display: 'flex', alignItems: 'center', gap: '8px', color: isActive ? '#fff' : boardCanvasDarkText, fontSize: '12px', marginBottom: '10px', cursor: 'pointer', fontFamily: 'monospace' } },
+                                                                        React.createElement('input', { type: 'radio', name: 'n88-proposal-support-media-filter-' + currentItemId, checked: isActive, onChange: function() { setProposalSupportMediaFilter(filterKey); }, style: { accentColor: boardCanvasGreenAccent } }),
+                                                                        React.createElement('span', null, label)
+                                                                    );
+                                                                })
+                                                            ),
+                                                            React.createElement('div', null,
+                                                                proposalSupportMediaLoading ? React.createElement('div', { style: { padding: '14px', border: '1px dashed ' + boardCanvasDarkBorder, borderRadius: '6px', color: boardCanvasDarkText, fontSize: '11px', textAlign: 'center' } }, 'Loading support media...') : (proposalSupportMediaError ? React.createElement('div', { style: { padding: '14px', border: '1px solid rgba(255,82,82,0.35)', borderRadius: '6px', color: '#ffb3b3', fontSize: '11px', backgroundColor: 'rgba(255,82,82,0.08)' } }, proposalSupportMediaError) : renderBoardCanvasSupportMediaCards(proposalActiveSupportMediaItems, {
+                                                                    emptyText: proposalSupportMediaEmptyText,
+                                                                    defaultTitlePrefix: proposalSupportMediaFilter === 'material_samples' ? 'Material' : 'Work',
+                                                                    keyPrefix: 'proposal-support-' + currentItemId + '-' + proposalSupportMediaFilter + '-'
+                                                                }))
+                                                            )
+                                                        )
+                                                    );
+                                                })() : null
                                             );
                                         })() : React.createElement('div', { style: { padding: '16px', borderRadius: '6px', border: '1px dashed rgba(255,255,255,0.2)', background: '#2b2b2b', color: '#ddd', fontSize: '13px' } }, 'Not Quoted'),
                                         null
@@ -28696,6 +32158,9 @@ class N88_RFQ_Admin {
                                     proposalItemGroups.length ? React.createElement('div', {
                                         style: { position: 'sticky', bottom: '-16px', zIndex: 3, marginTop: '18px', marginLeft: '-20px', marginRight: '-20px', marginBottom: '-16px', padding: '14px 20px 16px', borderTop: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', background: 'rgba(35,35,35,0.96)', backdropFilter: 'blur(8px)', boxShadow: '0 -10px 24px rgba(0,0,0,0.24)' }
                                     },
+                                        (function() {
+                                            var batchSampleActionLabel = getBatchSampleActionButtonLabel();
+                                            return [
                                         React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } },
                                             'Batch material samples now carry grouped request, grouped supplier fulfillment, and grouped approvals while preserving item-level records underneath.'
                                         ),
@@ -28704,16 +32169,20 @@ class N88_RFQ_Admin {
                                                 type: 'button',
                                                 onClick: function() { openBatchActionSelectionModal('sample'); },
                                                 style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }
-                                            }, 'Batch Request Sample'),
+                                            }, batchSampleActionLabel),
                                             React.createElement('button', {
                                                 type: 'button',
                                                 onClick: function() { openBatchActionSelectionModal('award'); },
                                                 style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }
                                             }, 'Batch Award Project')
                                         )
+                                            ];
+                                        })()
                                     ) : null
                                 );
                             })() : null
+                            )
+                            , renderBoardBatchProposalChatColumn()
                         ))), document.body) : null,
                         batchActionSelectionModalOpen && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(React.createElement('div', {
                             className: 'n88-board-modal-backdrop n88-modal-open',
@@ -28875,7 +32344,7 @@ class N88_RFQ_Admin {
                                         }, batchActionSubmitting)
                                     ) : React.createElement('div', { style: { marginTop: '12px', fontSize: '11px', color: '#d8d8d8', lineHeight: 1.6 } }, 'Each accordion item below keeps its own shipping address. Supplier will see the same per-item address split in the grouped batch modal.')
                                 ) : null,
-                                batchActionSampleRows.map(function(row) {
+                                batchActionSampleRows.map(function(row, rowIndex) {
                                     var selectedOption = (row.supplierOptions || []).find(function(option) { return option.bidId === row.selectedBidId; }) || null;
                                     var selectedLibrary = row && row.supportMediaLibrary && typeof row.supportMediaLibrary === 'object' ? row.supportMediaLibrary : getEmptyBoardCanvasSupplierMediaLibrary();
                                     var rowValidationState = row && row.validationState && typeof row.validationState === 'object' ? row.validationState : {};
@@ -28889,10 +32358,17 @@ class N88_RFQ_Admin {
                                     var isExpanded = !!batchActionExpanded[row.itemId];
                                     var rowHeaderTag = getBatchSampleRowHeaderTag(row);
                                     var rowCanReview = canBatchSampleRowBeReviewed(row);
-                                    var rowCanMarkReceived = canBatchSampleRowBeMarkedReceived(row);
                                     var rowApprovedImages = Array.isArray(row.approvedSampleImages) ? row.approvedSampleImages : [];
                                     var rowHasApprovedSummary = !!(row.approvedAt || (row.approvedMaterialCodes && String(row.approvedMaterialCodes).trim()) || (row.approvedFinishCodes && String(row.approvedFinishCodes).trim()) || (row.reviewNotes && String(row.reviewNotes).trim()) || (rowApprovedImages && rowApprovedImages.length) || (row.approvedSelectedSupplierSamples && row.approvedSelectedSupplierSamples.length));
                                     var rowShowWaitingMessage = shouldShowBatchSampleWaitingMessage(row);
+                                    var rowCanUseSameAsAbove = rowIndex > 0 && !row.isLocked;
+                                    var rowUseSameAsAbove = rowCanUseSameAsAbove && !!row.useSameAsAbove;
+                                    var previousBatchSampleRow = rowCanUseSameAsAbove ? batchActionSampleRows[rowIndex - 1] : null;
+                                    var previousBatchSampleTitle = previousBatchSampleRow && previousBatchSampleRow.itemTitle ? previousBatchSampleRow.itemTitle : ('Item ' + (previousBatchSampleRow && previousBatchSampleRow.itemId ? previousBatchSampleRow.itemId : 'above'));
+                                    var rowCanUseSameReviewAsAbove = rowIndex > 0 && row.isLocked && rowCanReview;
+                                    var rowUseSameReviewAsAbove = rowCanUseSameReviewAsAbove && !!row.useSameReviewAsAbove;
+                                    var previousReviewInheritRow = rowCanUseSameReviewAsAbove ? batchActionSampleRows[rowIndex - 1] : null;
+                                    var previousReviewInheritTitle = previousReviewInheritRow && previousReviewInheritRow.itemTitle ? previousReviewInheritRow.itemTitle : ('Item ' + (previousReviewInheritRow && previousReviewInheritRow.itemId ? previousReviewInheritRow.itemId : 'above'));
                                     return React.createElement('div', { key: 'batch-sample-row-' + row.itemId, style: { border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', overflow: 'hidden', marginBottom: '14px' } },
                                         React.createElement('button', {
                                             type: 'button',
@@ -28990,6 +32466,30 @@ class N88_RFQ_Admin {
                                                     renderBatchSampleAttachmentGallery(rowValidationSupplier.files, { keyPrefix: 'batch-supplier-sample-file-' + row.itemId + '-', defaultTitlePrefix: 'Sample File' })
                                                 ) : null
                                             ) : null,
+                                            rowCanUseSameAsAbove ? React.createElement('div', { style: { marginBottom: '14px', padding: '12px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: rowUseSameAsAbove ? 'rgba(255,0,101,0.08)' : '#202020' } },
+                                                React.createElement('label', { style: { display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer' } },
+                                                    React.createElement('input', {
+                                                        type: 'checkbox',
+                                                        checked: rowUseSameAsAbove,
+                                                        disabled: batchActionSubmitting,
+                                                        onChange: function(e) {
+                                                            var shouldInherit = !!(e && e.target && e.target.checked);
+                                                            updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                                var nextRow = Object.assign({}, currentRow, { useSameAsAbove: shouldInherit });
+                                                                if (shouldInherit && previousBatchSampleRow) {
+                                                                    nextRow = Object.assign(nextRow, getBatchSampleInheritedRowFields(previousBatchSampleRow));
+                                                                }
+                                                                return nextRow;
+                                                            });
+                                                        },
+                                                        style: { marginTop: '3px', accentColor: boardCanvasGreenAccent }
+                                                    }),
+                                                    React.createElement('div', null,
+                                                        React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff' } }, 'Same as above'),
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px', lineHeight: 1.6 } }, 'Use ', previousBatchSampleTitle, ' values for sample types, selected media, reference files, instructions, and address.')
+                                                    )
+                                                )
+                                            ) : null,
                                             React.createElement('div', { style: { marginBottom: '14px' } },
                                                 React.createElement('div', null,
                                                     React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf', marginBottom: '8px' } }, 'Requested Sample Types'),
@@ -29002,9 +32502,9 @@ class N88_RFQ_Admin {
                                                             }, sampleType) : React.createElement('button', {
                                                                 key: 'sample-type-' + row.itemId + '-' + sampleType,
                                                                 type: 'button',
-                                                                disabled: batchActionSubmitting || row.isLocked,
+                                                                disabled: batchActionSubmitting || row.isLocked || rowUseSameAsAbove,
                                                                 onClick: function() {
-                                                                    if (batchActionSubmitting || row.isLocked) return;
+                                                                    if (batchActionSubmitting || row.isLocked || rowUseSameAsAbove) return;
                                                                     updateBatchSampleRow(row.itemId, function(currentRow) {
                                                                         var nextSampleTypes = Array.isArray(currentRow.sampleTypes) ? currentRow.sampleTypes.slice() : [];
                                                                         if (nextSampleTypes.indexOf(sampleType) !== -1) {
@@ -29015,7 +32515,7 @@ class N88_RFQ_Admin {
                                                                         return Object.assign({}, currentRow, { sampleTypes: nextSampleTypes });
                                                                     });
                                                                 },
-                                                                style: { padding: '8px 10px', borderRadius: '999px', border: '1px solid ' + (isSelected ? boardCanvasGreenAccent : 'rgba(255,255,255,0.18)'), background: isSelected ? 'rgba(255,0,101,0.14)' : 'transparent', color: '#fff', cursor: (batchActionSubmitting || row.isLocked) ? 'not-allowed' : 'pointer', fontSize: '11px' }
+                                                                style: { padding: '8px 10px', borderRadius: '999px', border: '1px solid ' + (isSelected ? boardCanvasGreenAccent : 'rgba(255,255,255,0.18)'), background: isSelected ? 'rgba(255,0,101,0.14)' : 'transparent', color: '#fff', cursor: (batchActionSubmitting || row.isLocked || rowUseSameAsAbove) ? 'not-allowed' : 'pointer', fontSize: '11px', opacity: rowUseSameAsAbove ? 0.7 : 1 }
                                                             }, sampleType);
                                                         })
                                                     )
@@ -29035,7 +32535,7 @@ class N88_RFQ_Admin {
                                                         return libraryGroup + ':' + entryId;
                                                     },
                                                     onToggle: function(selectionId) {
-                                                        if (batchActionSubmitting || row.isLocked) return;
+                                                        if (batchActionSubmitting || row.isLocked || rowUseSameAsAbove) return;
                                                         updateBatchSampleRow(row.itemId, function(currentRow) {
                                                             var existingIds = Array.isArray(currentRow.selectedMaterialRefs) ? currentRow.selectedMaterialRefs.slice() : [];
                                                             return Object.assign({}, currentRow, {
@@ -29050,7 +32550,7 @@ class N88_RFQ_Admin {
                                                 !row.isLocked ? React.createElement('input', {
                                                     type: 'file',
                                                     multiple: true,
-                                                    disabled: batchActionSubmitting || row.isLocked,
+                                                    disabled: batchActionSubmitting || row.isLocked || rowUseSameAsAbove,
                                                     onChange: function(e) {
                                                         var nextFiles = Array.from((e.target && e.target.files) || []);
                                                         if (!nextFiles.length) return;
@@ -29066,11 +32566,21 @@ class N88_RFQ_Admin {
                                                     renderBatchSampleAttachmentGallery(row.referenceFiles, { keyPrefix: 'batch-submitted-reference-file-' + row.itemId + '-', defaultTitlePrefix: 'Reference File' })
                                                 ) : React.createElement('div', { style: { marginTop: '8px', display: 'grid', gap: '6px' } },
                                                     row.referenceFiles.map(function(file, fileIdx) {
-                                                        return React.createElement('div', { key: 'batch-row-file-' + row.itemId + '-' + fileIdx, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', fontSize: '11px', color: boardCanvasDarkText } },
-                                                            React.createElement('span', null, file.name),
+                                                        var canPreview = isPreviewableImageFile(file);
+                                                        var previewUrl = canPreview && typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(file) : '';
+                                                        return React.createElement('div', { key: 'batch-row-file-' + row.itemId + '-' + fileIdx, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', fontSize: '11px', color: boardCanvasDarkText } },
+                                                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 } },
+                                                                previewUrl ? React.createElement('img', {
+                                                                    src: previewUrl,
+                                                                    alt: file.name || ('Reference ' + (fileIdx + 1)),
+                                                                    onLoad: function() { try { if (URL && URL.revokeObjectURL) URL.revokeObjectURL(previewUrl); } catch (e) {} },
+                                                                    style: { width: '42px', height: '42px', objectFit: 'cover', borderRadius: '4px', border: '1px solid ' + boardCanvasDarkBorder, flexShrink: 0 }
+                                                                }) : null,
+                                                                React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, file.name)
+                                                            ),
                                                             !row.isLocked ? React.createElement('button', {
                                                                 type: 'button',
-                                                                disabled: batchActionSubmitting || row.isLocked,
+                                                                disabled: batchActionSubmitting || row.isLocked || rowUseSameAsAbove,
                                                                 onClick: function() {
                                                                     updateBatchSampleRow(row.itemId, function(currentRow) {
                                                                         return Object.assign({}, currentRow, {
@@ -29078,7 +32588,7 @@ class N88_RFQ_Admin {
                                                                         });
                                                                     });
                                                                 },
-                                                                style: { background: 'none', border: 'none', color: '#ff6666', cursor: (batchActionSubmitting || row.isLocked) ? 'not-allowed' : 'pointer', fontSize: '14px' }
+                                                                style: { background: 'none', border: 'none', color: '#ff6666', cursor: (batchActionSubmitting || row.isLocked || rowUseSameAsAbove) ? 'not-allowed' : 'pointer', fontSize: '14px' }
                                                             }, 'x') : null
                                                         );
                                                     })
@@ -29088,34 +32598,62 @@ class N88_RFQ_Admin {
                                                 React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, row.isLocked ? 'Submitted Instructions' : 'Instructions'),
                                                 row.isLocked ? React.createElement('div', { style: { color: boardCanvasDarkText, fontSize: '11px', lineHeight: 1.8, whiteSpace: 'pre-wrap' } }, row.instructions || 'No extra instructions were submitted.') : React.createElement('textarea', {
                                                     value: row.instructions || '',
-                                                    disabled: batchActionSubmitting || row.isLocked,
+                                                    disabled: batchActionSubmitting || row.isLocked || rowUseSameAsAbove,
                                                     onChange: function(e) { updateBatchSampleRow(row.itemId, { instructions: e.target.value || '' }); },
                                                     rows: 3,
                                                     placeholder: 'Add notes for the supplier sample request',
-                                                    style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
+                                                    style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace', opacity: rowUseSameAsAbove ? 0.7 : 1 }
                                                 })
                                             ),
+                                            rowCanUseSameReviewAsAbove ? React.createElement('div', { style: { marginBottom: '14px', padding: '12px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: rowUseSameReviewAsAbove ? 'rgba(255,0,101,0.08)' : '#202020' } },
+                                                React.createElement('label', { style: { display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer' } },
+                                                    React.createElement('input', {
+                                                        type: 'checkbox',
+                                                        checked: rowUseSameReviewAsAbove,
+                                                        disabled: batchActionSubmitting,
+                                                        onChange: function(e) {
+                                                            var inheritChecked = !!(e && e.target && e.target.checked);
+                                                            var inheritFromRow = previousReviewInheritRow;
+                                                            updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                                var nextRow = Object.assign({}, currentRow, { useSameReviewAsAbove: inheritChecked });
+                                                                if (inheritChecked && inheritFromRow) {
+                                                                    var copiedReview = getBatchSampleReviewInheritedFields(inheritFromRow);
+                                                                    nextRow.approvedMaterialCodes = copiedReview.approvedMaterialCodes;
+                                                                    nextRow.approvedFinishCodes = copiedReview.approvedFinishCodes;
+                                                                    nextRow.reviewNotes = copiedReview.reviewNotes;
+                                                                }
+                                                                return nextRow;
+                                                            });
+                                                        },
+                                                        style: { marginTop: '3px', accentColor: boardCanvasGreenAccent }
+                                                    }),
+                                                    React.createElement('div', null,
+                                                        React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff' } }, 'Same as item above (approval)'),
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px', lineHeight: 1.6 } }, 'Copy approved material codes, finish codes, and review notes from ', previousReviewInheritTitle, '. Each item still uses its own supplier sample selections; those are submitted with this row when you approve.')
+                                                    )
+                                                )
+                                            ) : null,
                                             row.isLocked && rowCanReview ? React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' } },
                                                 React.createElement('div', null,
                                                     React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Approved Material Codes'),
                                                     React.createElement('textarea', {
                                                         value: row.approvedMaterialCodes || '',
-                                                        disabled: batchActionSubmitting,
+                                                        disabled: batchActionSubmitting || rowUseSameReviewAsAbove,
                                                         onChange: function(e) { updateBatchSampleRow(row.itemId, { approvedMaterialCodes: e.target.value || '' }); },
                                                         rows: 3,
                                                         placeholder: 'Approve material codes',
-                                                        style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
+                                                        style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace', opacity: rowUseSameReviewAsAbove ? 0.75 : 1 }
                                                     })
                                                 ),
                                                 React.createElement('div', null,
                                                     React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Approved Finish Codes'),
                                                     React.createElement('textarea', {
                                                         value: row.approvedFinishCodes || '',
-                                                        disabled: batchActionSubmitting,
+                                                        disabled: batchActionSubmitting || rowUseSameReviewAsAbove,
                                                         onChange: function(e) { updateBatchSampleRow(row.itemId, { approvedFinishCodes: e.target.value || '' }); },
                                                         rows: 3,
                                                         placeholder: 'Approve finish codes',
-                                                        style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
+                                                        style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace', opacity: rowUseSameReviewAsAbove ? 0.75 : 1 }
                                                     })
                                                 )
                                             ) : null,
@@ -29123,20 +32661,12 @@ class N88_RFQ_Admin {
                                                 React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Review Notes'),
                                                 React.createElement('textarea', {
                                                     value: row.reviewNotes || '',
-                                                    disabled: batchActionSubmitting,
+                                                    disabled: batchActionSubmitting || rowUseSameReviewAsAbove,
                                                     onChange: function(e) { updateBatchSampleRow(row.itemId, { reviewNotes: e.target.value || '' }); },
                                                     rows: 3,
                                                     placeholder: 'Add grouped designer review notes for this sample item',
-                                                    style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
+                                                    style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace', opacity: rowUseSameReviewAsAbove ? 0.75 : 1 }
                                                 })
-                                            ) : null,
-                                            row.isLocked && rowCanMarkReceived ? React.createElement('div', { style: { marginBottom: '14px' } },
-                                                React.createElement('button', {
-                                                    type: 'button',
-                                                    disabled: batchActionSubmitting,
-                                                    onClick: function() { submitBatchSamplesReceived([row]); },
-                                                    style: { padding: '9px 12px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: '600' }
-                                                }, 'Mark Samples Received')
                                             ) : null,
                                             row.isLocked ? React.createElement('div', { style: { marginBottom: '14px' } },
                                                 React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Submitted Shipping Address'),
@@ -29153,7 +32683,7 @@ class N88_RFQ_Admin {
                                                             shippingAddressFields: typeof nextValue === 'function' ? nextValue(currentRow.shippingAddressFields) : nextValue
                                                         });
                                                     });
-                                                }, batchActionSubmitting || row.isLocked)
+                                                }, batchActionSubmitting || row.isLocked || rowUseSameAsAbove)
                                             ) : null
                                         ) : null
                                     );
@@ -29174,19 +32704,19 @@ class N88_RFQ_Admin {
                                             disabled: batchActionSubmitting || !getBatchSampleReceivableRows().length,
                                             onClick: function() { submitBatchSamplesReceived(getBatchSampleReceivableRows()); },
                                             style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchActionSubmitting || !getBatchSampleReceivableRows().length) ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '600' }
-                                        }, 'Mark Received For Batch') : null,
+                                        }, batchMarkReceiving ? 'Receiving...' : 'Mark Received For Batch') : null,
                                         getBatchSampleApprovalEligibleRows().length ? React.createElement('button', {
                                             type: 'button',
                                             disabled: batchActionSubmitting || !getBatchSampleApprovalEligibleRows().length,
                                             onClick: function() { submitBatchSampleReview(getBatchSampleApprovalEligibleRows(), true); },
                                             style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchActionSubmitting || !getBatchSampleApprovalEligibleRows().length) ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '600' }
-                                        }, 'Approve All Selected') : null,
+                                        }, batchSampleApproving ? 'Approving...' : 'Approve All Selected') : null,
                                         getBatchSampleRequestRows().length ? React.createElement('button', {
                                             type: 'button',
                                             disabled: batchActionSubmitting || !getBatchSampleRequestRows().length || getBatchSampleRequestRows().some(function(row) { return getBatchSampleRowSelectionIssues(row).length > 0; }),
                                             onClick: submitBatchSampleRequests,
                                             style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchActionSubmitting || !getBatchSampleRequestRows().length || getBatchSampleRequestRows().some(function(row) { return getBatchSampleRowSelectionIssues(row).length > 0; })) ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '600' }
-                                        }, batchActionSubmitting ? 'Submitting...' : 'Submit Sample Requests') : null
+                                        }, (batchActionSubmitting && !batchSampleApproving && !batchMarkReceiving) ? 'Submitting...' : 'Submit Sample Requests') : null
                                     )
                                 )
                             )
@@ -29196,6 +32726,42 @@ class N88_RFQ_Admin {
                         // UnsyncedToast removed - no longer showing "Changes not saved" notification
                         null
                     );
+                };
+
+                const BoardCanvasErrorBoundary = class extends React.Component {
+                    constructor(props) {
+                        super(props);
+                        this.state = { hasError: false, message: '' };
+                    }
+                    static getDerivedStateFromError(error) {
+                        return {
+                            hasError: true,
+                            message: error && error.message ? String(error.message) : 'BoardCanvas crashed while rendering.'
+                        };
+                    }
+                    componentDidCatch(error, info) {
+                        console.error('BoardCanvas boundary caught an error:', error, info);
+                    }
+                    render() {
+                        if (this.state.hasError) {
+                            return React.createElement('div', {
+                                style: {
+                                    margin: '20px',
+                                    padding: '16px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(255,82,82,0.35)',
+                                    backgroundColor: '#2b1616',
+                                    color: '#ffd7d7',
+                                    fontFamily: 'monospace',
+                                    whiteSpace: 'pre-wrap'
+                                }
+                            },
+                                React.createElement('div', { style: { fontSize: '16px', fontWeight: '700', marginBottom: '8px' } }, 'BoardCanvas render error'),
+                                React.createElement('div', { style: { fontSize: '12px', lineHeight: 1.6 } }, this.state.message)
+                            );
+                        }
+                        return this.props.children;
+                    }
                 };
 
                 // Render
@@ -29211,14 +32777,18 @@ class N88_RFQ_Admin {
                         window._n88BoardRoot = ReactDOM.createRoot(rootEl);
                     }
                     
-                    window._n88BoardRoot.render(React.createElement(BoardCanvas, {
-                        boardId: testBoardId,
-                        userId: currentUserId,
-                        concierge: conciergeData,
-                        onLayoutChanged: function(data) { 
-                            console.log('Layout changed:', data);
-                        },
-                    }));
+                    window._n88BoardRoot.render(
+                        React.createElement(BoardCanvasErrorBoundary, null,
+                            React.createElement(BoardCanvas, {
+                                boardId: testBoardId,
+                                userId: currentUserId,
+                                concierge: conciergeData,
+                                onLayoutChanged: function(data) { 
+                                    console.log('Layout changed:', data);
+                                },
+                            })
+                        )
+                    );
                     
                     updateDebug('Board rendered! Items: ' + initialItems.length + (testBoardId > 0 ? ' (Real board - persistence enabled)' : ' (Demo mode - localStorage)'));
                     
@@ -29258,7 +32828,7 @@ class N88_RFQ_Admin {
 
     /**
      * AJAX: Get board items status (for designer card status refresh without full page reload).
-     * Returns status fields only so the frontend can merge into the store and show CAD Requested, Payment received, etc.
+     * Returns lightweight card fields only so the frontend can merge live badges without loading workflow-heavy prototype data.
      */
     public function ajax_get_board_items_status() {
         $request_started_at = microtime( true );
@@ -29267,6 +32837,8 @@ class N88_RFQ_Admin {
             wp_send_json_error( array( 'message' => 'Unauthorized' ), 401 );
         }
         $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
+        $project_id = isset( $_POST['project_id'] ) ? absint( $_POST['project_id'] ) : 0;
+        $room_id = isset( $_POST['room_id'] ) ? absint( $_POST['room_id'] ) : 0;
         $user_id = get_current_user_id();
         if ( $board_id === 0 ) {
             wp_send_json_error( array( 'message' => 'Invalid board ID' ), 400 );
@@ -29277,112 +32849,122 @@ class N88_RFQ_Admin {
         }
         global $wpdb;
         $board_items_table = $wpdb->prefix . 'n88_board_items';
+        $items_table = $wpdb->prefix . 'n88_items';
         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
-        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
         $messages_table = $wpdb->prefix . 'n88_item_messages';
         $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
-        $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
-        $links_table = $wpdb->prefix . 'n88_prototype_video_links';
-        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
-        $item_files_table = $wpdb->prefix . 'n88_item_files';
         $current_user = wp_get_current_user();
-        $board_item_ids = $wpdb->get_col( $wpdb->prepare(
-            "SELECT item_id FROM {$board_items_table} WHERE board_id = %d AND removed_at IS NULL ORDER BY added_at ASC",
-            $board_id
-        ) );
+        $board_scope_where = '';
+        $board_scope_args = array( $board_id );
+        if ( $project_id > 0 ) {
+            $board_scope_where .= ' AND i.project_id = %d';
+            $board_scope_args[] = $project_id;
+        }
+        if ( $room_id > 0 ) {
+            $board_scope_where .= ' AND i.room_id = %d';
+            $board_scope_args[] = $room_id;
+        }
+        $board_item_ids = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT bi.item_id
+                FROM {$board_items_table} bi
+                INNER JOIN {$items_table} i ON i.id = bi.item_id
+                WHERE bi.board_id = %d
+                AND bi.removed_at IS NULL
+                AND i.deleted_at IS NULL{$board_scope_where}
+                ORDER BY bi.added_at ASC",
+                $board_scope_args
+            )
+        );
         $board_item_ids = array_values( array_filter( array_map( 'absint', (array) $board_item_ids ) ) );
         if ( empty( $board_item_ids ) ) {
             wp_send_json_success( array( 'items' => array() ) );
         }
         $items_status = array();
-        $pp_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
-        $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
-        $resolutions_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table;
-        $submissions_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table;
-        $links_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$links_table}'" ) === $links_table;
-        $receipts_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table;
-        $item_files_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table;
+        static $table_exists_cache = array();
+        $messages_table_exists = isset( $table_exists_cache[ $messages_table ] )
+            ? (bool) $table_exists_cache[ $messages_table ]
+            : ( $table_exists_cache[ $messages_table ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) );
+        $resolutions_table_exists = isset( $table_exists_cache[ $resolutions_table ] )
+            ? (bool) $table_exists_cache[ $resolutions_table ]
+            : ( $table_exists_cache[ $resolutions_table ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) );
         $video_submissions_456_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
         $comments_456_table = $wpdb->prefix . 'n88_timeline_step_comments';
         $steps_456_table = $wpdb->prefix . 'n88_item_timeline_steps';
         $timelines_456_table = $wpdb->prefix . 'n88_item_timelines';
-        $video_submissions_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$video_submissions_456_table}'" ) === $video_submissions_456_table;
-        $comments_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$comments_456_table}'" ) === $comments_456_table;
-        $steps_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$steps_456_table}'" ) === $steps_456_table;
-        $timelines_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_456_table}'" ) === $timelines_456_table;
-        $pp_cols = $pp_table_exists ? $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" ) : array();
-        $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
-        $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
-        $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
-        $items_table = $wpdb->prefix . 'n88_items';
+        $video_submissions_456_exists = isset( $table_exists_cache[ $video_submissions_456_table ] )
+            ? (bool) $table_exists_cache[ $video_submissions_456_table ]
+            : ( $table_exists_cache[ $video_submissions_456_table ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_submissions_456_table}'" ) === $video_submissions_456_table ) );
+        $comments_456_exists = isset( $table_exists_cache[ $comments_456_table ] )
+            ? (bool) $table_exists_cache[ $comments_456_table ]
+            : ( $table_exists_cache[ $comments_456_table ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$comments_456_table}'" ) === $comments_456_table ) );
+        $steps_456_exists = isset( $table_exists_cache[ $steps_456_table ] )
+            ? (bool) $table_exists_cache[ $steps_456_table ]
+            : ( $table_exists_cache[ $steps_456_table ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$steps_456_table}'" ) === $steps_456_table ) );
+        $timelines_456_exists = isset( $table_exists_cache[ $timelines_456_table ] )
+            ? (bool) $table_exists_cache[ $timelines_456_table ]
+            : ( $table_exists_cache[ $timelines_456_table ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_456_table}'" ) === $timelines_456_table ) );
         $item_placeholders = implode( ',', array_fill( 0, count( $board_item_ids ), '%d' ) );
+        $items_table_safe_for_desc = preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table );
+        $items_cols_board_status = $wpdb->get_col( "DESCRIBE {$items_table_safe_for_desc}" );
+        $board_status_has_project_room = in_array( 'project_id', (array) $items_cols_board_status, true ) && in_array( 'room_id', (array) $items_cols_board_status, true );
+        $item_row_select = 'id, owner_user_id, meta_json';
+        if ( $board_status_has_project_room ) {
+            $item_row_select .= ', project_id, room_id';
+        }
         $item_rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, owner_user_id, meta_json FROM {$items_table} WHERE id IN ({$item_placeholders})",
+                "SELECT {$item_row_select} FROM {$items_table} WHERE id IN ({$item_placeholders})",
                 $board_item_ids
             ),
             ARRAY_A
         );
         $item_rows_by_id = array();
-        $designer_ids_for_payments = array( (int) $current_user->ID );
         foreach ( (array) $item_rows as $item_row ) {
             $item_row['meta_array'] = ! empty( $item_row['meta_json'] ) ? json_decode( $item_row['meta_json'], true ) : array();
             if ( ! is_array( $item_row['meta_array'] ) ) {
                 $item_row['meta_array'] = array();
             }
             $item_rows_by_id[ (int) $item_row['id'] ] = $item_row;
-            if ( ! empty( $item_row['owner_user_id'] ) ) {
-                $designer_ids_for_payments[] = (int) $item_row['owner_user_id'];
-            }
-        }
-        $designer_ids_for_payments = array_values( array_unique( array_filter( $designer_ids_for_payments ) ) );
-
-        $prototype_payments_by_item = array();
-        if ( $pp_table_exists && ! empty( $designer_ids_for_payments ) ) {
-            $designer_placeholders = implode( ',', array_fill( 0, count( $designer_ids_for_payments ), '%d' ) );
-            $prototype_payment_rows = $wpdb->get_results(
-                $wpdb->prepare(
-                    "SELECT {$sel_pp}, item_id, designer_user_id
-                    FROM {$prototype_payments_table}
-                    WHERE item_id IN ({$item_placeholders})
-                    AND designer_user_id IN ({$designer_placeholders})
-                    ORDER BY item_id ASC, created_at DESC, id DESC",
-                    array_merge( $board_item_ids, $designer_ids_for_payments )
-                ),
-                ARRAY_A
-            );
-            foreach ( (array) $prototype_payment_rows as $prototype_payment_row ) {
-                $prototype_item_id = (int) $prototype_payment_row['item_id'];
-                if ( ! isset( $prototype_payments_by_item[ $prototype_item_id ] ) ) {
-                    $prototype_payments_by_item[ $prototype_item_id ] = $prototype_payment_row;
-                }
-            }
         }
 
         $awarded_bid_counts = array();
+        $awarded_supplier_by_item = array();
+        $bid_suppliers_by_item = array();
         $rfq_route_counts   = array();
+        $route_suppliers_by_item = array();
         $batch_proposals_by_item = array();
         $rfq_routes_table   = $wpdb->prefix . 'n88_rfq_routes';
         $rfq_route_rows     = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT item_id, COUNT(*) AS route_count
+                "SELECT item_id, supplier_id
                 FROM {$rfq_routes_table}
                 WHERE item_id IN ({$item_placeholders})
-                AND (status IS NULL OR status != 'expired')
-                GROUP BY item_id",
+                AND (status IS NULL OR status != 'expired')",
                 $board_item_ids
             ),
             ARRAY_A
         );
         foreach ( (array) $rfq_route_rows as $rfq_route_row ) {
             $route_item_id = isset( $rfq_route_row['item_id'] ) ? (int) $rfq_route_row['item_id'] : 0;
-            if ( $route_item_id > 0 ) {
-                $rfq_route_counts[ $route_item_id ] = isset( $rfq_route_row['route_count'] ) ? (int) $rfq_route_row['route_count'] : 0;
+            $route_supplier_id = isset( $rfq_route_row['supplier_id'] ) ? (int) $rfq_route_row['supplier_id'] : 0;
+            if ( $route_item_id <= 0 ) {
+                continue;
+            }
+            if ( ! isset( $rfq_route_counts[ $route_item_id ] ) ) {
+                $rfq_route_counts[ $route_item_id ] = 0;
+            }
+            $rfq_route_counts[ $route_item_id ]++;
+            if ( $route_supplier_id > 0 ) {
+                if ( ! isset( $route_suppliers_by_item[ $route_item_id ] ) ) {
+                    $route_suppliers_by_item[ $route_item_id ] = array();
+                }
+                $route_suppliers_by_item[ $route_item_id ][ $route_supplier_id ] = $route_supplier_id;
             }
         }
         $item_bid_rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT bid_id, item_id, status, meta_json, rfq_revision_at_submit
+                "SELECT bid_id, item_id, supplier_id, status, meta_json, rfq_revision_at_submit
                 FROM {$item_bids_table}
                 WHERE item_id IN ({$item_placeholders})
                 AND status IN ('submitted', 'awarded')
@@ -29391,15 +32973,32 @@ class N88_RFQ_Admin {
             ),
             ARRAY_A
         );
+        $board_item_live_bid_counts = array();
         foreach ( (array) $item_bid_rows as $item_bid_row ) {
             $bid_item_id = (int) $item_bid_row['item_id'];
+            $bid_supplier_id = isset( $item_bid_row['supplier_id'] ) ? (int) $item_bid_row['supplier_id'] : 0;
             $bid_status = isset( $item_bid_row['status'] ) ? (string) $item_bid_row['status'] : '';
+
+            if ( ! isset( $board_item_live_bid_counts[ $bid_item_id ] ) ) {
+                $board_item_live_bid_counts[ $bid_item_id ] = 0;
+            }
+            $board_item_live_bid_counts[ $bid_item_id ]++;
+
+            if ( $bid_supplier_id > 0 ) {
+                if ( ! isset( $bid_suppliers_by_item[ $bid_item_id ] ) ) {
+                    $bid_suppliers_by_item[ $bid_item_id ] = array();
+                }
+                $bid_suppliers_by_item[ $bid_item_id ][ $bid_supplier_id ] = $bid_supplier_id;
+            }
 
             if ( 'awarded' === $bid_status ) {
                 if ( ! isset( $awarded_bid_counts[ $bid_item_id ] ) ) {
                     $awarded_bid_counts[ $bid_item_id ] = 0;
                 }
                 $awarded_bid_counts[ $bid_item_id ]++;
+                if ( $bid_supplier_id > 0 && ! isset( $awarded_supplier_by_item[ $bid_item_id ] ) ) {
+                    $awarded_supplier_by_item[ $bid_item_id ] = $bid_supplier_id;
+                }
             }
 
             if ( ! isset( $batch_proposals_by_item[ $bid_item_id ] ) ) {
@@ -29450,6 +33049,245 @@ class N88_RFQ_Admin {
             $batch_proposals_by_item[ $batch_item_id ]['batch_proposal_group_ids'] = $group_ids;
             unset( $batch_proposals_by_item[ $batch_item_id ]['_primary_bid_id'] );
         }
+
+        $unread_operator_counts_by_item = array();
+        $resolved_operator_items = array();
+        $latest_message_supplier_by_item = array();
+        $unread_supplier_counts_by_item = array();
+        $latest_unread_supplier_context_by_item = array();
+        $step456_video_summary_by_item = array();
+        $step456_comments_by_item = array();
+        $step456_latest_step_by_item = array();
+
+        if ( $messages_table_exists ) {
+            $operator_latest_reply_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT item_id, MAX(created_at) AS latest_designer_reply
+                    FROM {$messages_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND thread_type = 'designer_operator'
+                    AND sender_role = 'designer'
+                    GROUP BY item_id",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            $operator_latest_reply_by_item = array();
+            foreach ( (array) $operator_latest_reply_rows as $operator_latest_reply_row ) {
+                $operator_item_id = isset( $operator_latest_reply_row['item_id'] ) ? (int) $operator_latest_reply_row['item_id'] : 0;
+                if ( $operator_item_id > 0 ) {
+                    $operator_latest_reply_by_item[ $operator_item_id ] = isset( $operator_latest_reply_row['latest_designer_reply'] ) ? (string) $operator_latest_reply_row['latest_designer_reply'] : '';
+                }
+            }
+
+            $operator_message_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT item_id, created_at
+                    FROM {$messages_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND thread_type = 'designer_operator'
+                    AND sender_role = 'operator'",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $operator_message_rows as $operator_message_row ) {
+                $operator_item_id = isset( $operator_message_row['item_id'] ) ? (int) $operator_message_row['item_id'] : 0;
+                $operator_created_at = isset( $operator_message_row['created_at'] ) ? (string) $operator_message_row['created_at'] : '';
+                if ( $operator_item_id <= 0 || '' === $operator_created_at ) {
+                    continue;
+                }
+                $latest_designer_reply = isset( $operator_latest_reply_by_item[ $operator_item_id ] ) ? $operator_latest_reply_by_item[ $operator_item_id ] : '';
+                if ( '' !== $latest_designer_reply && $operator_created_at <= $latest_designer_reply ) {
+                    continue;
+                }
+                if ( ! isset( $unread_operator_counts_by_item[ $operator_item_id ] ) ) {
+                    $unread_operator_counts_by_item[ $operator_item_id ] = 0;
+                }
+                $unread_operator_counts_by_item[ $operator_item_id ]++;
+            }
+
+            $supplier_designer_reply_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT item_id, supplier_id, MAX(created_at) AS latest_designer_reply
+                    FROM {$messages_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                    AND sender_role = 'designer'
+                    AND supplier_id IS NOT NULL
+                    GROUP BY item_id, supplier_id",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            $supplier_designer_reply_by_pair = array();
+            foreach ( (array) $supplier_designer_reply_rows as $supplier_designer_reply_row ) {
+                $supplier_reply_item_id = isset( $supplier_designer_reply_row['item_id'] ) ? (int) $supplier_designer_reply_row['item_id'] : 0;
+                $supplier_reply_supplier_id = isset( $supplier_designer_reply_row['supplier_id'] ) ? (int) $supplier_designer_reply_row['supplier_id'] : 0;
+                if ( $supplier_reply_item_id > 0 && $supplier_reply_supplier_id > 0 ) {
+                    $supplier_designer_reply_by_pair[ $supplier_reply_item_id . ':' . $supplier_reply_supplier_id ] = isset( $supplier_designer_reply_row['latest_designer_reply'] ) ? (string) $supplier_designer_reply_row['latest_designer_reply'] : '';
+                }
+            }
+
+            $supplier_designer_reply_context_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT item_id, supplier_id, COALESCE(NULLIF(context_type, ''), 'item_specs') AS message_context, MAX(created_at) AS latest_designer_reply
+                    FROM {$messages_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                    AND sender_role = 'designer'
+                    AND supplier_id IS NOT NULL
+                    GROUP BY item_id, supplier_id, COALESCE(NULLIF(context_type, ''), 'item_specs')",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            $supplier_designer_reply_by_context = array();
+            foreach ( (array) $supplier_designer_reply_context_rows as $supplier_designer_reply_context_row ) {
+                $supplier_reply_item_id = isset( $supplier_designer_reply_context_row['item_id'] ) ? (int) $supplier_designer_reply_context_row['item_id'] : 0;
+                $supplier_reply_supplier_id = isset( $supplier_designer_reply_context_row['supplier_id'] ) ? (int) $supplier_designer_reply_context_row['supplier_id'] : 0;
+                $supplier_reply_context = isset( $supplier_designer_reply_context_row['message_context'] ) ? (string) $supplier_designer_reply_context_row['message_context'] : 'item_specs';
+                if ( $supplier_reply_item_id > 0 && $supplier_reply_supplier_id > 0 ) {
+                    $supplier_designer_reply_by_context[ $supplier_reply_item_id . ':' . $supplier_reply_supplier_id . ':' . $supplier_reply_context ] = isset( $supplier_designer_reply_context_row['latest_designer_reply'] ) ? (string) $supplier_designer_reply_context_row['latest_designer_reply'] : '';
+                }
+            }
+
+            $supplier_message_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT item_id, supplier_id, created_at, COALESCE(NULLIF(context_type, ''), 'item_specs') AS message_context
+                    FROM {$messages_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                    AND sender_role = 'supplier'
+                    AND supplier_id IS NOT NULL
+                    ORDER BY item_id ASC, created_at DESC, message_id DESC",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $supplier_message_rows as $supplier_message_row ) {
+                $supplier_item_id = isset( $supplier_message_row['item_id'] ) ? (int) $supplier_message_row['item_id'] : 0;
+                $supplier_id = isset( $supplier_message_row['supplier_id'] ) ? (int) $supplier_message_row['supplier_id'] : 0;
+                $supplier_created_at = isset( $supplier_message_row['created_at'] ) ? (string) $supplier_message_row['created_at'] : '';
+                $supplier_context = isset( $supplier_message_row['message_context'] ) ? (string) $supplier_message_row['message_context'] : 'item_specs';
+                if ( $supplier_item_id <= 0 || $supplier_id <= 0 || '' === $supplier_created_at ) {
+                    continue;
+                }
+                if ( ! isset( $latest_message_supplier_by_item[ $supplier_item_id ] ) ) {
+                    $latest_message_supplier_by_item[ $supplier_item_id ] = $supplier_id;
+                }
+                $pair_key = $supplier_item_id . ':' . $supplier_id;
+                $latest_designer_reply = isset( $supplier_designer_reply_by_pair[ $pair_key ] ) ? $supplier_designer_reply_by_pair[ $pair_key ] : '';
+                if ( '' === $latest_designer_reply || $supplier_created_at > $latest_designer_reply ) {
+                    if ( ! isset( $unread_supplier_counts_by_item[ $supplier_item_id ] ) ) {
+                        $unread_supplier_counts_by_item[ $supplier_item_id ] = array();
+                    }
+                    if ( ! isset( $unread_supplier_counts_by_item[ $supplier_item_id ][ $supplier_id ] ) ) {
+                        $unread_supplier_counts_by_item[ $supplier_item_id ][ $supplier_id ] = 0;
+                    }
+                    $unread_supplier_counts_by_item[ $supplier_item_id ][ $supplier_id ]++;
+                }
+                $context_key = $pair_key . ':' . $supplier_context;
+                $latest_context_reply = isset( $supplier_designer_reply_by_context[ $context_key ] ) ? $supplier_designer_reply_by_context[ $context_key ] : '';
+                if ( ( '' === $latest_context_reply || $supplier_created_at > $latest_context_reply ) && ! isset( $latest_unread_supplier_context_by_item[ $supplier_item_id ][ $supplier_id ] ) ) {
+                    if ( ! isset( $latest_unread_supplier_context_by_item[ $supplier_item_id ] ) ) {
+                        $latest_unread_supplier_context_by_item[ $supplier_item_id ] = array();
+                    }
+                    $latest_unread_supplier_context_by_item[ $supplier_item_id ][ $supplier_id ] = $supplier_context;
+                }
+            }
+        }
+
+        if ( $resolutions_table_exists ) {
+            $resolved_operator_rows = $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT DISTINCT item_id
+                    FROM {$resolutions_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND bid_id IS NULL",
+                    $board_item_ids
+                )
+            );
+            foreach ( (array) $resolved_operator_rows as $resolved_operator_item_id ) {
+                $resolved_operator_item_id = absint( $resolved_operator_item_id );
+                if ( $resolved_operator_item_id > 0 ) {
+                    $resolved_operator_items[ $resolved_operator_item_id ] = true;
+                }
+            }
+        }
+
+        if ( $video_submissions_456_exists ) {
+            $step456_video_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT item_id,
+                        MAX(CASE WHEN supplier_id IS NOT NULL THEN 1 ELSE 0 END) AS has_supplier_video,
+                        MAX(CASE WHEN operator_id IS NOT NULL THEN 1 ELSE 0 END) AS has_operator_video
+                    FROM {$video_submissions_456_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND step_number IN (4,5,6)
+                    GROUP BY item_id",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $step456_video_rows as $step456_video_row ) {
+                $step456_item_id = isset( $step456_video_row['item_id'] ) ? (int) $step456_video_row['item_id'] : 0;
+                if ( $step456_item_id > 0 ) {
+                    $step456_video_summary_by_item[ $step456_item_id ] = array(
+                        'has_supplier_video' => ! empty( $step456_video_row['has_supplier_video'] ),
+                        'has_operator_video' => ! empty( $step456_video_row['has_operator_video'] ),
+                    );
+                }
+            }
+        }
+
+        if ( $comments_456_exists ) {
+            $step456_comment_rows = $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT DISTINCT item_id
+                    FROM {$comments_456_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND step_number IN (4,5,6)",
+                    $board_item_ids
+                )
+            );
+            foreach ( (array) $step456_comment_rows as $step456_comment_item_id ) {
+                $step456_comment_item_id = absint( $step456_comment_item_id );
+                if ( $step456_comment_item_id > 0 ) {
+                    $step456_comments_by_item[ $step456_comment_item_id ] = true;
+                }
+            }
+        }
+
+        if ( $timelines_456_exists && $steps_456_exists ) {
+            $step456_latest_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT t.item_id, s.step_number, s.status
+                    FROM {$timelines_456_table} t
+                    INNER JOIN (
+                        SELECT timeline_id, MAX(step_number) AS max_step_number
+                        FROM {$steps_456_table}
+                        WHERE step_number IN (4,5,6)
+                        GROUP BY timeline_id
+                    ) latest ON latest.timeline_id = t.timeline_id
+                    INNER JOIN {$steps_456_table} s
+                        ON s.timeline_id = latest.timeline_id
+                        AND s.step_number = latest.max_step_number
+                    WHERE t.item_id IN ({$item_placeholders})",
+                    $board_item_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $step456_latest_rows as $step456_latest_row ) {
+                $step456_item_id = isset( $step456_latest_row['item_id'] ) ? (int) $step456_latest_row['item_id'] : 0;
+                if ( $step456_item_id > 0 ) {
+                    $step456_latest_step_by_item[ $step456_item_id ] = array(
+                        'step_number' => isset( $step456_latest_row['step_number'] ) ? (int) $step456_latest_row['step_number'] : null,
+                        'status'      => isset( $step456_latest_row['status'] ) ? (string) $step456_latest_row['status'] : null,
+                    );
+                }
+            }
+        }
         foreach ( $board_item_ids as $item_id ) {
             $item_id = intval( $item_id );
             $item_id_string = 'item-' . $item_id;
@@ -29457,253 +33295,77 @@ class N88_RFQ_Admin {
                 ? $item_rows_by_id[ $item_id ]['meta_array']
                 : array();
             $rfq_revision_current = isset( $item_meta_for_deposit['rfq_revision_current'] ) ? $item_meta_for_deposit['rfq_revision_current'] : null;
+            $batch_proposal_context = isset( $batch_proposals_by_item[ $item_id ] ) ? $batch_proposals_by_item[ $item_id ] : array(
+                'has_batch_proposals'             => false,
+                'batch_proposal_bid_count'        => 0,
+                'batch_proposal_group_ids'        => array(),
+                'batch_primary_proposal_group_id' => 0,
+            );
             $validation_card_state = $this->get_item_validation_card_status( $item_meta_for_deposit );
-            $has_prototype_payment = false;
-            $prototype_payment_status = null;
-            $cad_status = null;
-            $cad_current_version = null;
-            $prototype_status = null;
-            $has_prototype_video_submitted = false;
-            $has_payment_receipt_uploaded = false;
-            if ( $pp_table_exists ) {
-                $prototype_payment = isset( $prototype_payments_by_item[ $item_id ] ) ? $prototype_payments_by_item[ $item_id ] : null;
-                if ( $prototype_payment ) {
-                    $has_prototype_payment = true;
-                    $prototype_payment_status = isset( $prototype_payment['status'] ) ? $prototype_payment['status'] : null;
-                    $cad_status = ( $has_cad_col && isset( $prototype_payment['cad_status'] ) ) ? $prototype_payment['cad_status'] : null;
-                    $prototype_status = ( $has_ps_col && isset( $prototype_payment['prototype_status'] ) ) ? $prototype_payment['prototype_status'] : null;
-                    if ( $prototype_payment_status === 'marked_received' && ! empty( $prototype_payment['id'] ) ) {
-                        if ( $submissions_table_exists && $links_table_exists ) {
-                            $has_prototype_video_submitted = (bool) $wpdb->get_var( $wpdb->prepare(
-                                "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
-                                intval( $prototype_payment['id'] )
-                            ) );
-                        }
-                    }
-                    if ( $prototype_payment_status === 'requested' && ! empty( $prototype_payment['id'] ) ) {
-                        if ( $receipts_table_exists ) {
-                            $has_payment_receipt_uploaded = (bool) $wpdb->get_var( $wpdb->prepare(
-                                "SELECT 1 FROM {$receipts_table} WHERE payment_id = %d LIMIT 1",
-                                intval( $prototype_payment['id'] )
-                            ) );
-                        }
-                    }
-                    if ( ! empty( $prototype_payment['id'] ) && $item_files_table_exists ) {
-                        $cad_current_version_raw = $wpdb->get_var( $wpdb->prepare(
-                            "SELECT MAX(cad_version) FROM {$item_files_table}
-                            WHERE item_id = %d AND payment_id = %d
-                            AND attachment_type = 'cad' AND (detached_at IS NULL OR detached_at = '')",
-                            $item_id,
-                            intval( $prototype_payment['id'] )
-                        ) );
-                        if ( $cad_current_version_raw !== null ) {
-                            $cad_current_version = intval( $cad_current_version_raw );
-                        }
-                    }
-                }
-            }
             $has_awarded_bid = ! empty( $awarded_bid_counts[ $item_id ] );
             $has_rfq         = ! empty( $rfq_route_counts[ $item_id ] ) || $has_awarded_bid || ! empty( $batch_proposal_context['batch_proposal_bid_count'] );
-            $has_bids        = ! empty( $batch_proposal_context['batch_proposal_bid_count'] ) || $has_awarded_bid;
-            $unread_operator_messages = 0;
+            // Any submitted/awarded row from n88_item_bids counts (not only batch-grouped bids).
+            $has_bids        = ! empty( $board_item_live_bid_counts[ $item_id ] );
+            $unread_operator_messages = isset( $unread_operator_counts_by_item[ $item_id ] ) ? (int) $unread_operator_counts_by_item[ $item_id ] : 0;
             $unread_supplier_messages = 0;
             $has_unread_supplier_messages = false;
             $latest_unread_supplier_message_context = '';
             $latest_unread_supplier_message_step_index = null;
-            if ( $messages_table_exists ) {
-                $unread_operator_messages = (int) $wpdb->get_var( $wpdb->prepare(
-                    "SELECT COUNT(DISTINCT m.message_id)
-                    FROM {$messages_table} m
-                    WHERE m.item_id = %d
-                    AND m.thread_type = 'designer_operator'
-                    AND m.sender_role = 'operator'
-                    AND NOT EXISTS (
-                        SELECT 1 FROM {$messages_table} m2
-                        WHERE m2.item_id = m.item_id
-                        AND m2.thread_type = 'designer_operator'
-                        AND m2.sender_role = 'designer'
-                        AND m2.created_at > m.created_at
-                    )",
-                    $item_id
-                ) );
-                if ( $unread_operator_messages > 0 && $resolutions_table_exists ) {
-                    if ( $wpdb->get_var( $wpdb->prepare(
-                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL LIMIT 1",
-                        $item_id
-                    ) ) ) {
-                        $unread_operator_messages = 0;
-                    }
-                }
+            if ( $unread_operator_messages > 0 && ! empty( $resolved_operator_items[ $item_id ] ) ) {
+                $unread_operator_messages = 0;
+            }
 
-                $direct_supplier_id = 0;
-                $awarded_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
-                    "SELECT supplier_id
-                    FROM {$item_bids_table}
-                    WHERE item_id = %d AND status = 'awarded'
-                    ORDER BY bid_id DESC
-                    LIMIT 1",
-                    $item_id
-                ) );
-                if ( $awarded_supplier_id > 0 ) {
-                    $direct_supplier_id = $awarded_supplier_id;
-                }
+            $direct_supplier_id = 0;
+            if ( isset( $awarded_supplier_by_item[ $item_id ] ) && $awarded_supplier_by_item[ $item_id ] > 0 ) {
+                $direct_supplier_id = (int) $awarded_supplier_by_item[ $item_id ];
+            } elseif ( isset( $route_suppliers_by_item[ $item_id ] ) && count( $route_suppliers_by_item[ $item_id ] ) === 1 ) {
+                $route_supplier_ids = array_values( $route_suppliers_by_item[ $item_id ] );
+                $direct_supplier_id = (int) $route_supplier_ids[0];
+            } elseif ( isset( $bid_suppliers_by_item[ $item_id ] ) && count( $bid_suppliers_by_item[ $item_id ] ) === 1 ) {
+                $bid_supplier_ids = array_values( $bid_suppliers_by_item[ $item_id ] );
+                $direct_supplier_id = (int) $bid_supplier_ids[0];
+            } elseif ( isset( $latest_message_supplier_by_item[ $item_id ] ) && $latest_message_supplier_by_item[ $item_id ] > 0 ) {
+                $direct_supplier_id = (int) $latest_message_supplier_by_item[ $item_id ];
+            }
 
-                if ( ! $direct_supplier_id && $pp_table_exists ) {
-                    $prototype_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT supplier_id
-                        FROM {$prototype_payments_table}
-                        WHERE item_id = %d AND supplier_id IS NOT NULL
-                        ORDER BY id DESC
-                        LIMIT 1",
-                        $item_id
-                    ) );
-                    if ( $prototype_supplier_id > 0 ) {
-                        $direct_supplier_id = $prototype_supplier_id;
-                    }
+            if ( $direct_supplier_id > 0 ) {
+                $unread_supplier_messages = isset( $unread_supplier_counts_by_item[ $item_id ][ $direct_supplier_id ] ) ? (int) $unread_supplier_counts_by_item[ $item_id ][ $direct_supplier_id ] : 0;
+                $has_unread_supplier_messages = $unread_supplier_messages > 0;
+                $latest_unread_supplier_message_context = isset( $latest_unread_supplier_context_by_item[ $item_id ][ $direct_supplier_id ] ) ? (string) $latest_unread_supplier_context_by_item[ $item_id ][ $direct_supplier_id ] : '';
+                if ( $latest_unread_supplier_message_context ) {
+                    $latest_unread_supplier_message_step_index = $this->get_item_message_context_step_index( $latest_unread_supplier_message_context );
                 }
-
-                if ( ! $direct_supplier_id ) {
-                    $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
-                    $active_route_suppliers = $wpdb->get_col( $wpdb->prepare(
-                        "SELECT DISTINCT supplier_id
-                        FROM {$rfq_routes_table}
-                        WHERE item_id = %d
-                        AND (status IS NULL OR status != 'expired')
-                        AND supplier_id IS NOT NULL",
-                        $item_id
-                    ) );
-                    $active_route_suppliers = array_values( array_filter( array_map( 'absint', (array) $active_route_suppliers ) ) );
-                    if ( count( $active_route_suppliers ) === 1 ) {
-                        $direct_supplier_id = (int) $active_route_suppliers[0];
-                    }
-                }
-
-                if ( ! $direct_supplier_id ) {
-                    $bid_suppliers = $wpdb->get_col( $wpdb->prepare(
-                        "SELECT DISTINCT supplier_id
-                        FROM {$item_bids_table}
-                        WHERE item_id = %d
-                        AND status IN ('submitted', 'awarded')
-                        AND supplier_id IS NOT NULL",
-                        $item_id
-                    ) );
-                    $bid_suppliers = array_values( array_filter( array_map( 'absint', (array) $bid_suppliers ) ) );
-                    if ( count( $bid_suppliers ) === 1 ) {
-                        $direct_supplier_id = (int) $bid_suppliers[0];
-                    }
-                }
-
-                if ( ! $direct_supplier_id ) {
-                    $message_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT supplier_id
-                        FROM {$messages_table}
-                        WHERE item_id = %d
-                        AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
-                        AND supplier_id IS NOT NULL
-                        ORDER BY message_id DESC
-                        LIMIT 1",
-                        $item_id
-                    ) );
-                    if ( $message_supplier_id > 0 ) {
-                        $direct_supplier_id = $message_supplier_id;
-                    }
-                }
-
-                if ( $direct_supplier_id > 0 ) {
-                    $unread_supplier_messages = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT COUNT(DISTINCT m.message_id)
-                        FROM {$messages_table} m
-                        WHERE m.item_id = %d
-                        AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
-                        AND m.sender_role = 'supplier'
-                        AND m.supplier_id = %d
-                        AND NOT EXISTS (
-                            SELECT 1 FROM {$messages_table} m2
-                            WHERE m2.item_id = m.item_id
-                            AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
-                            AND m2.sender_role = 'designer'
-                            AND m2.supplier_id = m.supplier_id
-                            AND m2.created_at > m.created_at
-                        )",
-                        $item_id,
-                        $direct_supplier_id
-                    ) );
-                    $has_unread_supplier_messages = $unread_supplier_messages > 0;
-                    $latest_unread_supplier_message_context = (string) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT COALESCE(NULLIF(m.context_type, ''), 'item_specs')
-                        FROM {$messages_table} m
-                        WHERE m.item_id = %d
-                        AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
-                        AND m.sender_role = 'supplier'
-                        AND m.supplier_id = %d
-                        AND NOT EXISTS (
-                            SELECT 1 FROM {$messages_table} m2
-                            WHERE m2.item_id = m.item_id
-                            AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
-                            AND m2.sender_role = 'designer'
-                            AND m2.supplier_id = m.supplier_id
-                            AND COALESCE(NULLIF(m2.context_type, ''), 'item_specs') = COALESCE(NULLIF(m.context_type, ''), 'item_specs')
-                            AND m2.created_at > m.created_at
-                        )
-                        ORDER BY m.created_at DESC, m.message_id DESC
-                        LIMIT 1",
-                        $item_id,
-                        $direct_supplier_id
-                    ) );
-                    if ( $latest_unread_supplier_message_context ) {
-                        $latest_unread_supplier_message_step_index = $this->get_item_message_context_step_index( $latest_unread_supplier_message_context );
+            } elseif ( ! empty( $unread_supplier_counts_by_item[ $item_id ] ) && is_array( $unread_supplier_counts_by_item[ $item_id ] ) ) {
+                // Batch threads can involve multiple suppliers before a single direct supplier is resolved.
+                // In that case, aggregate unread supplier counts so designer cards still surface Action Required.
+                $supplier_counts_for_item = $unread_supplier_counts_by_item[ $item_id ];
+                $unread_supplier_messages = array_sum( array_map( 'intval', $supplier_counts_for_item ) );
+                $has_unread_supplier_messages = $unread_supplier_messages > 0;
+                if ( $has_unread_supplier_messages ) {
+                    $latest_supplier_ids_for_item = array_keys( $supplier_counts_for_item );
+                    $latest_supplier_id_candidate = ! empty( $latest_supplier_ids_for_item ) ? absint( reset( $latest_supplier_ids_for_item ) ) : 0;
+                    if ( $latest_supplier_id_candidate > 0 ) {
+                        $direct_supplier_id = $latest_supplier_id_candidate;
+                        $latest_unread_supplier_message_context = isset( $latest_unread_supplier_context_by_item[ $item_id ][ $latest_supplier_id_candidate ] ) ? (string) $latest_unread_supplier_context_by_item[ $item_id ][ $latest_supplier_id_candidate ] : '';
+                        if ( $latest_unread_supplier_message_context ) {
+                            $latest_unread_supplier_message_step_index = $this->get_item_message_context_step_index( $latest_unread_supplier_message_context );
+                        }
                     }
                 }
             }
             $has_unread_operator_messages = $unread_operator_messages > 0;
             $is_operator_ajax = $current_user && ( in_array( 'n88_system_operator', $current_user->roles, true ) || current_user_can( 'manage_options' ) );
             $deposit_sent_by_designer = isset( $item_meta_for_deposit['deposit_status'] ) && $item_meta_for_deposit['deposit_status'] === 'sent_by_designer';
-            $action_required = $has_unread_operator_messages || $has_unread_supplier_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ) || ( $is_operator_ajax && $deposit_sent_by_designer );
-            $batch_proposal_context = isset( $batch_proposals_by_item[ $item_id ] )
-                ? $batch_proposals_by_item[ $item_id ]
-                : $this->get_item_batch_proposal_context( $item_id, $rfq_revision_current );
-            // Commit 3.B.5.A1: Step 4–6 status for designer/operator cards (when prototype approved = in production)
+            $action_required = $has_unread_operator_messages || $has_unread_supplier_messages || ( $is_operator_ajax && $deposit_sent_by_designer );
+            // Commit 3.B.5.A1: Step 4–6 status for designer/operator cards.
             $step456_status_text = null;
             $step456_status_color = null;
-            if ( $prototype_status === 'approved' || $has_awarded_bid ) {
-                $video_sub_table = $video_submissions_456_table;
-                $comments_table_456 = $comments_456_table;
-                $steps_table_456 = $steps_456_table;
-                $timelines_table = $timelines_456_table;
-                $has_supplier_video = false;
-                $has_operator_video = false;
-                $has_designer_comment = false;
-                $latest_step_status = null;
-                $latest_step_num = null;
-                if ( $video_submissions_456_exists ) {
-                    $has_supplier_video = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND supplier_id IS NOT NULL",
-                        $item_id
-                    ) ) > 0;
-                    $has_operator_video = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND operator_id IS NOT NULL",
-                        $item_id
-                    ) ) > 0;
-                }
-                if ( $comments_456_exists ) {
-                    $has_designer_comment = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT COUNT(*) FROM {$comments_table_456} WHERE item_id = %d AND step_number IN (4,5,6)",
-                        $item_id
-                    ) ) > 0;
-                }
-                if ( $timelines_456_exists && $steps_456_exists ) {
-                    $timeline_id = $wpdb->get_var( $wpdb->prepare( "SELECT timeline_id FROM {$timelines_table} WHERE item_id = %d", $item_id ) );
-                    if ( $timeline_id ) {
-                        $step_row = $wpdb->get_row( $wpdb->prepare(
-                            "SELECT step_number, status FROM {$steps_table_456} WHERE timeline_id = %d AND step_number IN (4,5,6) ORDER BY step_number DESC LIMIT 1",
-                            $timeline_id
-                        ), ARRAY_A );
-                        if ( $step_row ) {
-                            $latest_step_num = (int) $step_row['step_number'];
-                            $latest_step_status = $step_row['status'];
-                        }
-                    }
-                }
+            if ( $has_awarded_bid ) {
+                $has_supplier_video = ! empty( $step456_video_summary_by_item[ $item_id ]['has_supplier_video'] );
+                $has_operator_video = ! empty( $step456_video_summary_by_item[ $item_id ]['has_operator_video'] );
+                $has_designer_comment = ! empty( $step456_comments_by_item[ $item_id ] );
+                $latest_step_status = isset( $step456_latest_step_by_item[ $item_id ]['status'] ) ? $step456_latest_step_by_item[ $item_id ]['status'] : null;
+                $latest_step_num = isset( $step456_latest_step_by_item[ $item_id ]['step_number'] ) ? (int) $step456_latest_step_by_item[ $item_id ]['step_number'] : null;
                 if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
                     $step456_status_text = 'Step 6 Completed';
                     $step456_status_color = '#111111';
@@ -29731,15 +33393,16 @@ class N88_RFQ_Admin {
                     $step456_status_color = '#2e7d32';
                 }
             }
+            $row_project_id = 0;
+            $row_room_id    = 0;
+            if ( $board_status_has_project_room && isset( $item_rows_by_id[ $item_id ] ) ) {
+                $row_project_id = isset( $item_rows_by_id[ $item_id ]['project_id'] ) ? absint( $item_rows_by_id[ $item_id ]['project_id'] ) : 0;
+                $row_room_id    = isset( $item_rows_by_id[ $item_id ]['room_id'] ) ? absint( $item_rows_by_id[ $item_id ]['room_id'] ) : 0;
+            }
             $items_status[] = array(
                 'id' => $item_id_string,
-                'has_prototype_payment' => $has_prototype_payment,
-                'prototype_payment_status' => $prototype_payment_status,
-                'cad_status' => $cad_status,
-                'cad_current_version' => $cad_current_version,
-                'prototype_status' => $prototype_status,
-                'has_prototype_video_submitted' => $has_prototype_video_submitted,
-                'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
+                'project_id' => $row_project_id,
+                'room_id' => $row_room_id,
                 'has_awarded_bid' => $has_awarded_bid,
                 'has_batch_proposals' => ! empty( $batch_proposal_context['has_batch_proposals'] ),
                 'batch_proposal_bid_count' => isset( $batch_proposal_context['batch_proposal_bid_count'] ) ? intval( $batch_proposal_context['batch_proposal_bid_count'] ) : 0,
@@ -29771,10 +33434,6 @@ class N88_RFQ_Admin {
                     'has_rfq' => $has_rfq,
                     'has_bids' => $has_bids,
                     'has_awarded_bid' => $has_awarded_bid,
-                    'prototype_payment_status' => $prototype_payment_status,
-                    'cad_status' => $cad_status,
-                    'cad_current_version' => $cad_current_version,
-                    'prototype_status' => $prototype_status,
                     'validation_state' => $validation_card_state,
                     'deposit_status' => isset( $item_meta_for_deposit['deposit_status'] ) ? $item_meta_for_deposit['deposit_status'] : '',
                     'action_required' => $action_required,
@@ -30142,6 +33801,42 @@ class N88_RFQ_Admin {
                     );
                 };
 
+                const BoardCanvasErrorBoundary = class extends React.Component {
+                    constructor(props) {
+                        super(props);
+                        this.state = { hasError: false, message: '' };
+                    }
+                    static getDerivedStateFromError(error) {
+                        return {
+                            hasError: true,
+                            message: error && error.message ? String(error.message) : 'BoardCanvas crashed while rendering.'
+                        };
+                    }
+                    componentDidCatch(error, info) {
+                        console.error('Real BoardCanvas boundary caught an error:', error, info);
+                    }
+                    render() {
+                        if (this.state.hasError) {
+                            return React.createElement('div', {
+                                style: {
+                                    margin: '20px',
+                                    padding: '16px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(255,82,82,0.35)',
+                                    backgroundColor: '#2b1616',
+                                    color: '#ffd7d7',
+                                    fontFamily: 'monospace',
+                                    whiteSpace: 'pre-wrap'
+                                }
+                            },
+                                React.createElement('div', { style: { fontSize: '16px', fontWeight: '700', marginBottom: '8px' } }, 'BoardCanvas render error'),
+                                React.createElement('div', { style: { fontSize: '12px', lineHeight: 1.6 } }, this.state.message)
+                            );
+                        }
+                        return this.props.children;
+                    }
+                };
+
                 try {
                     const rootEl = document.getElementById('n88-real-board-demo-root');
                     if (!rootEl) {
@@ -30154,14 +33849,18 @@ class N88_RFQ_Admin {
                         window._n88RealBoardRoot = ReactDOM.createRoot(rootEl);
                     }
                     
-                    window._n88RealBoardRoot.render(React.createElement(BoardCanvas, {
-                        boardId: realBoardId,
-                        userId: currentUserId,
-                        concierge: conciergeData,
-                        onLayoutChanged: function(data) {
-                            console.log('Layout changed:', data);
-                        }
-                    }));
+                    window._n88RealBoardRoot.render(
+                        React.createElement(BoardCanvasErrorBoundary, null,
+                            React.createElement(BoardCanvas, {
+                                boardId: realBoardId,
+                                userId: currentUserId,
+                                concierge: conciergeData,
+                                onLayoutChanged: function(data) {
+                                    console.log('Layout changed:', data);
+                                }
+                            })
+                        )
+                    );
 
                     updateDebug('Board rendered! Items: ' + realItems.length);
                     return true;
@@ -30781,4 +34480,5 @@ class N88_RFQ_Admin {
 
 }
 
-// .....
+// .....Loading item details, please wait...
+

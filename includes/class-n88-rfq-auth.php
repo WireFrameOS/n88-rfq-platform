@@ -22,6 +22,16 @@ class N88_RFQ_Auth {
     private static $n88_table_exists_cache = array();
     private static $n88_table_columns_cache = array();
 
+    /**
+     * CAD/Prototype workflow feature toggle.
+     * Disabled by default for performance-focused deployments.
+     *
+     * @return bool
+     */
+    private function is_cad_prototype_enabled() {
+        return (bool) apply_filters( 'n88_enable_cad_prototype_flow', false );
+    }
+
     public function __construct() {
         // Register shortcodes
         add_shortcode( 'n88_signup', array( $this, 'render_signup_form' ) );
@@ -64,9 +74,12 @@ class N88_RFQ_Auth {
         // Commit 2.3.2: Supplier RFQ detail view (read-only)
         add_action( 'wp_ajax_n88_get_supplier_item_details', array( $this, 'ajax_get_supplier_item_details' ) );
         add_action( 'wp_ajax_n88_get_supplier_batch_workspace', array( $this, 'ajax_get_supplier_batch_workspace' ) );
+        add_action( 'wp_ajax_n88_get_supplier_batch_modal_payload', array( $this, 'ajax_get_supplier_batch_modal_payload' ) );
+        add_action( 'wp_ajax_n88_get_supplier_batch_drafts', array( $this, 'ajax_get_supplier_batch_drafts' ) );
         add_action( 'wp_ajax_n88_save_supplier_batch_state', array( $this, 'ajax_save_supplier_batch_state' ) );
         add_action( 'wp_ajax_n88_upload_supplier_batch_shared_assets', array( $this, 'ajax_upload_supplier_batch_shared_assets' ) );
         add_action( 'wp_ajax_n88_get_item_rfq_state', array( $this, 'ajax_get_item_rfq_state' ) );
+        add_action( 'wp_ajax_n88_get_items_rfq_state_batch', array( $this, 'ajax_get_items_rfq_state_batch' ) );
         
         // Commit 2.3.3: Supplier bid validation (no persistence)
         add_action( 'wp_ajax_n88_validate_supplier_bid', array( $this, 'ajax_validate_supplier_bid' ) );
@@ -92,7 +105,10 @@ class N88_RFQ_Auth {
         add_action( 'init', array( $this, 'maybe_ensure_hot_query_indexes' ), 20 );
         add_action( 'wp_ajax_n88_mark_validation_com_delivered', array( $this, 'ajax_mark_validation_com_delivered' ) );
         add_action( 'wp_ajax_n88_supplier_mark_validation_com_received', array( $this, 'ajax_supplier_mark_validation_com_received' ) );
+        add_action( 'wp_ajax_n88_supplier_begin_validation_production', array( $this, 'ajax_supplier_begin_validation_production' ) );
         add_action( 'wp_ajax_n88_submit_validation_deposit', array( $this, 'ajax_submit_validation_deposit' ) );
+        add_action( 'wp_ajax_n88_submit_execution_activation_payment', array( $this, 'ajax_submit_execution_activation_payment' ) );
+        add_action( 'wp_ajax_n88_confirm_execution_activation_payment', array( $this, 'ajax_confirm_execution_activation_payment' ) );
         
         // Commit 28: Operator marks deposit received (production Step 4 can then start)
         add_action( 'wp_ajax_n88_mark_deposit_received', array( $this, 'ajax_mark_deposit_received' ) );
@@ -114,13 +130,16 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_submit_rfq', array( $this, 'ajax_submit_rfq' ) );
 
         // Commit 2.3.9.1A: CAD + Prototype request endpoint
-        add_action( 'wp_ajax_n88_create_cad_prototype_request', array( $this, 'ajax_create_cad_prototype_request' ) );
+        if ( $this->is_cad_prototype_enabled() ) {
+            add_action( 'wp_ajax_n88_create_cad_prototype_request', array( $this, 'ajax_create_cad_prototype_request' ) );
+        }
         
         // Commit 2.3.9.1C: Operator Queue - Get case details
         add_action( 'wp_ajax_n88_get_operator_case_details', array( $this, 'ajax_get_operator_case_details' ) );
         
         // Commit 2.3.9.1C-a: Item Messages - Get and Send messages
         add_action( 'wp_ajax_n88_get_item_messages', array( $this, 'ajax_get_item_messages' ) );
+        add_action( 'wp_ajax_n88_compute_batch_message_thread_key', array( $this, 'ajax_compute_batch_message_thread_key' ) );
         add_action( 'wp_ajax_n88_send_item_message', array( $this, 'ajax_send_item_message' ) );
         
         // Commit 2.3.9.1C-a: Mark payment received
@@ -138,17 +157,16 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_upload_deposit_proof', array( $this, 'ajax_upload_deposit_proof' ) );
         add_action( 'wp_ajax_n88_get_deposit_proofs', array( $this, 'ajax_get_deposit_proofs' ) );
 
-        // Commit 2.3.9.2A: CAD workflow v1
-        add_action( 'wp_ajax_n88_upload_cad_files', array( $this, 'ajax_upload_cad_files' ) );
-        add_action( 'wp_ajax_n88_request_cad_revision', array( $this, 'ajax_request_cad_revision' ) );
-        add_action( 'wp_ajax_n88_approve_cad', array( $this, 'ajax_approve_cad' ) );
-        add_action( 'wp_ajax_n88_release_cad_to_supplier', array( $this, 'ajax_release_cad_to_supplier' ) );
-        // Commit 2.3.9.2B-S: Prototype video submission
-        add_action( 'wp_ajax_n88_submit_prototype_video', array( $this, 'ajax_submit_prototype_video' ) );
-        
-        // Commit 2.3.9.2B-D: Designer prototype review AJAX handlers
-        add_action( 'wp_ajax_n88_approve_prototype', array( $this, 'ajax_approve_prototype' ) );
-        add_action( 'wp_ajax_n88_request_prototype_changes', array( $this, 'ajax_request_prototype_changes' ) );
+        // Commit 2.3.9.2A/B/D: CAD + Prototype workflow handlers
+        if ( $this->is_cad_prototype_enabled() ) {
+            add_action( 'wp_ajax_n88_upload_cad_files', array( $this, 'ajax_upload_cad_files' ) );
+            add_action( 'wp_ajax_n88_request_cad_revision', array( $this, 'ajax_request_cad_revision' ) );
+            add_action( 'wp_ajax_n88_approve_cad', array( $this, 'ajax_approve_cad' ) );
+            add_action( 'wp_ajax_n88_release_cad_to_supplier', array( $this, 'ajax_release_cad_to_supplier' ) );
+            add_action( 'wp_ajax_n88_submit_prototype_video', array( $this, 'ajax_submit_prototype_video' ) );
+            add_action( 'wp_ajax_n88_approve_prototype', array( $this, 'ajax_approve_prototype' ) );
+            add_action( 'wp_ajax_n88_request_prototype_changes', array( $this, 'ajax_request_prototype_changes' ) );
+        }
         add_action( 'wp_ajax_n88_get_keyword_phrases', array( $this, 'ajax_get_keyword_phrases' ) );
 
         // Commit 3.A.1: Item timeline spine (read-only for designer/supplier; operator can start/complete)
@@ -227,16 +245,18 @@ class N88_RFQ_Auth {
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_bids', 'idx_item_supplier_status', 'ADD INDEX idx_item_supplier_status (item_id, supplier_id, status)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_bids', 'idx_item_revision', 'ADD INDEX idx_item_revision (item_id, rfq_revision_at_submit)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_rfq_routes', 'idx_item_status_supplier', 'ADD INDEX idx_item_status_supplier (item_id, status, supplier_id)' );
-        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payments', 'idx_item_designer_created', 'ADD INDEX idx_item_designer_created (item_id, designer_user_id, created_at)' );
-        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payments', 'idx_item_supplier_created', 'ADD INDEX idx_item_supplier_created (item_id, supplier_id, created_at)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_thread_created', 'ADD INDEX idx_item_thread_created (item_id, thread_type, created_at)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_supplier_thread_created', 'ADD INDEX idx_item_supplier_thread_created (item_id, supplier_id, thread_type, created_at)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_designer_thread_created', 'ADD INDEX idx_item_designer_thread_created (item_id, designer_id, thread_type, created_at)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_context_created', 'ADD INDEX idx_item_context_created (item_id, context_type, created_at)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_rfq_case_resolutions', 'idx_item_bid_actor', 'ADD INDEX idx_item_bid_actor (item_id, bid_id, actor_user_id)' );
-        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_video_submissions', 'idx_payment_created', 'ADD INDEX idx_payment_created (payment_id, created_at)' );
-        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_video_links', 'idx_submission_sort', 'ADD INDEX idx_submission_sort (submission_id, sort_order)' );
-        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payment_receipts', 'idx_payment_created', 'ADD INDEX idx_payment_created (payment_id, created_at)' );
+        if ( $this->is_cad_prototype_enabled() ) {
+            $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payments', 'idx_item_designer_created', 'ADD INDEX idx_item_designer_created (item_id, designer_user_id, created_at)' );
+            $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payments', 'idx_item_supplier_created', 'ADD INDEX idx_item_supplier_created (item_id, supplier_id, created_at)' );
+            $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_video_submissions', 'idx_payment_created', 'ADD INDEX idx_payment_created (payment_id, created_at)' );
+            $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_video_links', 'idx_submission_sort', 'ADD INDEX idx_submission_sort (submission_id, sort_order)' );
+            $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payment_receipts', 'idx_payment_created', 'ADD INDEX idx_payment_created (payment_id, created_at)' );
+        }
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_files', 'idx_item_payment_attachment', 'ADD INDEX idx_item_payment_attachment (item_id, payment_id, attachment_type, detached_at)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_timelines', 'idx_item_timeline', 'ADD INDEX idx_item_timeline (item_id, timeline_id)' );
         $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_timeline_steps', 'idx_timeline_step_status', 'ADD INDEX idx_timeline_step_status (timeline_id, step_number, status)' );
@@ -439,8 +459,11 @@ class N88_RFQ_Auth {
             $supplier_ids[] = (int) $supplier_user->ID;
         }
 
+        // Only attach default Wireframe supplier when the designer has not invited anyone yet.
+        // Otherwise Wireframe was incorrectly treated as a second "invited" maker (wrong defaults,
+        // wrong resolve_designer_supplier_thread_supplier_id, and cross-thread repair bugs).
         $wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
-        if ( $wireframe_supplier_id > 0 ) {
+        if ( $wireframe_supplier_id > 0 && empty( $supplier_ids ) ) {
             $supplier_ids[] = $wireframe_supplier_id;
         }
 
@@ -526,12 +549,27 @@ class N88_RFQ_Auth {
         }
 
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            // Prefer the supplier the designer last addressed explicitly (avoids mixing threads).
+            $designer_target_id = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT supplier_id
+                FROM {$messages_table}
+                WHERE item_id = %d
+                AND thread_type = 'designer_supplier'
+                AND sender_role = 'designer'
+                AND supplier_id IS NOT NULL AND supplier_id > 0
+                ORDER BY message_id DESC
+                LIMIT 1",
+                $item_id
+            ) );
+            if ( $designer_target_id > 0 ) {
+                return $designer_target_id;
+            }
             $message_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
                 "SELECT supplier_id
                 FROM {$messages_table}
                 WHERE item_id = %d
                 AND thread_type = 'designer_supplier'
-                AND supplier_id IS NOT NULL
+                AND supplier_id IS NOT NULL AND supplier_id > 0
                 ORDER BY message_id DESC
                 LIMIT 1",
                 $item_id
@@ -639,6 +677,46 @@ class N88_RFQ_Auth {
 
         $supplier_ids = $this->get_designer_supplier_thread_supplier_ids( $item_id );
         return in_array( $supplier_id, $supplier_ids, true );
+    }
+
+    /**
+     * If a designer messages a supplier before any RFQ route row exists, create a route so the item
+     * still appears in that supplier's queue (Routed Items list is driven from n88_rfq_routes).
+     *
+     * @param int $item_id Item ID.
+     * @param int $supplier_id Supplier user ID.
+     */
+    private function ensure_rfq_route_for_designer_message( $item_id, $supplier_id ) {
+        global $wpdb;
+        $item_id     = absint( $item_id );
+        $supplier_id = absint( $supplier_id );
+        if ( ! $item_id || ! $supplier_id ) {
+            return;
+        }
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$rfq_routes_table}'" ) !== $rfq_routes_table ) {
+            return;
+        }
+        $exists = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT route_id FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d LIMIT 1",
+            $item_id,
+            $supplier_id
+        ) );
+        if ( $exists > 0 ) {
+            return;
+        }
+        $wpdb->insert(
+            $rfq_routes_table,
+            array(
+                'item_id'        => $item_id,
+                'supplier_id'    => $supplier_id,
+                'route_type'     => 'designer_message',
+                'eligible_after' => null,
+                'routed_at'      => current_time( 'mysql' ),
+                'status'         => 'sent',
+            ),
+            array( '%d', '%d', '%s', '%s', '%s', '%s' )
+        );
     }
 
     /**
@@ -770,7 +848,114 @@ class N88_RFQ_Auth {
             }
         }
 
+        $pg_col = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'proposal_group_id'",
+            DB_NAME,
+            $messages_table
+        ) );
+        if ( ! $pg_col ) {
+            $alter_pg = $wpdb->query( "ALTER TABLE {$messages_table} ADD COLUMN proposal_group_id BIGINT UNSIGNED NULL AFTER item_id" );
+            if ( false === $alter_pg && ! empty( $wpdb->last_error ) ) {
+                error_log( 'N88 message proposal_group_id migration failed: ' . $wpdb->last_error );
+            } else {
+                $wpdb->query( "ALTER TABLE {$messages_table} ADD KEY idx_msg_group_ctx (proposal_group_id, context_type(32))" );
+            }
+        }
+
         $context_support_ready = true;
+    }
+
+    /**
+     * Stable key for pre-group batch compose threads (no proposal_group_id yet).
+     *
+     * @param array<int> $item_ids Item IDs (any order).
+     * @return string
+     */
+    private function build_batch_compose_message_thread_key( array $item_ids ) {
+        $item_ids = array_values( array_unique( array_filter( array_map( 'absint', $item_ids ) ) ) );
+        sort( $item_ids, SORT_NUMERIC );
+        if ( empty( $item_ids ) ) {
+            return '';
+        }
+        return 'n88_bt_' . substr( md5( implode( ',', $item_ids ) ), 0, 12 );
+    }
+
+    /**
+     * @param string $raw Raw client value.
+     * @return string Empty or normalized key.
+     */
+    private function sanitize_batch_message_thread_key( $raw ) {
+        $k = is_string( $raw ) ? trim( $raw ) : '';
+        if ( preg_match( '/^n88_bt_[a-f0-9]{12}$/', $k ) ) {
+            return $k;
+        }
+        return '';
+    }
+
+    /**
+     * Whether the user may read/write batch-scoped designer_supplier messages.
+     *
+     * @param int    $anchor_item_id    Anchor item (must belong to batch / group).
+     * @param int    $supplier_id       Supplier user ID.
+     * @param int    $proposal_group_id Workspace group id (0 if using compose key only).
+     * @param string $batch_thread_key  From build_batch_compose_message_thread_key when group id is 0.
+     * @param int    $designer_user_id  Item owner (designer).
+     * @param bool   $is_supplier       Current user is supplier.
+     * @return bool
+     */
+    private function user_may_access_batch_designer_supplier_messages( $anchor_item_id, $supplier_id, $proposal_group_id, $batch_thread_key, $designer_user_id, $is_supplier ) {
+        global $wpdb;
+
+        $anchor_item_id     = absint( $anchor_item_id );
+        $supplier_id        = absint( $supplier_id );
+        $proposal_group_id  = absint( $proposal_group_id );
+        $designer_user_id   = absint( $designer_user_id );
+
+        if ( ! $anchor_item_id || ! $supplier_id || ! $designer_user_id ) {
+            return false;
+        }
+
+        $items_table       = $wpdb->prefix . 'n88_items';
+        $group_items_table = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+
+        if ( $proposal_group_id > 0 ) {
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$group_items_table}'" ) !== $group_items_table ) {
+                return false;
+            }
+            $in_group = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$group_items_table} WHERE proposal_group_id = %d AND item_id = %d AND supplier_id = %d",
+                $proposal_group_id,
+                $anchor_item_id,
+                $supplier_id
+            ) ) > 0;
+            if ( ! $in_group ) {
+                return false;
+            }
+            $owner = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1",
+                $anchor_item_id
+            ) );
+            if ( $is_supplier ) {
+                return (int) get_current_user_id() === $supplier_id && $owner > 0;
+            }
+            return (int) get_current_user_id() === $designer_user_id && $owner === $designer_user_id;
+        }
+
+        if ( $batch_thread_key !== '' ) {
+            $owner = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1",
+                $anchor_item_id
+            ) );
+            if ( $is_supplier ) {
+                if ( ! $this->supplier_has_designer_supplier_thread_access( $anchor_item_id, $supplier_id ) ) {
+                    return false;
+                }
+                return (int) get_current_user_id() === $supplier_id && $owner > 0;
+            }
+            return (int) get_current_user_id() === $designer_user_id && $owner === $designer_user_id;
+        }
+
+        return false;
     }
 
     /**
@@ -1881,7 +2066,11 @@ class N88_RFQ_Auth {
 
         $messages_table = $wpdb->prefix . 'n88_item_messages';
 
-        if ( $message_id ) {
+        $eligible_for_thread = $this->get_designer_supplier_thread_supplier_ids( $item_id );
+
+        // Single new row: normalize only that message — never run bulk UPDATEs afterward, or every
+        // legacy NULL-target row on the item would be reassigned to this supplier (cross-thread leak).
+        if ( $message_id > 0 ) {
             $wpdb->update(
                 $messages_table,
                 array(
@@ -1893,6 +2082,13 @@ class N88_RFQ_Auth {
                 array( '%s', '%d', '%d' ),
                 array( '%d' )
             );
+            return;
+        }
+
+        // Never bulk-relabel ambiguous rows when multiple suppliers are linked to this item;
+        // otherwise one repair pass could assign every NULL row to one supplier.
+        if ( count( $eligible_for_thread ) > 1 ) {
+            return;
         }
 
         $wpdb->query(
@@ -2153,15 +2349,16 @@ class N88_RFQ_Auth {
         }
 
         return array(
-            'proposal_group_id' => (int) $proposal_group_id,
-            'rfq_reference'     => $rfq_reference,
-            'workspace_label'   => $workspace_label,
-            'designer_name'     => $designer_label,
-            'project_name'      => $project_label,
-            'item_ids'          => $normalized_ids,
-            'item_count'        => count( $normalized_ids ),
-            'item_states'       => $group_items,
-            'shared_uploads'    => $shared_uploads,
+            'proposal_group_id'         => (int) $proposal_group_id,
+            'batch_message_thread_key'  => $this->build_batch_compose_message_thread_key( $normalized_ids ),
+            'rfq_reference'             => $rfq_reference,
+            'workspace_label'           => $workspace_label,
+            'designer_name'             => $designer_label,
+            'project_name'              => $project_label,
+            'item_ids'                  => $normalized_ids,
+            'item_count'                => count( $normalized_ids ),
+            'item_states'               => $group_items,
+            'shared_uploads'           => $shared_uploads,
         );
     }
 
@@ -3830,7 +4027,7 @@ class N88_RFQ_Auth {
 
     /**
      * Determine action badge for a route item (M2)
-     * Returns: 'submit_bid', 'continue_draft', 'specs_changed', 'submitted', or 'expired'
+     * Returns: 'submit_bid', 'message_thread', 'continue_draft', 'specs_changed', 'submitted', or 'expired'
      */
     private function determine_action_badge( $item_data, $route_status, $item_current_revision, $has_revision_column = true ) {
         // Commit 2.4.1: Check if bid is awarded (highest priority)
@@ -3912,6 +4109,11 @@ class N88_RFQ_Auth {
         if ( $has_stale_bid ) {
             return 'specs_changed';
         }
+
+        // Designer messaged before a real RFQ was sent — queue is conversation-only (no proposal CTA).
+        if ( ! empty( $item_data['route_type'] ) && $item_data['route_type'] === 'designer_message' ) {
+            return 'message_thread';
+        }
         
         // Default: Submit Bid (no bids at all)
         return 'submit_bid';
@@ -3985,8 +4187,8 @@ class N88_RFQ_Auth {
         
         $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
         
-        // Build WHERE clause - include both system_invited and designer_invited routes
-        $where_conditions = array( "route_type IN ('system_invited', 'designer_invited')" );
+        // Build WHERE clause - include system_invited, designer_invited, and pre-RFQ designer_message routes
+        $where_conditions = array( "route_type IN ('system_invited', 'designer_invited', 'designer_message')" );
         $where_conditions[] = "status IN ('queued', 'sent', 'viewed')";
         
         // Calculate expiry timestamp
@@ -4023,7 +4225,7 @@ class N88_RFQ_Auth {
         
         if ( $updated > 0 ) {
             error_log( sprintf( 
-                'N88 RFQ: Updated %d route(s) (system_invited/designer_invited) to expired status (expiry window: %d seconds)',
+                'N88 RFQ: Updated %d route(s) (system_invited/designer_invited/designer_message) to expired status (expiry window: %d seconds)',
                 $updated,
                 $expiry_seconds
             ) );
@@ -4059,8 +4261,8 @@ class N88_RFQ_Auth {
             return false; // Route doesn't exist
         }
         
-        // Both system_invited and designer_invited routes can expire
-        if ( ! in_array( $route->route_type, array( 'system_invited', 'designer_invited' ), true ) ) {
+        // system_invited, designer_invited, and designer_message routes can expire
+        if ( ! in_array( $route->route_type, array( 'system_invited', 'designer_invited', 'designer_message' ), true ) ) {
             return false;
         }
         
@@ -4217,6 +4419,22 @@ class N88_RFQ_Auth {
                                         );
                                     }
                                 }
+                                if ( empty( $batch_group_ids ) ) {
+                                    $workspace_states = $this->get_item_proposal_group_workspace_states( $item_id );
+                                    if ( ! empty( $workspace_states ) && is_array( $workspace_states ) ) {
+                                        foreach ( $workspace_states as $workspace_state ) {
+                                            $workspace_group_id = isset( $workspace_state['proposal_group_id'] ) ? absint( $workspace_state['proposal_group_id'] ) : 0;
+                                            $workspace_supplier_id = isset( $workspace_state['supplier_id'] ) ? absint( $workspace_state['supplier_id'] ) : 0;
+                                            if ( ! $workspace_group_id || (int) $workspace_supplier_id !== (int) $current_user->ID ) {
+                                                continue;
+                                            }
+                                            $batch_group_ids[ $workspace_group_id ] = $workspace_group_id;
+                                            if ( ! $batch_primary_group_id ) {
+                                                $batch_primary_group_id = $workspace_group_id;
+                                            }
+                                        }
+                                    }
+                                }
                                 $batch_group_ids = array_values( array_unique( array_map( 'absint', $batch_group_ids ) ) );
                                 
             $item_meta = ! empty( $item['meta_json'] ) ? json_decode( $item['meta_json'], true ) : array();
@@ -4237,7 +4455,14 @@ class N88_RFQ_Auth {
                 'batch_proposal_group_ids' => $batch_group_ids,
                 'batch_primary_proposal_group_id' => $batch_primary_group_id,
                 'item_current_revision' => $item_current_revision,
+                'batch_request_item_ids' => array(),
+                'has_batch_request' => false,
             );
+            if ( ! empty( $item_meta['rfq_batch_item_ids'] ) && is_array( $item_meta['rfq_batch_item_ids'] ) ) {
+                $batch_request_item_ids = array_values( array_unique( array_filter( array_map( 'absint', $item_meta['rfq_batch_item_ids'] ) ) ) );
+                $item_data['batch_request_item_ids'] = $batch_request_item_ids;
+                $item_data['has_batch_request'] = count( $batch_request_item_ids ) > 1;
+            }
             
             // Determine action badge (pass has_revision_column flag)
             $action_badge = $this->determine_action_badge( $item_data, $item['route_status'], $item_current_revision, $has_revision_column );
@@ -4449,6 +4674,15 @@ class N88_RFQ_Auth {
             $validation_com_status       = isset( $validation_commitment_state['com_status'] ) ? sanitize_key( (string) $validation_commitment_state['com_status'] ) : '';
             $validation_com_shipped      = ! empty( $validation_commitment_state['com_shipped_at'] ) || in_array( $validation_com_status, array( 'com_in_transit', 'shipped', 'in_transit' ), true );
             $validation_com_completed    = ! empty( $validation_commitment_state['com_delivered_at'] ) || in_array( $validation_com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
+            $validation_production_started = ! empty( $validation_commitment_state['production_started_at'] ) || in_array( isset( $validation_commitment_state['production_status'] ) ? sanitize_key( (string) $validation_commitment_state['production_status'] ) : '', array( 'in_production', 'started' ), true );
+            $execution_activation_state    = isset( $validation_commitment_state['execution_activation'] ) && is_array( $validation_commitment_state['execution_activation'] )
+                ? $validation_commitment_state['execution_activation']
+                : array();
+            $execution_payment_status      = isset( $execution_activation_state['payment_status'] ) ? sanitize_key( (string) $execution_activation_state['payment_status'] ) : 'not_started';
+            if ( ! in_array( $execution_payment_status, array( 'not_started', 'pending', 'pending_verification', 'confirmed' ), true ) ) {
+                $execution_payment_status = 'not_started';
+            }
+            $execution_locked              = 'confirmed' !== $execution_payment_status;
             $meta_for_status = array();
             if ( ! empty( $item_data['meta_json'] ) ) {
                 $decoded_meta = json_decode( $item_data['meta_json'], true );
@@ -4494,7 +4728,13 @@ class N88_RFQ_Auth {
                 $is_action_required = true;
             } elseif ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Commercial gate states for supplier queue
-                if ( $validation_com_completed ) {
+                if ( $validation_production_started ) {
+                    $status_label = __( 'In Production', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $validation_com_completed && $execution_locked ) {
+                    $status_label = __( 'Awaiting Payment / Production Locked', 'n88-rfq-platform' );
+                    $status_color = '#ffb347';
+                } elseif ( $validation_com_completed ) {
                     $status_label = __( 'Ready for Production', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $validation_com_shipped ) {
@@ -4507,7 +4747,8 @@ class N88_RFQ_Auth {
                     $status_label = __( 'PO Uploaded', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $validation_samples_approved ) {
-                    $status_label = __( 'Samples Approved', 'n88-rfq-platform' );
+                    // After award, samples-approval is not the primary headline — show project awarded (matches CTA: Project Awarded ->).
+                    $status_label = __( 'Project Awarded', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $validation_samples_received ) {
                     $status_label = __( 'Sample Received', 'n88-rfq-platform' );
@@ -4572,12 +4813,20 @@ class N88_RFQ_Auth {
                 $status_label = __( 'Action Required  Message from operator', 'n88-rfq-platform' );
                 $status_color = '#ff4500';
                 $is_action_required = true;
+            } elseif ( $action_badge === 'message_thread' ) {
+                $status_label = __( 'Messages — RFQ not sent yet', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+                $is_action_required = $show_action_required;
             } elseif ( $action_badge === 'submit_bid' ) {
-                $status_label = __( 'Action Required - Submit proposal', 'n88-rfq-platform' );
+                $status_label = ! empty( $item_data['has_batch_request'] )
+                    ? __( 'Action Required - Submit Batch Proposal', 'n88-rfq-platform' )
+                    : __( 'Action Required - Submit proposal', 'n88-rfq-platform' );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $action_badge === 'continue_draft' ) {
-                $status_label = __( 'Action Required  Continue draft', 'n88-rfq-platform' );
+                $status_label = ! empty( $item_data['has_batch_request'] )
+                    ? __( 'Action Required  Continue batch draft', 'n88-rfq-platform' )
+                    : __( 'Action Required  Continue draft', 'n88-rfq-platform' );
                 $status_color = '#ff8800';
                 $is_action_required = true;
             } elseif ( $action_badge === 'specs_changed' ) {
@@ -4650,7 +4899,7 @@ class N88_RFQ_Auth {
                 $passes_status = true;
             } elseif ( $status_filter === 'needs_action' ) {
                 // Show items where supplier must send something: proposal, draft, update bid, video, reply to operator, or submit video after CAD
-                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received' ), true )
+                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received', 'message_thread' ), true )
                     || ! empty( $item_data['show_action_required'] )
                     || ! empty( $item_data['supplier_is_action_required'] );
             } elseif ( $status_filter === 'draft_saved' ) {
@@ -4843,6 +5092,9 @@ class N88_RFQ_Auth {
                                     case 'awarded':
                                         $action_button_text = __( 'Project Awarded', 'n88-rfq-platform' ) . ' ->';
                                         break;
+                                    case 'message_thread':
+                                        $action_button_text = __( 'Open conversation', 'n88-rfq-platform' ) . ' ->';
+                                        break;
                                     case 'cad_video_approved':
                                     case 'changes_received':
                                         $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ->';
@@ -4851,10 +5103,14 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'View Proposal', 'n88-rfq-platform' ) . ' ->';
                                         break;
                                     case 'submit_bid':
-                                        $action_button_text = __( 'Submit Proposal', 'n88-rfq-platform' ) . ' ->';
+                                        $action_button_text = ! empty( $item_data['has_batch_request'] )
+                                            ? __( 'Submit Batch Proposal', 'n88-rfq-platform' ) . ' ->'
+                                            : __( 'Submit Proposal', 'n88-rfq-platform' ) . ' ->';
                                         break;
                                     case 'continue_draft':
-                                        $action_button_text = __( 'Continue Draft', 'n88-rfq-platform' ) . ' ->';
+                                        $action_button_text = ! empty( $item_data['has_batch_request'] )
+                                            ? __( 'Continue Batch Draft', 'n88-rfq-platform' ) . ' ->'
+                                            : __( 'Continue Draft', 'n88-rfq-platform' ) . ' ->';
                                         break;
                                     case 'specs_changed':
                                         $action_button_text = __( 'Update Bid', 'n88-rfq-platform' ) . ' ->';
@@ -4877,6 +5133,8 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'Samples Approved', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Ready for Production' === $supplier_status_label ) {
                                         $action_button_text = __( 'Ready for Production', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'In Production' === $supplier_status_label ) {
+                                        $action_button_text = __( 'In Production', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'COM Shipped' === $supplier_status_label ) {
                                         $action_button_text = __( 'COM Shipped', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( in_array( $supplier_status_label, array( 'Sample Shipped', 'Samples Shipped' ), true ) ) {
@@ -4891,7 +5149,13 @@ class N88_RFQ_Auth {
                                 $queue_open_step = '';
                                 if ( ! empty( $item_data['supplier_status_label'] ) && 'Ready for Production' === trim( (string) $item_data['supplier_status_label'] ) ) {
                                     $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '2';
+                                } elseif ( ! empty( $item_data['supplier_status_label'] ) && 'In Production' === trim( (string) $item_data['supplier_status_label'] ) ) {
+                                    $queue_open_tab  = 'workflow';
                                     $queue_open_step = '3';
+                                } elseif ( 'message_thread' === $item_data['action_badge'] ) {
+                                    $queue_open_tab  = 'overview';
+                                    $queue_open_step = '';
                                 } elseif ( 'submitted' === $item_data['action_badge'] ) {
                                     $queue_open_tab  = 'workflow';
                                     $queue_open_step = '0';
@@ -4908,7 +5172,7 @@ class N88_RFQ_Auth {
                             ?>
                                 <tr>
                                     <td style="text-align:center;">
-                                        <?php if ( ! $is_expired ) : ?>
+                                        <?php if ( ! $is_expired && 'message_thread' !== $item_data['action_badge'] ) : ?>
                                             <input
                                                 type="checkbox"
                                                 class="n88-supplier-batch-item-checkbox"
@@ -4937,12 +5201,17 @@ class N88_RFQ_Auth {
                                     <td>
                                         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                                         <?php if ( ! $is_expired ) : ?>
+                                            <?php
+                                                $queue_row_status_label = isset( $item_data['supplier_status_label'] ) ? (string) $item_data['supplier_status_label'] : '';
+                                            ?>
                                             <button class="n88-open-bid-modal n88-supplier-queue-action-btn" 
                                                     data-item-id="<?php echo esc_attr( $item_id ); ?>" 
                                                     data-item-title="<?php echo esc_attr( $item_title ); ?>" 
                                                     data-category="<?php echo esc_attr( $category ); ?>"
                                                     data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
+                                                    data-supplier-status-label="<?php echo esc_attr( $queue_row_status_label ); ?>"
                                                     data-batch-group-id="<?php echo esc_attr( isset( $item_data['batch_primary_proposal_group_id'] ) ? intval( $item_data['batch_primary_proposal_group_id'] ) : 0 ); ?>"
+                                                    data-batch-item-ids="<?php echo esc_attr( ! empty( $item_data['batch_request_item_ids'] ) ? implode( ',', array_map( 'absint', (array) $item_data['batch_request_item_ids'] ) ) : '' ); ?>"
                                                     data-open-tab="<?php echo esc_attr( $queue_open_tab ); ?>"
                                                     data-open-step="<?php echo esc_attr( $queue_open_step ); ?>">
                                                 [ <?php echo esc_html( preg_replace( '/\s*>\s*$/', '', $action_button_text ) ); ?> ]
@@ -5101,7 +5370,7 @@ class N88_RFQ_Auth {
         </div>
 
         <div id="n88-supplier-batch-proposal-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:10006; overflow:hidden;">
-            <div id="n88-supplier-batch-proposal-modal-content" style="position:fixed; top:20px; left:40px; right:40px; bottom:20px; background:#3C3C3C; border:1px solid #555; border-radius:12px; box-shadow:0 8px 30px rgba(255,0,101,.18); overflow-x:hidden; overflow-y:auto;">
+            <div id="n88-supplier-batch-proposal-modal-content" style="position:fixed; top:16px; left:16px; right:16px; bottom:16px; background:#3C3C3C; border:1px solid #555; border-radius:12px; box-shadow:0 8px 30px rgba(255,0,101,.18); overflow-x:hidden; overflow-y:auto; display:flex; flex-direction:column;">
                 <!-- Batch proposal modal content injected by JavaScript -->
             </div>
         </div>
@@ -5121,7 +5390,8 @@ class N88_RFQ_Auth {
                     </div>
                     <input type="text" id="n88-batch-sample-tracking" placeholder="Tracking number" style="padding:12px 14px; background:#111; color:#fff; border:1px solid #555; border-radius:10px; font-size:12px; font-family:monospace;" />
                     <textarea id="n88-batch-sample-note" rows="4" placeholder="Notes for selected sample items" style="padding:12px 14px; background:#111; color:#fff; border:1px solid #555; border-radius:10px; font-size:12px; font-family:monospace; resize:vertical;"></textarea>
-                    <input type="file" id="n88-batch-sample-files" multiple style="max-width:100%; color:#ddd;" />
+                    <input type="file" id="n88-batch-sample-files" multiple onchange="if(window.n88RenderLocalUploadPreview){window.n88RenderLocalUploadPreview('n88-batch-sample-files','n88-batch-sample-files-preview');}" style="max-width:100%; color:#ddd;" />
+                    <div id="n88-batch-sample-files-preview" style="display:none;"></div>
                     <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
                         <div id="n88-batch-sample-workflow-status" style="font-size:11px; color:#aaa; font-family:monospace;"></div>
                         <button type="button" id="n88-batch-sample-submit-btn" style="padding:12px 18px; background:#FF0065; color:#111; border:1px solid #FF0065; border-radius:12px; font-size:13px; font-weight:700; font-family:monospace; cursor:pointer;">[ Submit Selected Samples ]</button>
@@ -5145,6 +5415,7 @@ class N88_RFQ_Auth {
             window.n88SupplierBatchState = {
                 selectedItems: {},
                 itemData: {},
+                preloadedDrafts: {},
                 itemStates: {},
                 activeItemId: null,
                 workspace: {},
@@ -5164,8 +5435,62 @@ class N88_RFQ_Auth {
             }
 
             function getSupplierMessageCacheKey(itemId, contextType) {
+                if (String(contextType || '') === 'batch_proposal' && typeof window.n88GetBatchMessageCacheKey === 'function') {
+                    var batchKey = window.n88GetBatchMessageCacheKey();
+                    if (batchKey) {
+                        return batchKey;
+                    }
+                }
                 return String(itemId) + ':' + String(contextType || 'item_specs');
             }
+
+            function syncN88BatchMessagePostFromWorkspace(items, anchorItemId) {
+                var ws = window.n88SupplierBatchState.workspace || {};
+                var gid = parseInt(ws.proposal_group_id, 10) || 0;
+                var anchor = parseInt(anchorItemId, 10) || 0;
+                if (!anchor && items && items.length) {
+                    anchor = parseInt(items[0].item_id || items[0].id, 10) || 0;
+                }
+                var bt = String(ws.batch_message_thread_key || '').trim();
+                window.n88SupplierBatchState.batchMessagePost = {
+                    proposal_group_id: gid,
+                    batch_thread_key: gid ? '' : bt,
+                    anchor_item_id: anchor
+                };
+            }
+
+            window.n88GetBatchMessageCacheKey = function() {
+                var p = window.n88SupplierBatchState && window.n88SupplierBatchState.batchMessagePost;
+                if (!p || !p.anchor_item_id) {
+                    return '';
+                }
+                if (parseInt(p.proposal_group_id, 10) > 0) {
+                    return 'batch_global:pg:' + p.proposal_group_id + ':a:' + p.anchor_item_id;
+                }
+                if (p.batch_thread_key) {
+                    return 'batch_global:bt:' + p.batch_thread_key + ':a:' + p.anchor_item_id;
+                }
+                return '';
+            };
+
+            window.n88LoadBatchGlobalMessages = function() {
+                var p = window.n88SupplierBatchState && window.n88SupplierBatchState.batchMessagePost;
+                var listEl = document.getElementById('n88-batch-global-messages-list');
+                if (!p || !p.anchor_item_id) {
+                    if (listEl) {
+                        listEl.innerHTML = '<div style="text-align:center;color:#666;font-size:11px;padding:12px;">Select an item anchor to load batch messages.</div>';
+                    }
+                    return;
+                }
+                var pg = parseInt(p.proposal_group_id, 10) || 0;
+                if (!pg && !p.batch_thread_key) {
+                    if (listEl) {
+                        listEl.innerHTML = '<div style="text-align:center;color:#666;font-size:11px;padding:12px;">Loading batch workspace…</div>';
+                    }
+                    return;
+                }
+                loadSupplierMessagesInline(p.anchor_item_id, 'batch_proposal');
+            };
 
             function invalidateSupplierItemDetailsCache(itemId) {
                 var state = window.n88SupplierBatchState || {};
@@ -5207,7 +5532,9 @@ class N88_RFQ_Auth {
                 options = options || {};
                 var forceRefresh = !!options.forceRefresh;
                 var section = options.section || 'summary';
-                var cacheTtlMs = typeof options.cacheTtlMs === 'number' ? options.cacheTtlMs : 15000;
+                // Keep supplier item detail cached for full page lifetime (until refresh),
+                // unless a caller explicitly provides cacheTtlMs or forceRefresh.
+                var cacheTtlMs = typeof options.cacheTtlMs === 'number' ? options.cacheTtlMs : Number.POSITIVE_INFINITY;
                 var cacheKey = getSupplierDetailCacheKey(itemId, section);
                 var cachedAt = state.detailCacheMeta && state.detailCacheMeta[cacheKey] ? state.detailCacheMeta[cacheKey] : 0;
                 if (!forceRefresh && state.detailCache && state.detailCache[cacheKey] && cachedAt && (Date.now() - cachedAt) < cacheTtlMs) {
@@ -5245,6 +5572,49 @@ class N88_RFQ_Auth {
             function escapeBatchText(value) {
                 return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             }
+            function isPreviewImageFile(file) {
+                if (!file) return false;
+                var mimeType = String(file.type || '').toLowerCase();
+                if (mimeType.indexOf('image/') === 0) return true;
+                var fileName = String(file.name || '').toLowerCase();
+                return /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i.test(fileName);
+            }
+            function renderLocalUploadPreview(inputId, previewId) {
+                var input = document.getElementById(inputId);
+                var previewWrap = document.getElementById(previewId);
+                if (!input || !previewWrap) {
+                    return;
+                }
+                var files = input.files ? Array.prototype.slice.call(input.files) : [];
+                if (!files.length) {
+                    previewWrap.innerHTML = '';
+                    previewWrap.style.display = 'none';
+                    return;
+                }
+                var html = '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:8px;">';
+                files.forEach(function(file) {
+                    if (!isPreviewImageFile(file)) return;
+                    var objectUrl = '';
+                    try {
+                        objectUrl = URL.createObjectURL(file);
+                    } catch (e) {
+                        objectUrl = '';
+                    }
+                    if (!objectUrl) return;
+                    html += '<div style="display:flex; flex-direction:column; gap:4px;">' +
+                        '<img src="' + objectUrl.replace(/"/g, '&quot;') + '" alt="' + escapeBatchText(file.name || 'Preview') + '" style="width:100%; height:72px; object-fit:cover; border-radius:6px; border:1px solid #444; background:#0b0b0b;" onload="try{URL.revokeObjectURL(this.src);}catch(e){}" />' +
+                        '<div style="font-size:10px; color:#aaa; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeBatchText(file.name || 'Image') + '</div>' +
+                    '</div>';
+                });
+                html += '</div>';
+                if (html.indexOf('<img ') === -1) {
+                    previewWrap.innerHTML = '<div style="font-size:11px; color:#999; font-family:monospace;">Selected ' + files.length + ' file(s). Image preview is available for image files only.</div>';
+                } else {
+                    previewWrap.innerHTML = html;
+                }
+                previewWrap.style.display = 'block';
+            }
+            window.n88RenderLocalUploadPreview = renderLocalUploadPreview;
 
             function formatBatchDateTime(value) {
                 if (!value) {
@@ -5291,6 +5661,43 @@ class N88_RFQ_Auth {
                 formData.append('action', 'n88_get_supplier_batch_workspace');
                 formData.append('proposal_group_id', String(parseInt(proposalGroupId, 10) || 0));
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_batch_workspace' ); ?>');
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function(response) {
+                    return response.json();
+                });
+            }
+
+            function fetchBatchModalPayload(itemIds, proposalGroupId) {
+                itemIds = Array.isArray(itemIds) ? itemIds.map(function(itemId) { return parseInt(itemId, 10) || 0; }).filter(function(itemId) { return itemId > 0; }) : [];
+                proposalGroupId = parseInt(proposalGroupId, 10) || 0;
+                var formData = new FormData();
+                formData.append('action', 'n88_get_supplier_batch_modal_payload');
+                formData.append('item_ids', JSON.stringify(itemIds || []));
+                if (proposalGroupId > 0) {
+                    formData.append('proposal_group_id', String(proposalGroupId));
+                }
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_batch_workspace' ); ?>');
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function(response) {
+                    return response.json();
+                });
+            }
+
+            function fetchBatchDrafts(itemIds) {
+                itemIds = Array.isArray(itemIds) ? itemIds.map(function(itemId) { return parseInt(itemId, 10) || 0; }).filter(function(itemId) { return itemId > 0; }) : [];
+                if (!itemIds.length) {
+                    return Promise.resolve({ success: true, data: { drafts: {} } });
+                }
+                var formData = new FormData();
+                formData.append('action', 'n88_get_supplier_batch_drafts');
+                formData.append('item_ids', JSON.stringify(itemIds));
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_bid_draft' ); ?>');
                 return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData,
@@ -5393,6 +5800,74 @@ class N88_RFQ_Auth {
                 }
             }
 
+            /**
+             * Accordion chip copy for batch modal (#n88-batch-item-header-state-*, #n88-batch-item-state-*).
+             * Supplier item AJAX returns status on validation_state.card_status_text (not top-level supplier_status_label).
+             */
+            function getBatchItemHeaderChipLabel(itemData, coarseState) {
+                itemData = itemData || {};
+                coarseState = coarseState || 'not_ready';
+                if (coarseState === 'not_quoted') {
+                    return 'Not Quoted';
+                }
+                if (coarseState === 'ready') {
+                    return 'Ready to Send';
+                }
+                if (coarseState === 'not_ready') {
+                    if (itemData.batch_quote_decision === 'skip') {
+                        return 'Skipped';
+                    }
+                    return 'Not Ready';
+                }
+                var v = itemData.validation_state && typeof itemData.validation_state === 'object' ? itemData.validation_state : {};
+                var card = String(itemData.supplier_status_label || itemData.validation_card_status_text || v.card_status_text || '').trim();
+                if (card) {
+                    return card;
+                }
+                var bid = String(itemData.bid_status || (itemData.bid_data && itemData.bid_data.bid_status) || '').toLowerCase();
+                if (bid === 'awarded' || itemData.is_awarded_supplier) {
+                    return 'Awarded';
+                }
+                var pn = itemData.payment_notification || (itemData.bid_data && itemData.bid_data.payment_notification);
+                if (pn && typeof pn === 'object') {
+                    var protoSt = String(pn.prototype_status || '').toLowerCase();
+                    if (protoSt === 'approved') {
+                        return 'Video approved';
+                    }
+                    if (protoSt === 'changes_requested') {
+                        return 'Video changes requested';
+                    }
+                    if (protoSt === 'submitted') {
+                        return 'Prototype video under review';
+                    }
+                    if (pn.cad_released_to_supplier_at) {
+                        return 'CAD received · pending video';
+                    }
+                    var cadSt = String(pn.cad_status || '').toLowerCase();
+                    if (cadSt === 'approved') {
+                        return 'CAD approved · pending release';
+                    }
+                    if (cadSt) {
+                        return 'CAD in progress';
+                    }
+                    var paySt = String(pn.status || '').toLowerCase();
+                    if (paySt === 'requested') {
+                        return 'CAD requested · pending payment';
+                    }
+                    if (paySt === 'marked_received') {
+                        return 'Payment received · CAD pending';
+                    }
+                }
+                if (itemData.has_revision_mismatch) {
+                    return 'Specs changed · update bid';
+                }
+                if (String(itemData.route_status || '').toLowerCase() === 'expired') {
+                    return 'Expired';
+                }
+                var groupId = parseInt(itemData.batch_primary_proposal_group_id, 10) || 0;
+                return groupId ? 'Batch Proposal Submitted' : 'Proposal Submitted';
+            }
+
             function setBatchItemState(itemId, state) {
                 var normalized = state || 'not_ready';
                 window.n88SupplierBatchState.itemStates[itemId] = normalized;
@@ -5403,19 +5878,16 @@ class N88_RFQ_Auth {
                 ];
                 chips.forEach(function(chip) {
                     if (chip) {
-                        var label = 'Not Ready';
+                        var label = getBatchItemHeaderChipLabel(itemData, normalized);
                         var bg = '#2a2a2a';
                         var color = '#bbb';
                         if (normalized === 'quoted') {
-                            label = String(itemData.supplier_status_label || itemData.validation_card_status_text || (itemData.batch_primary_proposal_group_id ? 'Batch Proposal Submitted' : 'Proposal Submitted'));
                             bg = '#032b17';
                             color = '#7dffb1';
                         } else if (normalized === 'not_quoted') {
-                            label = 'Not Quoted';
                             bg = '#2a1608';
                             color = '#ffb37d';
                         } else if (normalized === 'ready') {
-                            label = 'Ready to Send';
                             bg = '#1a1f00';
                             color = '#f0ff7d';
                         }
@@ -5963,6 +6435,320 @@ class N88_RFQ_Auth {
                 }
                 refreshBatchSharedUploads();
                 refreshBatchSampleSelectionUI();
+                refreshBatchComReceivedSelectionUI();
+                refreshBatchBeginProductionSelectionUI();
+                refreshBatchModalFooterSections();
+                refreshBatchDraftSubmitWrap();
+            }
+
+            function getSelectedBatchComReceivedItemIds() {
+                var selectedIds = [];
+                Array.prototype.slice.call(document.querySelectorAll('.n88-batch-com-received-select:checked')).forEach(function(input) {
+                    var itemId = parseInt(input.getAttribute('data-item-id'), 10) || 0;
+                    if (itemId > 0) {
+                        selectedIds.push(itemId);
+                    }
+                });
+                return selectedIds.filter(function(itemId, index, arr) {
+                    return arr.indexOf(itemId) === index;
+                });
+            }
+
+            function refreshBatchComReceivedSelectionUI() {
+                var selectedIds = getSelectedBatchComReceivedItemIds();
+                var countEl = document.getElementById('n88-batch-com-received-selected-count');
+                var submitBtn = document.getElementById('n88-batch-com-received-submit-btn');
+                if (countEl) {
+                    countEl.textContent = selectedIds.length + ' COM item' + (selectedIds.length === 1 ? '' : 's') + ' selected for receipt confirm';
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = !selectedIds.length;
+                    submitBtn.style.opacity = selectedIds.length ? '1' : '0.45';
+                    submitBtn.style.cursor = selectedIds.length ? 'pointer' : 'not-allowed';
+                }
+            }
+
+            function getSelectedBatchBeginProductionItemIds() {
+                var selectedIds = [];
+                Array.prototype.slice.call(document.querySelectorAll('.n88-batch-begin-production-select:checked')).forEach(function(input) {
+                    var itemId = parseInt(input.getAttribute('data-item-id'), 10) || 0;
+                    if (itemId > 0) {
+                        selectedIds.push(itemId);
+                    }
+                });
+                return selectedIds.filter(function(itemId, index, arr) {
+                    return arr.indexOf(itemId) === index;
+                });
+            }
+
+            function refreshBatchBeginProductionSelectionUI() {
+                var selectedIds = getSelectedBatchBeginProductionItemIds();
+                var countEl = document.getElementById('n88-batch-begin-production-selected-count');
+                var submitBtn = document.getElementById('n88-batch-begin-production-submit-btn');
+                if (countEl) {
+                    countEl.textContent = selectedIds.length + ' item' + (selectedIds.length === 1 ? '' : 's') + ' selected for Begin Production';
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = !selectedIds.length;
+                    submitBtn.style.opacity = selectedIds.length ? '1' : '0.45';
+                    submitBtn.style.cursor = selectedIds.length ? 'pointer' : 'not-allowed';
+                }
+            }
+
+            function applyBatchBeginProductionToSelectedItems() {
+                var selectedIds = getSelectedBatchBeginProductionItemIds();
+                if (!selectedIds.length) {
+                    alert('Select at least one item ready for production (use the checkbox in each item Award / Commitment section).');
+                    return;
+                }
+                var statusEl = document.getElementById('n88-batch-begin-production-status');
+                var submitBtn = document.getElementById('n88-batch-begin-production-submit-btn');
+                var ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+                var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                if (statusEl) {
+                    statusEl.textContent = 'Starting production for selected items...';
+                    statusEl.style.color = '#aaa';
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Starting... ]';
+                }
+                var successes = 0;
+                var failures = [];
+                var chain = Promise.resolve();
+                selectedIds.forEach(function(itemId) {
+                    chain = chain.then(function() {
+                        var fd = new FormData();
+                        fd.append('action', 'n88_supplier_begin_validation_production');
+                        fd.append('item_id', String(itemId));
+                        fd.append('_ajax_nonce', nonce);
+                        return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data && data.success) {
+                                    successes++;
+                                    if (window.n88SupplierBatchState.itemData[itemId] && data.data && data.data.validation_state) {
+                                        window.n88SupplierBatchState.itemData[itemId].validation_state = data.data.validation_state;
+                                        window.n88SupplierBatchState.itemData[itemId].validation_card_status_text = data.data.validation_state.card_status_text || '';
+                                        window.n88SupplierBatchState.itemData[itemId].supplier_status_label = window.n88SupplierBatchState.itemData[itemId].validation_card_status_text || 'In Production';
+                                        window.n88SupplierBatchState.itemData[itemId].supplier_workflow_active_step = 4;
+                                    }
+                                    var prevCoarse = window.n88SupplierBatchState.itemStates && window.n88SupplierBatchState.itemStates[itemId];
+                                    if (prevCoarse && typeof setBatchItemState === 'function') {
+                                        setBatchItemState(itemId, prevCoarse);
+                                    }
+                                    document.querySelectorAll('.n88-batch-begin-production-select[data-item-id="' + String(itemId) + '"]').forEach(function(cb) {
+                                        cb.checked = false;
+                                    });
+                                    return;
+                                }
+                                failures.push('Item #' + itemId + ': ' + ((data && data.data && data.data.message) ? data.data.message : (data && data.message) ? data.message : 'Failed.'));
+                            })
+                            .catch(function(err) {
+                                failures.push('Item #' + itemId + ': ' + (err && err.message ? err.message : 'Failed.'));
+                            });
+                    });
+                });
+                chain.finally(function() {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '[ Begin Production for selected ]';
+                    }
+                    if (statusEl) {
+                        if (successes > 0) {
+                            statusEl.textContent = (successes === 1 ? '1 item started.' : (successes + ' items started.')) + (failures.length ? ' Some failed — see alert.' : '');
+                            statusEl.style.color = failures.length ? '#ffb37d' : '#7dffb1';
+                        } else {
+                            statusEl.textContent = failures.length ? failures.join(' ') : 'No items were updated.';
+                            statusEl.style.color = '#ff8a8a';
+                        }
+                    }
+                    refreshBatchBeginProductionSelectionUI();
+                    refreshBatchSummary();
+                    if (failures.length && successes > 0) {
+                        alert((successes === 1 ? '1 item in production.' : (successes + ' items in production.')) + '\n\nSome items failed:\n' + failures.join('\n'));
+                    } else if (failures.length && !successes) {
+                        alert(failures.join('\n'));
+                    }
+                    if (successes > 0) {
+                        window.location.reload();
+                    }
+                });
+            }
+
+            function batchItemNeedsSampleWorkflowFooter(item) {
+                if (!item) {
+                    return false;
+                }
+                var validationState = item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : {};
+                var requestState = validationState.request && typeof validationState.request === 'object' ? validationState.request : {};
+                if (!requestState.requested_at) {
+                    return false;
+                }
+                return !getBatchSampleSubmissionSummary(item);
+            }
+
+            function batchItemNeedsComReceivedFooter(item) {
+                if (!item || !(item.is_awarded_supplier || item.bid_status === 'awarded')) {
+                    return false;
+                }
+                var validationState = item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : {};
+                var commitment = validationState.commitment && typeof validationState.commitment === 'object' ? validationState.commitment : {};
+                var comStatus = String(commitment.com_status || '').toLowerCase();
+                return comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit';
+            }
+
+            function batchItemNeedsBeginProductionFooter(item) {
+                if (!item || !(item.is_awarded_supplier || item.bid_status === 'awarded')) {
+                    return false;
+                }
+                var validationState = item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : {};
+                var commitment = validationState.commitment && typeof validationState.commitment === 'object' ? validationState.commitment : {};
+                var productionStarted = !!(validationState.production_started || (commitment && commitment.production_started_at));
+                return !!(validationState.can_commit && !productionStarted);
+            }
+
+            function batchQuotedSubmissionCompleteForAllItems(items) {
+                var list = Array.isArray(items) ? items : null;
+                if (!list) {
+                    var itemData = window.n88SupplierBatchState && window.n88SupplierBatchState.itemData ? window.n88SupplierBatchState.itemData : {};
+                    list = Object.keys(itemData).map(function(key) {
+                        return itemData[key];
+                    }).filter(Boolean);
+                }
+                if (!list.length) {
+                    return false;
+                }
+                return list.every(function(item) {
+                    if (!item) {
+                        return true;
+                    }
+                    if (item._n88_provisional) {
+                        return false;
+                    }
+                    if (item.batch_quote_decision === 'skip') {
+                        return true;
+                    }
+                    var st = String(item.bid_status || '').toLowerCase();
+                    return st === 'submitted' || st === 'awarded';
+                });
+            }
+
+            function refreshBatchDraftSubmitWrap() {
+                var wrap = document.getElementById('n88-batch-draft-submit-wrap');
+                if (!wrap) {
+                    return;
+                }
+                wrap.style.display = batchQuotedSubmissionCompleteForAllItems(null) ? 'none' : 'flex';
+            }
+
+            function refreshBatchModalFooterSections() {
+                var sampleWrap = document.getElementById('n88-batch-footer-sample-workflow-wrap');
+                var comWrap = document.getElementById('n88-batch-footer-com-received-wrap');
+                var beginProdWrap = document.getElementById('n88-batch-footer-begin-production-wrap');
+                if (!sampleWrap && !comWrap && !beginProdWrap) {
+                    return;
+                }
+                var itemData = window.n88SupplierBatchState && window.n88SupplierBatchState.itemData ? window.n88SupplierBatchState.itemData : {};
+                var items = Object.keys(itemData).map(function(key) {
+                    return itemData[key];
+                }).filter(Boolean);
+                var needSample = items.some(batchItemNeedsSampleWorkflowFooter);
+                var needCom = items.some(batchItemNeedsComReceivedFooter);
+                var needBeginProduction = items.some(batchItemNeedsBeginProductionFooter);
+                if (sampleWrap) {
+                    sampleWrap.style.display = needSample ? 'block' : 'none';
+                }
+                if (comWrap) {
+                    comWrap.style.display = needCom ? 'block' : 'none';
+                }
+                if (beginProdWrap) {
+                    beginProdWrap.style.display = needBeginProduction ? 'block' : 'none';
+                }
+            }
+
+            function applyBatchComReceivedToSelectedItems() {
+                var selectedIds = getSelectedBatchComReceivedItemIds();
+                if (!selectedIds.length) {
+                    alert('Select at least one item with COM in transit (use the checkbox in each item Award / Commitment section).');
+                    return;
+                }
+                var statusEl = document.getElementById('n88-batch-com-received-status');
+                var submitBtn = document.getElementById('n88-batch-com-received-submit-btn');
+                var ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+                var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                var workspace = window.n88SupplierBatchState.workspace || {};
+                var activeItemId = parseInt(window.n88SupplierBatchState.activeItemId, 10) || selectedIds[0];
+                if (statusEl) {
+                    statusEl.textContent = 'Confirming COM received for selected items...';
+                    statusEl.style.color = '#aaa';
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Confirming... ]';
+                }
+                var successes = 0;
+                var failures = [];
+                var chain = Promise.resolve();
+                selectedIds.forEach(function(itemId) {
+                    chain = chain.then(function() {
+                        var fd = new FormData();
+                        fd.append('action', 'n88_supplier_mark_validation_com_received');
+                        fd.append('item_id', String(itemId));
+                        fd.append('_ajax_nonce', nonce);
+                        return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data && data.success) {
+                                    successes++;
+                                    if (window.n88SupplierBatchState.itemData[itemId] && data.data && data.data.validation_state) {
+                                        window.n88SupplierBatchState.itemData[itemId].validation_state = data.data.validation_state;
+                                        window.n88SupplierBatchState.itemData[itemId].validation_card_status_text = data.data.validation_state.card_status_text || '';
+                                        window.n88SupplierBatchState.itemData[itemId].supplier_status_label = window.n88SupplierBatchState.itemData[itemId].validation_card_status_text || (window.n88SupplierBatchState.itemData[itemId].validation_state && window.n88SupplierBatchState.itemData[itemId].validation_state.card_status_text) || 'Ready for Production';
+                                        window.n88SupplierBatchState.itemData[itemId].supplier_workflow_active_step = 2;
+                                    }
+                                    var prevCoarse = window.n88SupplierBatchState.itemStates && window.n88SupplierBatchState.itemStates[itemId];
+                                    if (prevCoarse && typeof setBatchItemState === 'function') {
+                                        setBatchItemState(itemId, prevCoarse);
+                                    }
+                                    document.querySelectorAll('.n88-batch-com-received-select[data-item-id="' + String(itemId) + '"]').forEach(function(cb) {
+                                        cb.checked = false;
+                                    });
+                                    return;
+                                }
+                                failures.push('Item #' + itemId + ': ' + ((data && data.data && data.data.message) ? data.data.message : (data && data.message) ? data.message : 'Failed.'));
+                            })
+                            .catch(function(err) {
+                                failures.push('Item #' + itemId + ': ' + (err && err.message ? err.message : 'Failed.'));
+                            });
+                    });
+                });
+                chain.finally(function() {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '[ Confirm COM received for selected ]';
+                    }
+                    if (statusEl) {
+                        if (successes > 0) {
+                            statusEl.textContent = (successes === 1 ? '1 item updated.' : (successes + ' items updated.')) + (failures.length ? ' Some failed — see alert.' : '');
+                            statusEl.style.color = failures.length ? '#ffb37d' : '#7dffb1';
+                        } else {
+                            statusEl.textContent = failures.length ? failures.join(' ') : 'No items were updated.';
+                            statusEl.style.color = '#ff8a8a';
+                        }
+                    }
+                    refreshBatchComReceivedSelectionUI();
+                    refreshBatchBeginProductionSelectionUI();
+                    refreshBatchSummary();
+                    if (failures.length && successes > 0) {
+                        alert((successes === 1 ? '1 item confirmed.' : (successes + ' items confirmed.')) + '\n\nSome items failed:\n' + failures.join('\n'));
+                    } else if (failures.length && !successes) {
+                        alert(failures.join('\n'));
+                    }
+                    if (successes > 0) {
+                        window.location.reload();
+                    }
+                });
             }
 
             function getSelectedBatchSampleItemIds() {
@@ -6027,6 +6813,11 @@ class N88_RFQ_Auth {
                 if (trackingField) trackingField.value = '';
                 if (noteField) noteField.value = '';
                 if (filesField) filesField.value = '';
+                var batchSamplePreview = document.getElementById('n88-batch-sample-files-preview');
+                if (batchSamplePreview) {
+                    batchSamplePreview.innerHTML = '';
+                    batchSamplePreview.style.display = 'none';
+                }
                 if (modal) {
                     modal.style.display = 'block';
                 }
@@ -6096,6 +6887,10 @@ class N88_RFQ_Auth {
                                     window.n88SupplierBatchState.itemData[itemId].validation_state = result.data.validation_state;
                                     window.n88SupplierBatchState.itemData[itemId].validation_card_status_text = result.data.validation_state.card_status_text || '';
                                     window.n88SupplierBatchState.itemData[itemId].supplier_status_label = result.data.validation_state.card_status_text || window.n88SupplierBatchState.itemData[itemId].supplier_status_label || '';
+                                    var prevCoarse = window.n88SupplierBatchState.itemStates && window.n88SupplierBatchState.itemStates[itemId];
+                                    if (prevCoarse && typeof setBatchItemState === 'function') {
+                                        setBatchItemState(itemId, prevCoarse);
+                                    }
                                 }
                                 return;
                             }
@@ -6123,6 +6918,10 @@ class N88_RFQ_Auth {
                     if (successes > 0 && !failures.length) {
                         closeBatchSampleWorkflowModal();
                     }
+                    if (successes > 0 && sampleStatus === 'shipped') {
+                        window.location.reload();
+                        return;
+                    }
                     if (workspace.proposal_group_id) {
                         openBatchProposalModalForGroup(workspace.proposal_group_id, activeItemId);
                     }
@@ -6137,6 +6936,9 @@ class N88_RFQ_Auth {
                 if (sampleStatus === 'sample_submitted' || sampleStatus === 'supplier_submitted') return 'Sample Submitted';
                 if (sampleStatus === 'samples_shipped' || sampleStatus === 'shipped' || sampleStatus === 'in_transit' || sampleStatus === 'delivered') return 'Sample Shipped';
                 if (sampleStatus === 'under_review' || sampleStatus === 'samples_received') return 'Samples Received';
+                if (sampleStatus === 'samples_approved' && item && (item.is_awarded_supplier || item.bid_status === 'awarded')) {
+                    return 'Project Awarded';
+                }
                 if (sampleStatus === 'samples_approved') return 'Samples Approved';
                 return 'No Samples Requested';
             }
@@ -6492,10 +7294,29 @@ class N88_RFQ_Auth {
                     return '';
                 }
                 var effectiveBidStatus = item.bid_status || ((item.bid_data && item.bid_data.bid_status) ? item.bid_data.bid_status : '');
-                if ((effectiveBidStatus !== 'submitted' && effectiveBidStatus !== 'awarded') || item.has_revision_mismatch) {
+                if (!effectiveBidStatus && String(item.batch_item_state || '').toLowerCase() === 'quoted') {
+                    effectiveBidStatus = 'submitted';
+                }
+                if (effectiveBidStatus !== 'submitted' && effectiveBidStatus !== 'awarded') {
                     return '';
                 }
                 var bidData = item.bid_data || {};
+                // Until the per-item full payload is loaded, avoid the submitted-bid shell that shows
+                // placeholders ("Not provided", "None" for videos/photos). Provisional list rows only have
+                // bid_id-linked stubs; _n88_full_payload is set true after fetchSupplierItemDetails('full').
+                var shouldShowSubmittedLoading = !!(
+                    item._n88_provisional ||
+                    item._n88_full_payload !== true
+                );
+                if (shouldShowSubmittedLoading) {
+                    return '' +
+                        '<div style="padding:14px; background:#111; border:1px solid #FF0065; border-radius:10px;">' +
+                            '<div style="font-size:13px; color:#FF0065; font-family:monospace; font-weight:600; margin-bottom:10px;">' + escapeBatchText(item.title || ('Item #' + item.item_id)) + '</div>' +
+                            (typeof getN88PinkLoadingHtml === 'function'
+                                ? getN88PinkLoadingHtml('Loading submitted proposal details...', true)
+                                : '<div style="padding:14px; border:1px solid #333; border-radius:8px; background:#0b0b0b; color:#c8c8c8; font-family:monospace; font-size:12px; text-align:center;">Loading submitted proposal details...</div>') +
+                        '</div>';
+                }
                 var submittedAt = bidData && bidData.created_at ? String(bidData.created_at) : '';
                 var submittedAtLabel = formatBatchDateTime(submittedAt);
                 var fabricSuppliedFlag = String(
@@ -6721,6 +7542,9 @@ class N88_RFQ_Auth {
                 var comShippedAt = commitment && commitment.com_shipped_at ? commitment.com_shipped_at : '';
                 var comDeliveredAt = commitment && commitment.com_delivered_at ? commitment.com_delivered_at : '';
                 var comRequired = !!(commitment && (commitment.com_required || commitment.com_applicable || comStatus || comTrackingNumber || comDeliveryAddress));
+                var productionStartedAt = commitment && commitment.production_started_at ? commitment.production_started_at : '';
+                var productionStarted = !!((validationState && validationState.production_started) || productionStartedAt);
+                var canBeginProduction = !!(validationState && validationState.can_commit && !productionStarted);
                 var showComConfirm = comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit';
                 var depositLabel = 'Pending';
 
@@ -6757,15 +7581,54 @@ class N88_RFQ_Auth {
                 html += '<div><span style="color:#fff;">Deposit:</span> ' + escapeBatchText(depositLabel) + '</div>';
                 if (depositAmount !== null && depositAmount !== undefined && String(depositAmount) !== '') html += '<div><span style="color:#fff;">Deposit Amount:</span> $' + escapeBatchText(Number(depositAmount).toFixed(2)) + '</div>';
                 if (depositAt) html += '<div><span style="color:#fff;">Deposit Updated:</span> ' + escapeBatchText(formatBatchDateTime(depositAt) || depositAt) + '</div>';
-                if (depositFileUrl) html += '<div><span style="color:#fff;">Deposit Proof:</span> <a href="' + String(depositFileUrl).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:#7dc3ff; text-decoration:none;">View file</a></div>';
+                if (depositFiles.length) {
+                    html += '<div style="margin-top:6px;"><span style="color:#fff;">Deposit Proof:</span></div>';
+                    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;">';
+                    depositFiles.forEach(function(df, depIdx) {
+                        var du = df && df.url ? String(df.url) : '';
+                        var dt = (df && df.title) ? String(df.title) : ('Receipt ' + (depIdx + 1));
+                        if (!du) {
+                            return;
+                        }
+                        var duBase = du.split('?')[0].split('#')[0].toLowerCase();
+                        if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(duBase)) {
+                            html += '<div style="display:flex;flex-direction:column;gap:4px;max-width:128px;">';
+                            html += '<span style="font-size:9px;color:#aaa;word-break:break-all;line-height:1.25;">' + escapeBatchText(dt) + '</span>';
+                            html += '<a href="' + du.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer">';
+                            html += '<img src="' + du.replace(/"/g, '&quot;') + '" alt="" style="width:108px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #444;" />';
+                            html += '</a></div>';
+                        } else {
+                            html += '<div style="padding:8px 10px;background:#161616;border:1px solid #444;border-radius:6px;max-width:220px;">';
+                            html += '<div style="font-size:10px;color:#7dc3ff;font-weight:600;margin-bottom:4px;">Document</div>';
+                            html += '<div style="font-size:10px;color:#ccc;word-break:break-all;line-height:1.3;">' + escapeBatchText(dt) + '</div>';
+                            html += '<a href="' + du.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:#7dc3ff;margin-top:6px;display:inline-block;">Open file</a>';
+                            html += '</div>';
+                        }
+                    });
+                    html += '</div>';
+                } else if (depositFileUrl) {
+                    html += '<div><span style="color:#fff;">Deposit Proof:</span> <a href="' + String(depositFileUrl).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:#7dc3ff; text-decoration:none;">View file</a></div>';
+                }
                 html += '<div><span style="color:#fff;">COM:</span> ' + escapeBatchText(comLabel) + '</div>';
                 if (comTrackingNumber) html += '<div><span style="color:#fff;">COM Tracking:</span> ' + escapeBatchText(comTrackingNumber) + '</div>';
                 if (comDeliveryAddress) html += '<div style="white-space:pre-wrap;"><span style="color:#fff;">COM Delivery Address:</span> ' + escapeBatchText(comDeliveryAddress) + '</div>';
                 if (comShippedAt) html += '<div><span style="color:#fff;">COM Shipped At:</span> ' + escapeBatchText(formatBatchDateTime(comShippedAt) || comShippedAt) + '</div>';
                 if (comDeliveredAt) html += '<div><span style="color:#fff;">COM Received At:</span> ' + escapeBatchText(formatBatchDateTime(comDeliveredAt) || comDeliveredAt) + '</div>';
+                if (productionStarted) html += '<div><span style="color:#fff;">Production:</span> In Production' + (productionStartedAt ? (' (' + escapeBatchText(formatBatchDateTime(productionStartedAt) || productionStartedAt) + ')') : '') + '</div>';
                 html += '</div>';
                 if (showComConfirm) {
-                    html += '<div style="margin-top:12px;"><button type="button" data-n88-com-received-btn="' + item.item_id + '" onclick="n88SupplierMarkComReceived(' + item.item_id + ')" style="padding:8px 12px; background:#FF0065; color:#000; border:none; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:monospace;">[ Confirm COM Received ]</button></div>';
+                    html += '<div style="margin-top:12px;padding:10px 12px;border:1px solid #444;border-radius:8px;background:#0a0a0a;">';
+                    html += '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:11px;color:#ddd;font-family:monospace;line-height:1.45;">';
+                    html += '<input type="checkbox" class="n88-batch-com-received-select" data-item-id="' + String(item.item_id) + '" style="accent-color:#FF0065;width:16px;height:16px;margin-top:2px;flex-shrink:0;" />';
+                    html += '<span>Select for batch <strong style="color:#FF0065;">Confirm COM received</strong> (one action for all selected items — use the control at the bottom of the batch modal).</span>';
+                    html += '</label></div>';
+                }
+                if (canBeginProduction) {
+                    html += '<div style="margin-top:12px;padding:10px 12px;border:1px solid #444;border-radius:8px;background:#0a0a0a;">';
+                    html += '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:11px;color:#ddd;font-family:monospace;line-height:1.45;">';
+                    html += '<input type="checkbox" class="n88-batch-begin-production-select" data-item-id="' + String(item.item_id) + '" style="accent-color:#FF0065;width:16px;height:16px;margin-top:2px;flex-shrink:0;" />';
+                    html += '<span>Select for batch <strong style="color:#FF0065;">Begin Production</strong> (tick items ready for production, then use the button at the bottom of the batch modal).</span>';
+                    html += '</label></div>';
                 }
                 html += '</div>';
                 return html;
@@ -6801,7 +7664,7 @@ class N88_RFQ_Auth {
                 }
             }
 
-            function toggleBatchProposalAccordion(itemId, forceOpen) {
+            function toggleBatchProposalAccordion(itemId, forceOpen, skipAutoLoad) {
                 window.n88SupplierBatchState.activeItemId = itemId;
                 var sections = document.querySelectorAll('.n88-batch-accordion-section');
                 sections.forEach(function(section) {
@@ -6822,12 +7685,78 @@ class N88_RFQ_Auth {
                         indicator.textContent = shouldOpen ? '[-]' : '[+]';
                     }
                 });
-                ensureBatchFormLoaded(itemId);
-                loadSupplierMessagesInline(itemId, 'item_specs');
+                if (!skipAutoLoad) {
+                    var state = window.n88SupplierBatchState || {};
+                    var stateItem = state.itemData ? (state.itemData[itemId] || state.itemData[String(itemId)] || null) : null;
+                    var stateBidStatus = String((stateItem && (stateItem.bid_status || (stateItem.bid_data && stateItem.bid_data.bid_status))) || '').toLowerCase();
+                    if (stateItem && (stateBidStatus === 'submitted' || stateBidStatus === 'awarded' || stateItem.is_awarded_supplier === true)) {
+                        var submittedStackHtml = '';
+                        if (typeof renderBatchPostSubmitDetailStack === 'function') {
+                            submittedStackHtml = renderBatchPostSubmitDetailStack(stateItem) || '';
+                        }
+                        if (!submittedStackHtml && typeof renderBatchSubmittedBidShell === 'function') {
+                            submittedStackHtml = renderBatchSubmittedBidShell(stateItem) || '';
+                        }
+                        var submittedHost = document.getElementById('n88-batch-form-host-' + itemId);
+                        if (submittedHost && submittedStackHtml && String(submittedStackHtml).trim()) {
+                            var submittedReplacement = document.createElement('div');
+                            submittedReplacement.id = 'n88-batch-form-host-' + itemId;
+                            submittedReplacement.className = 'n88-batch-submitted-host';
+                            submittedReplacement.style.minWidth = '0';
+                            submittedReplacement.innerHTML = submittedStackHtml;
+                            submittedHost.parentNode.replaceChild(submittedReplacement, submittedHost);
+                        }
+                        if (state.formLoaded) {
+                            state.formLoaded[itemId] = true;
+                        }
+                        var needsSubmittedHydration = !!(
+                            stateItem._n88_full_payload !== true ||
+                            !stateItem.bid_data ||
+                            !stateItem.bid_data.bid_id ||
+                            (stateItem.bid_data.unit_price === null || stateItem.bid_data.unit_price === undefined || String(stateItem.bid_data.unit_price) === '') ||
+                            !stateItem.bid_data.production_lead_time
+                        );
+                        if (needsSubmittedHydration) {
+                            fetchSupplierItemDetails(itemId, { section: 'full', forceRefresh: false }).then(function(result) {
+                                if (!result || !result.success || !result.data) return;
+                                var hydratedItem = result.data;
+                                hydratedItem._n88_full_payload = true;
+                                if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData) {
+                                    window.n88SupplierBatchState.itemData[itemId] = hydratedItem;
+                                }
+                                var hydratedHtml = '';
+                                if (typeof renderBatchPostSubmitDetailStack === 'function') {
+                                    hydratedHtml = renderBatchPostSubmitDetailStack(hydratedItem) || '';
+                                }
+                                if (!hydratedHtml && typeof renderBatchSubmittedBidShell === 'function') {
+                                    hydratedHtml = renderBatchSubmittedBidShell(hydratedItem) || '';
+                                }
+                                var hydratedHost = document.getElementById('n88-batch-form-host-' + itemId);
+                                if (hydratedHost && hydratedHtml && String(hydratedHtml).trim()) {
+                                    var hydratedReplacement = document.createElement('div');
+                                    hydratedReplacement.id = 'n88-batch-form-host-' + itemId;
+                                    hydratedReplacement.className = 'n88-batch-submitted-host';
+                                    hydratedReplacement.style.minWidth = '0';
+                                    hydratedReplacement.innerHTML = hydratedHtml;
+                                    hydratedHost.parentNode.replaceChild(hydratedReplacement, hydratedHost);
+                                }
+                            }).catch(function(){});
+                        }
+                    }
+                    ensureBatchFormLoaded(itemId);
+                }
             }
 
             function ensureBatchFormLoaded(itemId) {
                 var state = window.n88SupplierBatchState;
+                var stateItem = state && state.itemData ? (state.itemData[itemId] || state.itemData[String(itemId)] || null) : null;
+                var stateBidStatus = String((stateItem && (stateItem.bid_status || (stateItem.bid_data && stateItem.bid_data.bid_status))) || '').toLowerCase();
+                if (stateItem && (stateBidStatus === 'submitted' || stateBidStatus === 'awarded' || stateItem.is_awarded_supplier === true)) {
+                    if (state.formLoaded) {
+                        state.formLoaded[itemId] = true;
+                    }
+                    return Promise.resolve();
+                }
                 if (state.formLoaded && state.formLoaded[itemId]) {
                     return Promise.resolve();
                 }
@@ -6931,6 +7860,7 @@ class N88_RFQ_Auth {
 
                 status.innerHTML = html;
                 status.style.color = '#aaa';
+                refreshBatchDraftSubmitWrap();
             }
 
             function revealBatchIssues(invalidItems) {
@@ -7057,6 +7987,9 @@ class N88_RFQ_Auth {
                         });
 
                         renderBatchActionReport(action, report);
+                        if (action === 'submit' && report.successItems.length > 0) {
+                            window.location.reload();
+                        }
                     });
                 }).catch(function(error) {
                     updateBatchActionStatus(error && error.message ? error.message : 'Failed to prepare batch action.', true);
@@ -7120,34 +8053,6 @@ class N88_RFQ_Auth {
                 var galleryHtml = images.length ? '<div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; margin-top:12px;">' + images.map(function(url) {
                     return '<img src="' + escapeBatchText(url) + '" alt="" style="width:100%; height:110px; object-fit:cover; border-radius:8px; border:1px solid #333;" />';
                 }).join('') + '</div>' : '<div style="margin-top:12px; font-size:11px; color:#777; font-family:monospace;">No reference images attached.</div>';
-                var supportSectionHTML = '<div style="display:flex; flex-direction:column; flex:1; min-height:0;">' +
-                    '<div id="n88-supplier-clarification-form-' + itemId + '" style="display:flex; flex:1; min-height:560px; padding:16px; background-color:#111111; border:1px solid #555; border-radius:10px; flex-direction:column; overflow:hidden;">' +
-                        '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-shrink:0; flex-wrap:wrap;">' +
-                            '<div style="font-size:14px; font-weight:600; color:#ccc; display:flex; align-items:center; gap:8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Designer Messages</div>' +
-                            '<select id="n88-clarification-category-overview-' + itemId + '" name="category" style="width:170px; max-width:100%; padding:7px 10px; background-color:#000; color:#ccc; border:1px solid #555; font-family:Courier New, Courier, monospace; font-size:10px; border-radius:10px; margin-left:auto;">' +
-                                '<option value="">Category</option>' +
-                                '<option value="Specs">Specs</option>' +
-                                '<option value="Dimensions">Dimensions</option>' +
-                                '<option value="Materials">Materials</option>' +
-                                '<option value="Timeline">Timeline</option>' +
-                                '<option value="Other">Other</option>' +
-                            '</select>' +
-                        '</div>' +
-                        '<form id="n88-supplier-clarification-form-inner-overview-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ', \'item_specs\');" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">' +
-                            '<input type="hidden" name="item_id" value="' + itemId + '">' +
-                            '<div id="n88-supplier-clarification-messages-overview-' + itemId + '" style="flex:1 1 auto; min-height:280px; overflow-y:auto; padding:16px; background-color:#0a0a0a; border-radius:10px; margin-bottom:12px; border:1px solid #555; display:flex; flex-direction:column;">' +
-                                '<div style="text-align:center; color:#666; font-size:12px; padding:20px; margin:auto;">Loading conversation...</div>' +
-                            '</div>' +
-                            '<div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">' +
-                                '<textarea id="n88-clarification-message-overview-' + itemId + '" name="message_text" required rows="2" style="flex:1; padding:10px 12px; background-color:#000; color:#fff; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:12px; resize:none; min-height:40px; max-height:100px;" placeholder="Type your message..."></textarea>' +
-                                '<div id="n88-supplier-attachment-preview-overview-' + itemId + '" style="display:none; flex-wrap:wrap; gap:4px; align-items:center; flex:0 0 auto; max-width:120px;"></div>' +
-                                '<button type="button" id="n88-supplier-attach-btn-overview-' + itemId + '" onclick="var el=document.getElementById(&quot;n88-supplier-message-attachments-overview-' + itemId + '&quot;); if(el) el.click();" style="padding:7px 8px; background-color:#111111; color:#ccc; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:9px; cursor:pointer; white-space:nowrap; flex-shrink:0;">Attach files</button>' +
-                                '<input type="file" id="n88-supplier-message-attachments-overview-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ', \'item_specs\');}">' +
-                                '<button type="submit" style="padding:7px 9px; background-color:#FF0065; color:#000; border:none; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:10px; font-weight:600; cursor:pointer; white-space:nowrap; flex-shrink:0;" onmouseover="this.style.backgroundColor=&quot;#cc0052&quot;;" onmouseout="this.style.backgroundColor=&quot;#FF0065&quot;;">Send</button>' +
-                            '</div>' +
-                        '</form>' +
-                    '</div>' +
-                '</div>';
                 return '' +
                     '<div class="n88-batch-accordion-section" data-item-id="' + itemId + '" style="margin:0 20px 14px; border:1px solid #333; border-radius:12px; overflow:hidden; background:#0b0b0b;">' +
                     '<button type="button" class="n88-batch-accordion-toggle" data-item-id="' + itemId + '" style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#0a0a0a; color:#ddd; border:none; border-bottom:1px solid #222; text-align:left; cursor:pointer;">' +
@@ -7198,7 +8103,6 @@ class N88_RFQ_Auth {
                                     ((item.bid_data && item.bid_data.fabric_quantity !== null && item.bid_data.fabric_quantity !== undefined && String(item.bid_data.fabric_quantity).trim() !== '') ? '<div><strong style="color:#fff;">Fabric Quantity:</strong> ' + escapeBatchText(item.bid_data.fabric_quantity) + '</div>' : '') +
                                 '</div>' +
                                 '<div style="margin-top:14px; font-size:11px; color:#999; font-family:monospace;">Keywords: ' + escapeBatchText(keywordsText) + '</div>' +
-                                '<div style="margin-top:14px;">' + supportSectionHTML + '</div>' +
                                 galleryHtml +
                             '</div>' +
                             (hasSubmittedBidShell
@@ -7209,7 +8113,9 @@ class N88_RFQ_Auth {
                     '</div>';
             }
 
-            function renderBatchProposalModal(items, anchorItemId) {
+            function renderBatchProposalModal(items, anchorItemId, options) {
+                options = options || {};
+                var skipInitialFormLoad = !!options.skipInitialFormLoad;
                 var modal = document.getElementById('n88-supplier-batch-proposal-modal');
                 var content = document.getElementById('n88-supplier-batch-proposal-modal-content');
                 var workspace = window.n88SupplierBatchState.workspace || {};
@@ -7224,6 +8130,7 @@ class N88_RFQ_Auth {
                 }).length;
                 var awardedCount = items.filter(function(item) { return getBatchAwardStateLabel(item) === 'Awarded'; }).length;
                 var batchStatus = getBatchModalStatusLabel(items);
+                var batchHideDraftSubmitRow = batchQuotedSubmissionCompleteForAllItems(items);
                 var panelsHtml = '';
                 items.forEach(function(item) {
                     panelsHtml += renderBatchItemPanel(item);
@@ -7243,31 +8150,69 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom:8px;">Batch Header</div>' +
                         '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>Batch: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Quoted Items: ' + quotedCount + '</span><span>Batch Status: ' + escapeBatchText(batchStatus) + '</span><span>Sample Items: ' + sampleSelectedCount + '</span><span>Awarded Items: ' + awardedCount + '</span></div>' +
                     '</div>' +
-                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Use View Item on any batch item to open its single-item detail modal. Submitted proposal, sample, award, PO, deposit, and COM updates stay inline inside each item panel.</div>' +
-                    '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>' +
+                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Use View Item on any batch item to open its single-item detail modal. Submitted proposal, sample, award, PO, deposit, and COM updates stay inline inside each item panel. Batch-wide designer conversation is in the right column.</div>' +
+                    '<div class="n88-batch-modal-main-split" style="display:flex; flex-direction:row; align-items:stretch; flex:1 1 auto; min-height:280px; max-height:calc(100vh - 200px); min-width:0;">' +
+                        '<div id="n88-batch-panels-column" style="flex:1 1 0; min-width:0; overflow-y:auto; overflow-x:hidden; padding:18px 0 8px;">' +
+                            '<div id="n88-batch-panels-wrap" style="overflow:visible;">' + panelsHtml + '</div>' +
+                        '</div>' +
+                        '<div id="n88-batch-global-messages-column" style="flex:0 0 20%; min-width:260px; max-width:400px; border-left:1px solid #444; background:#0c0c0c; display:flex; flex-direction:column; padding:14px 12px; box-sizing:border-box;">' +
+                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:6px; flex-shrink:0;">Batch conversation</div>' +
+                            '<div style="font-size:10px; color:#888; font-family:monospace; margin-bottom:10px; line-height:1.45; flex-shrink:0;">One thread for this batch. Not mixed with per-item spec messages in item detail.</div>' +
+                            '<div id="n88-batch-global-messages-list" style="flex:1 1 auto; min-height:180px; overflow-y:auto; padding:10px; background:#050505; border:1px solid #444; border-radius:8px; margin-bottom:10px;"></div>' +
+                            '<form id="n88-batch-global-messages-form" onsubmit="return sendSupplierClarificationInline(event, ' + (anchorItemId || (items[0] && items[0].item_id) || 0) + ', \'batch_proposal\');" style="display:flex; flex-direction:column; gap:8px; flex-shrink:0;">' +
+                                '<input type="hidden" id="n88-batch-global-messages-dummy-cat" value="" />' +
+                                '<input type="checkbox" id="n88-batch-global-messages-tag-clarifying" style="display:none;" />' +
+                                '<input type="checkbox" id="n88-batch-global-messages-tag-mse" style="display:none;" />' +
+                                '<textarea id="n88-batch-global-messages-input" name="message_text" required rows="2" style="width:100%; box-sizing:border-box; padding:8px; background:#000; color:#fff; border:1px solid #555; border-radius:8px; font-family:monospace; font-size:11px; resize:vertical; min-height:44px;" placeholder="Message the designer..."></textarea>' +
+                                '<div id="n88-batch-global-messages-attach-preview" style="display:none; flex-wrap:wrap; gap:4px;"></div>' +
+                                '<div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">' +
+                                    '<input type="file" id="n88-batch-global-messages-files" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){var p=window.n88SupplierBatchState.batchMessagePost; var aid=p&&p.anchor_item_id?p.anchor_item_id:0; if(aid) window.n88HandleSupplierAttachmentSelect(aid, \'batch_proposal\');}" />' +
+                                    '<button type="button" id="n88-batch-global-messages-attach-btn" onclick="var el=document.getElementById(\'n88-batch-global-messages-files\'); if(el) el.click();" style="padding:6px 8px; background:#111; color:#ccc; border:1px solid #555; border-radius:8px; font-size:9px; cursor:pointer;">Attach</button>' +
+                                    '<button type="submit" style="padding:7px 12px; background:#FF0065; color:#000; border:none; border-radius:8px; font-size:10px; font-weight:600; cursor:pointer;">Send</button>' +
+                                '</div>' +
+                            '</form>' +
+                        '</div>' +
+                    '</div>' +
                     '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
                         '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch actions</div>' +
                         '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Choose files</div>' +
                         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">' +
                             '<input type="file" id="n88-batch-shared-files" multiple style="max-width:100%;" />' +
                             '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload shared files ]</button>' +
+                            '<div id="n88-batch-draft-submit-wrap" style="display:' + (batchHideDraftSubmitRow ? 'none' : 'flex') + '; gap:10px; flex-wrap:wrap; align-items:center;">' +
                             '<button type="button" id="n88-batch-save-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Save draft for all ]</button>' +
                             '<button type="button" id="n88-batch-submit-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Submit all quoted ]</button>' +
+                            '</div>' +
                         '</div>' +
                         '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;"></div>' +
                         '<div id="n88-batch-shared-upload-list"></div>' +
-                        '<div style="margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
+                        '<div id="n88-batch-footer-sample-workflow-wrap" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
                             '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Batch Material Sample Workflow</div>' +
                             '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Use the sample checkboxes inside requested items, then submit one grouped sample workflow update from here.</div>' +
                             '<div id="n88-batch-sample-selected-count" style="font-size:11px; color:#ddd; font-family:monospace; margin-bottom:10px;">0 sample items selected</div>' +
                             '<button type="button" id="n88-open-batch-sample-workflow-modal" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer; margin-bottom:10px;">[ Submit Material Samples ]</button>' +
                             '<div style="font-size:11px; color:#7dc3ff; font-family:monospace;">Selected items will open in a separate modal for tracking number, notes, files, and final sample submission.</div>' +
                         '</div>' +
+                        '<div id="n88-batch-footer-com-received-wrap" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
+                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Batch COM received</div>' +
+                            '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">For each item with COM in transit, tick the checkbox inside that item&rsquo;s Award / Commitment section, then confirm once for all selected items.</div>' +
+                            '<div id="n88-batch-com-received-selected-count" style="font-size:11px; color:#ddd; font-family:monospace; margin-bottom:10px;">0 COM items selected for receipt confirm</div>' +
+                            '<button type="button" id="n88-batch-com-received-submit-btn" disabled style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:not-allowed; margin-bottom:10px; opacity:0.45;">[ Confirm COM received for selected ]</button>' +
+                            '<div id="n88-batch-com-received-status" style="font-size:11px; color:#aaa; font-family:monospace;"></div>' +
+                        '</div>' +
+                        '<div id="n88-batch-footer-begin-production-wrap" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
+                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Batch Begin Production</div>' +
+                            '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">For each item that shows Ready for Production (PO, deposit, and COM complete), tick the checkbox in that item&rsquo;s Award / Commitment section, then start production for all selected items at once.</div>' +
+                            '<div id="n88-batch-begin-production-selected-count" style="font-size:11px; color:#ddd; font-family:monospace; margin-bottom:10px;">0 items selected for Begin Production</div>' +
+                            '<button type="button" id="n88-batch-begin-production-submit-btn" disabled style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:not-allowed; margin-bottom:10px; opacity:0.45;">[ Begin Production for selected ]</button>' +
+                            '<div id="n88-batch-begin-production-status" style="font-size:11px; color:#aaa; font-family:monospace;"></div>' +
+                        '</div>' +
                     '</div>';
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
 
                 window.n88SupplierBatchState.itemData = {};
+                window.n88SupplierBatchState.preloadedDrafts = {};
                 window.n88SupplierBatchState.itemStates = {};
                 window.n88SupplierBatchState.formLoaded = {};
                 window.n88SupplierBatchState.formLoadPromises = {};
@@ -7282,7 +8227,13 @@ class N88_RFQ_Auth {
                 });
                 refreshBatchSummary();
                 refreshBatchSharedUploads();
-                toggleBatchProposalAccordion(anchorItemId || items[0].item_id, true);
+                syncN88BatchMessagePostFromWorkspace(items, anchorItemId || (items[0] && items[0].item_id) || 0);
+                if (typeof window.n88LoadBatchGlobalMessages === 'function') {
+                    window.n88LoadBatchGlobalMessages();
+                }
+                // For provisional pre-AJAX paint, do not auto-load proposal form.
+                // Once real payload arrives, caller renders again with skipInitialFormLoad=false.
+                toggleBatchProposalAccordion(anchorItemId || items[0].item_id, true, !!skipInitialFormLoad);
             }
 
             function closeBatchProposalModal() {
@@ -7314,67 +8265,143 @@ class N88_RFQ_Auth {
                 var content = document.getElementById('n88-supplier-batch-proposal-modal-content');
                 var modal = document.getElementById('n88-supplier-batch-proposal-modal');
                 if (content && modal) {
-                    content.innerHTML = '<div style="padding:40px; text-align:center; color:#bbb; font-family:monospace;">Loading unified proposal workspace...</div>';
+                    content.innerHTML = getN88PinkLoadingHtml('Loading unified proposal workspace...');
                     modal.style.display = 'block';
                     document.body.style.overflow = 'hidden';
                 }
-                var workspacePromise = proposalGroupId > 0
-                    ? fetchBatchWorkspaceByGroup(proposalGroupId)
-                    : fetchBatchWorkspace(itemIds);
-                workspacePromise.then(function(workspaceResult) {
-                    if (!workspaceResult.success || !workspaceResult.data) {
-                        throw new Error((workspaceResult.data && workspaceResult.data.message) || 'Failed to prepare grouped proposal workspace.');
+                // Instant first paint: render a lightweight shell from already available item data.
+                if (itemIds.length) {
+                    var state = window.n88SupplierBatchState || {};
+                    var provisionalItems = itemIds.map(function(itemId) {
+                        var known = (state.itemData && (state.itemData[itemId] || state.itemData[String(itemId)])) || (state.selectedItems && state.selectedItems[itemId]) || null;
+                        if (!known) return null;
+                        return {
+                            item_id: itemId,
+                            id: itemId,
+                            title: known.title || known.item_title || ('Item #' + itemId),
+                            category: known.category || known.category_name || '',
+                            bid_status: known.bid_status || null,
+                            batch_quote_decision: known.batch_quote_decision || 'quote',
+                            batch_item_state: known.batch_item_state || ((known.bid_status === 'submitted' || known.bid_status === 'awarded') ? 'quoted' : 'not_ready'),
+                            batch_primary_proposal_group_id: proposalGroupId || 0,
+                            batch_proposal_group_ids: proposalGroupId ? [proposalGroupId] : [],
+                            project_name: known.project_name || '',
+                            designer_name: known.designer_name || '',
+                            rfq_reference: known.rfq_reference || ('ITEM-' + itemId),
+                            _n88_provisional: true
+                        };
+                    }).filter(function(item){ return !!item; });
+                    if (provisionalItems.length) {
+                        renderBatchProposalModal(provisionalItems, anchorItemId || provisionalItems[0].item_id, { skipInitialFormLoad: true });
+                        var provisionalStatus = document.getElementById('n88-batch-action-status');
+                        if (provisionalStatus) {
+                            provisionalStatus.textContent = 'Syncing latest proposal data...';
+                            provisionalStatus.style.color = '#999';
+                        }
                     }
+                }
+                fetchBatchModalPayload(itemIds, proposalGroupId).then(function(payloadResult) {
+                    if (!payloadResult.success || !payloadResult.data) {
+                        throw new Error((payloadResult.data && payloadResult.data.message) || 'Failed to prepare grouped proposal workspace.');
+                    }
+                    var workspaceResult = payloadResult.data.workspace || {};
                     var resolvedItemIds = itemIds.length
                         ? itemIds.slice()
-                        : (Array.isArray(workspaceResult.data.item_ids) ? workspaceResult.data.item_ids : []);
+                        : (Array.isArray(workspaceResult.item_ids) ? workspaceResult.item_ids : []);
                     resolvedItemIds = resolvedItemIds.map(function(itemId) {
                         return parseInt(itemId, 10) || 0;
                     }).filter(function(itemId) {
                         return itemId > 0;
                     });
-                    return Promise.all(resolvedItemIds.map(function(itemId) {
-                        return fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(res) {
-                            if (!res.success || !res.data) {
-                                throw new Error((res.data && res.data.message) || ('Failed to load item #' + itemId));
-                            }
-                            return {
-                                itemId: itemId,
-                                item: res.data
-                            };
-                        });
-                    })).then(function(itemResults) {
-                        return {
-                            workspaceResult: workspaceResult,
-                            itemResults: itemResults
-                        };
-                    });
-                }).then(function(results) {
-                    var workspaceResult = results.workspaceResult;
-                    var itemResults = results.itemResults;
-                    window.n88SupplierBatchState.workspace = workspaceResult.data;
-                    window.n88SupplierBatchState.sharedUploads = workspaceResult.data.shared_uploads || [];
-                    var items = itemResults.map(function(entry) {
-                        var itemId = entry.itemId;
-                        var item = entry.item;
-                        var savedState = (workspaceResult.data.item_states && (workspaceResult.data.item_states[itemId] || workspaceResult.data.item_states[String(itemId)])) || {};
+                    var itemMap = payloadResult.data.items || {};
+                    window.n88SupplierBatchState.workspace = workspaceResult;
+                    window.n88SupplierBatchState.sharedUploads = workspaceResult.shared_uploads || [];
+                    window.n88SupplierBatchState.preloadedDrafts = payloadResult.data.drafts || {};
+                    var items = resolvedItemIds.map(function(itemId) {
+                        var item = itemMap[String(itemId)] || itemMap[itemId] || null;
+                        if (!item) {
+                            return null;
+                        }
+                        var savedState = (workspaceResult.item_states && (workspaceResult.item_states[itemId] || workspaceResult.item_states[String(itemId)])) || {};
                         item.batch_quote_decision = savedState.quote_decision || 'quote';
                         item.batch_item_state = savedState.item_state || ((item.bid_status === 'submitted' || item.bid_status === 'awarded') ? 'quoted' : 'not_ready');
-                        item.batch_primary_proposal_group_id = parseInt(item.batch_primary_proposal_group_id, 10) || proposalGroupId || parseInt(workspaceResult.data.proposal_group_id, 10) || 0;
+                        if (!item.bid_status && item.batch_item_state === 'quoted') {
+                            item.bid_status = 'submitted';
+                        }
+                        if (savedState && savedState.linked_bid_id) {
+                            var linkedBidId = parseInt(savedState.linked_bid_id, 10) || 0;
+                            if (linkedBidId > 0) {
+                                item.bid_id = item.bid_id || linkedBidId;
+                                item.bid_data = item.bid_data && typeof item.bid_data === 'object' ? item.bid_data : {};
+                                if (!item.bid_data.bid_id) item.bid_data.bid_id = linkedBidId;
+                                if (!item.bid_data.bid_status) item.bid_data.bid_status = item.bid_status || 'submitted';
+                            }
+                        }
+                        item.batch_primary_proposal_group_id = parseInt(item.batch_primary_proposal_group_id, 10) || proposalGroupId || parseInt(workspaceResult.proposal_group_id, 10) || 0;
                         item.batch_proposal_group_ids = Array.isArray(item.batch_proposal_group_ids) ? item.batch_proposal_group_ids : [];
                         if (item.batch_primary_proposal_group_id > 0 && item.batch_proposal_group_ids.indexOf(item.batch_primary_proposal_group_id) === -1) {
                             item.batch_proposal_group_ids.push(item.batch_primary_proposal_group_id);
                         }
-                        item.rfq_reference = workspaceResult.data.rfq_reference || item.rfq_reference;
-                        if (!item.project_name && workspaceResult.data.project_name) {
-                            item.project_name = workspaceResult.data.project_name;
+                        item.rfq_reference = workspaceResult.rfq_reference || item.rfq_reference;
+                        if (!item.project_name && workspaceResult.project_name) {
+                            item.project_name = workspaceResult.project_name;
                         }
-                        if (!item.designer_name && workspaceResult.data.designer_name) {
-                            item.designer_name = workspaceResult.data.designer_name;
+                        if (!item.designer_name && workspaceResult.designer_name) {
+                            item.designer_name = workspaceResult.designer_name;
                         }
                         return item;
+                    }).filter(function(item){ return !!item; });
+                    if (!items.length) {
+                        throw new Error('No items were returned for this grouped proposal.');
+                    }
+                    renderBatchProposalModal(items, anchorItemId, { skipInitialFormLoad: false });
+                    var hydrationTargets = items.filter(function(item) {
+                        if (!item) return false;
+                        var bidStatus = String(item.bid_status || (item.bid_data && item.bid_data.bid_status) || '').toLowerCase();
+                        var isQuotedState = String(item.batch_item_state || '').toLowerCase() === 'quoted';
+                        var hasLinkedBid = !!(item.bid_id || (item.bid_data && item.bid_data.bid_id));
+                        var needsFullPayload = item._n88_full_payload !== true;
+                        return needsFullPayload && (bidStatus === 'submitted' || bidStatus === 'awarded' || isQuotedState || hasLinkedBid);
                     });
-                    renderBatchProposalModal(items, anchorItemId);
+                    if (hydrationTargets.length) {
+                        Promise.all(hydrationTargets.map(function(item) {
+                            return fetchSupplierItemDetails(item.item_id, { section: 'full', forceRefresh: false }).then(function(result) {
+                                if (result && result.success && result.data) {
+                                    var fullItem = result.data;
+                                    fullItem._n88_full_payload = true;
+                                    return fullItem;
+                                }
+                                return null;
+                            }).catch(function() {
+                                return null;
+                            });
+                        })).then(function(fullItems) {
+                            var didHydrate = false;
+                            (fullItems || []).forEach(function(fullItem) {
+                                if (!fullItem || !fullItem.item_id) return;
+                                didHydrate = true;
+                                var hydratedId = parseInt(fullItem.item_id, 10) || 0;
+                                items.forEach(function(localItem, index) {
+                                    if (!localItem) return;
+                                    var localId = parseInt(localItem.item_id || localItem.id, 10) || 0;
+                                    if (localId === hydratedId) {
+                                        var preserved = localItem;
+                                        fullItem.batch_quote_decision = preserved.batch_quote_decision || fullItem.batch_quote_decision || 'quote';
+                                        fullItem.batch_item_state = preserved.batch_item_state || fullItem.batch_item_state || ((String(fullItem.bid_status || '').toLowerCase() === 'submitted' || String(fullItem.bid_status || '').toLowerCase() === 'awarded') ? 'quoted' : 'not_ready');
+                                        fullItem.batch_primary_proposal_group_id = preserved.batch_primary_proposal_group_id || fullItem.batch_primary_proposal_group_id || 0;
+                                        fullItem.batch_proposal_group_ids = Array.isArray(preserved.batch_proposal_group_ids) ? preserved.batch_proposal_group_ids : (Array.isArray(fullItem.batch_proposal_group_ids) ? fullItem.batch_proposal_group_ids : []);
+                                        items[index] = fullItem;
+                                    }
+                                });
+                                if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData) {
+                                    window.n88SupplierBatchState.itemData[hydratedId] = fullItem;
+                                }
+                            });
+                            if (didHydrate) {
+                                renderBatchProposalModal(items, anchorItemId, { skipInitialFormLoad: false });
+                            }
+                        });
+                    }
                 }).catch(function(error) {
                     if (content) {
                         content.innerHTML = '<div style="padding:40px; text-align:center; color:#ff8a8a; font-family:monospace;">' + escapeBatchText(error.message || error) + '</div>';
@@ -7382,7 +8409,7 @@ class N88_RFQ_Auth {
                 });
             }
 
-            function openBatchProposalModalForGroup(proposalGroupId, anchorItemId) {
+            function openBatchProposalModalForGroup(proposalGroupId, anchorItemId, prefetchedItemIds) {
                 proposalGroupId = parseInt(proposalGroupId, 10) || 0;
                 anchorItemId = parseInt(anchorItemId, 10) || 0;
                 if (!proposalGroupId) {
@@ -7391,7 +8418,73 @@ class N88_RFQ_Auth {
                     }
                     return;
                 }
-                openBatchProposalModalForSelection([], proposalGroupId, anchorItemId);
+                openBatchProposalModalForSelection(Array.isArray(prefetchedItemIds) ? prefetchedItemIds : [], proposalGroupId, anchorItemId);
+            }
+
+            function n88SupplierIsBatchProposalModalOpen() {
+                var m = document.getElementById('n88-supplier-batch-proposal-modal');
+                return !!(m && m.style.display === 'block');
+            }
+
+            function n88SupplierRefreshOpenBatchModalAfterItemUpdate(anchorItemId) {
+                anchorItemId = parseInt(anchorItemId, 10) || 0;
+                if (!n88SupplierIsBatchProposalModalOpen() || typeof openBatchProposalModalForGroup !== 'function') {
+                    return false;
+                }
+                var st = window.n88SupplierBatchState;
+                var ws = st && st.workspace ? st.workspace : null;
+                var gid = ws ? (parseInt(ws.proposal_group_id, 10) || parseInt(ws.batch_primary_proposal_group_id, 10) || 0) : 0;
+                if (!gid && anchorItemId && st && st.itemData) {
+                    var anchorRow = st.itemData[anchorItemId] || st.itemData[String(anchorItemId)];
+                    if (anchorRow) {
+                        gid = parseInt(anchorRow.batch_primary_proposal_group_id, 10) || 0;
+                        if (!gid && Array.isArray(anchorRow.batch_proposal_group_ids) && anchorRow.batch_proposal_group_ids.length) {
+                            gid = parseInt(anchorRow.batch_proposal_group_ids[0], 10) || 0;
+                        }
+                    }
+                }
+                if (!gid) {
+                    return false;
+                }
+                var prefetched = [];
+                if (ws && Array.isArray(ws.item_ids)) {
+                    prefetched = ws.item_ids.map(function(x) { return parseInt(x, 10) || 0; }).filter(function(x) { return x > 0; });
+                }
+                if (!prefetched.length && st && st.itemData) {
+                    prefetched = Object.keys(st.itemData).map(function(k) { return parseInt(k, 10) || 0; }).filter(function(x) { return x > 0; });
+                }
+                openBatchProposalModalForGroup(gid, anchorItemId || (prefetched.length ? prefetched[0] : 0), prefetched);
+                return true;
+            }
+
+            function resolveBatchProposalContextForItem(itemId, fallbackGroupId) {
+                var parsedFallbackGroupId = parseInt(fallbackGroupId || 0, 10) || 0;
+                var parsedItemId = parseInt(itemId || 0, 10) || 0;
+                if (parsedFallbackGroupId > 0) {
+                    return Promise.resolve({
+                        groupId: parsedFallbackGroupId,
+                        isBatch: true
+                    });
+                }
+                if (!parsedItemId || typeof fetchBatchWorkspace !== 'function') {
+                    return Promise.resolve({ groupId: 0, isBatch: false });
+                }
+                return fetchBatchWorkspace([parsedItemId]).then(function(workspaceResult) {
+                    if (!workspaceResult || !workspaceResult.success || !workspaceResult.data) {
+                        return { groupId: 0, isBatch: false };
+                    }
+                    var workspaceData = workspaceResult.data || {};
+                    var resolvedGroupId = parseInt(workspaceData.proposal_group_id || 0, 10) || 0;
+                    var workspaceItemIds = Array.isArray(workspaceData.item_ids)
+                        ? workspaceData.item_ids.map(function(rawId) { return parseInt(rawId, 10) || 0; }).filter(function(v) { return v > 0; })
+                        : [];
+                    return {
+                        groupId: resolvedGroupId,
+                        isBatch: (resolvedGroupId > 0 && workspaceItemIds.length > 1)
+                    };
+                }).catch(function() {
+                    return { groupId: 0, isBatch: false };
+                });
             }
 
             // Filter persistence via URL query parameters (M5)
@@ -7544,6 +8637,21 @@ class N88_RFQ_Auth {
             }
             function getSupplierMessageDomConfig(itemId, contextType) {
                 var normalizedContextType = String(contextType || 'item_specs');
+                if (normalizedContextType === 'batch_proposal') {
+                    return {
+                        contextType: 'batch_proposal',
+                        isWorkflowThread: false,
+                        scopeKey: 'batch_global',
+                        messagesContainerId: 'n88-batch-global-messages-list',
+                        messageInputId: 'n88-batch-global-messages-input',
+                        categoryId: 'n88-batch-global-messages-dummy-cat',
+                        tagClarifyingId: 'n88-batch-global-messages-tag-clarifying',
+                        tagMseId: 'n88-batch-global-messages-tag-mse',
+                        attachmentInputId: 'n88-batch-global-messages-files',
+                        attachmentPreviewId: 'n88-batch-global-messages-attach-preview',
+                        attachBtnId: 'n88-batch-global-messages-attach-btn'
+                    };
+                }
                 var isWorkflowThread = normalizedContextType.indexOf('step_') === 0;
                 var scopeKey = isWorkflowThread ? 'workflow' : 'overview';
                 return {
@@ -7607,7 +8715,20 @@ class N88_RFQ_Auth {
                 
                 var formData = new FormData();
                 formData.append('action', 'n88_get_item_messages');
-                formData.append('item_id', itemId);
+                var batchMsgItemId = itemId;
+                if (threadConfig.contextType === 'batch_proposal') {
+                    var bpGet = window.n88SupplierBatchState && window.n88SupplierBatchState.batchMessagePost;
+                    if (bpGet && bpGet.anchor_item_id) {
+                        batchMsgItemId = bpGet.anchor_item_id;
+                    }
+                    var pgGet = bpGet ? (parseInt(bpGet.proposal_group_id, 10) || 0) : 0;
+                    if (pgGet > 0) {
+                        formData.append('proposal_group_id', String(pgGet));
+                    } else if (bpGet && bpGet.batch_thread_key) {
+                        formData.append('batch_thread_key', bpGet.batch_thread_key);
+                    }
+                }
+                formData.append('item_id', batchMsgItemId);
                 formData.append('thread_type', 'designer_supplier');
                 formData.append('supplier_id', n88CurrentSupplierThreadUserId);
                 formData.append('context_type', threadConfig.contextType);
@@ -7678,7 +8799,9 @@ class N88_RFQ_Auth {
                 sortedMessages.forEach(function(msg) {
                     var isSupplier = msg.sender_role === 'supplier';
                     var senderName = isSupplier ? 'You' : 'Designer';
-                    var categoryDisplay = (!threadConfig.isWorkflowThread && msg.category && String(msg.category).indexOf('clarifying_questions') === -1 && String(msg.category).indexOf('mse_material') === -1) ? ' [' + msg.category + ']' : '';
+                    var catRaw = msg.category ? String(msg.category) : '';
+                    var hideCatAsKey = threadConfig.contextType === 'batch_proposal' && catRaw.indexOf('n88_bt_') === 0;
+                    var categoryDisplay = (!threadConfig.isWorkflowThread && catRaw && catRaw.indexOf('clarifying_questions') === -1 && catRaw.indexOf('mse_material') === -1 && !hideCatAsKey) ? (' [' + catRaw + ']') : '';
                     
                     var date = new Date(msg.created_at);
                     var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -7706,7 +8829,7 @@ class N88_RFQ_Auth {
                     } catch (attachmentParseError) {
                         console.warn('Failed to parse message attachments:', attachmentParseError);
                     }
-                    if (!threadConfig.isWorkflowThread && msg.category) {
+                    if (!threadConfig.isWorkflowThread && msg.category && !hideCatAsKey) {
                         String(msg.category).split(',').forEach(function(tagKey) {
                             var normalizedTagKey = String(tagKey || '').trim();
                             if (normalizedTagKey === 'clarifying_questions') {
@@ -7813,7 +8936,16 @@ class N88_RFQ_Auth {
                     } else if (opts.supplier_confirmed_clarification) {
                         html += '<span style="font-size: 11px; color: #FF0065;"> Clarified</span>';
                         if (!opts.supplier_has_submitted_bid) {
-                            html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Submit Proposal</button>';
+                            var clarifiedBatchGroupId = parseInt(
+                                (opts.batch_primary_proposal_group_id || (Array.isArray(opts.batch_proposal_group_ids) && opts.batch_proposal_group_ids.length ? opts.batch_proposal_group_ids[0] : 0)) ||
+                                (window.currentItemData && (window.currentItemData.batch_primary_proposal_group_id || (Array.isArray(window.currentItemData.batch_proposal_group_ids) && window.currentItemData.batch_proposal_group_ids.length ? window.currentItemData.batch_proposal_group_ids[0] : 0))) ||
+                                0,
+                                10
+                            ) || 0;
+                            var clarifiedBatchItemIds = (Array.isArray(opts.batch_request_item_ids) && opts.batch_request_item_ids.length ? opts.batch_request_item_ids : ((window.currentItemData && Array.isArray(window.currentItemData.batch_request_item_ids)) ? window.currentItemData.batch_request_item_ids : []));
+                            var clarifiedBatchItemIdsAttr = clarifiedBatchItemIds.map(function(v){ return parseInt(v, 10) || 0; }).filter(function(v){ return v > 0; }).join(',');
+                            var submitProposalLabel = clarifiedBatchItemIdsAttr.indexOf(',') !== -1 ? 'Submit Batch Proposal' : 'Submit Proposal';
+                            html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" data-batch-group-id="' + clarifiedBatchGroupId + '" data-batch-item-ids="' + clarifiedBatchItemIdsAttr + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">' + submitProposalLabel + '</button>';
                         }
                     } else {
                         var bidIdVal = (opts.bid_id || 0);
@@ -7869,7 +9001,30 @@ class N88_RFQ_Auth {
                 if (!btn) return;
                 var itemId = btn.getAttribute('data-item-id');
                 if (!itemId) return;
+                var batchGroupId = parseInt(btn.getAttribute('data-batch-group-id') || '0', 10) || 0;
                 if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('overview');
+                var batchItemIdsRaw = btn.getAttribute('data-batch-item-ids') || '';
+                var batchItemIds = batchItemIdsRaw
+                    ? batchItemIdsRaw.split(',').map(function(v){ return parseInt(v, 10) || 0; }).filter(function(v){ return v > 0; })
+                    : [];
+                var overviewStatusLabel = (btn.getAttribute('data-supplier-status-label') || '').trim().toLowerCase();
+                var overviewSkipBatch = overviewStatusLabel === 'in production' || n88SupplierShouldOpenSingleItemInsteadOfBatch(itemId);
+                if (overviewSkipBatch) {
+                    if (typeof openBidModal === 'function') {
+                        openBidModal(itemId, 'workflow', null);
+                    } else if (typeof toggleBidForm === 'function') {
+                        toggleBidForm(itemId);
+                    }
+                    return;
+                }
+                if (batchGroupId > 0 && batchItemIds.length > 1 && typeof openBatchProposalModalForGroup === 'function') {
+                    openBatchProposalModalForGroup(batchGroupId, itemId, batchItemIds);
+                    return;
+                }
+                if (batchItemIds.length > 1 && typeof openBatchProposalModalForSelection === 'function') {
+                    openBatchProposalModalForSelection(batchItemIds, 0, itemId);
+                    return;
+                }
                 if (typeof toggleBidForm === 'function') toggleBidForm(itemId);
             });
             
@@ -7920,7 +9075,20 @@ class N88_RFQ_Auth {
                 
                 var formData = new FormData();
                 formData.append('action', 'n88_send_item_message');
-                formData.append('item_id', itemId);
+                var batchSendItemId = itemId;
+                if (threadConfig.contextType === 'batch_proposal') {
+                    var bpSend = window.n88SupplierBatchState && window.n88SupplierBatchState.batchMessagePost;
+                    if (bpSend && bpSend.anchor_item_id) {
+                        batchSendItemId = bpSend.anchor_item_id;
+                    }
+                    var pgSend = bpSend ? (parseInt(bpSend.proposal_group_id, 10) || 0) : 0;
+                    if (pgSend > 0) {
+                        formData.append('proposal_group_id', String(pgSend));
+                    } else if (bpSend && bpSend.batch_thread_key) {
+                        formData.append('batch_thread_key', bpSend.batch_thread_key);
+                    }
+                }
+                formData.append('item_id', batchSendItemId);
                 formData.append('thread_type', 'designer_supplier');
                 formData.append('message_text', messageText.value.trim());
                 formData.append('category', category ? category.value : '');
@@ -8236,7 +9404,95 @@ class N88_RFQ_Auth {
             
             // Re-initialize after modal content is updated (use MutationObserver or call after modal update)
             window.initPrototypeVideoForms = initPrototypeVideoForms;
+            function getN88PinkLoadingHtml(message, compact) {
+                var padding = compact ? '12px' : '40px';
+                var fontSize = compact ? '12px' : '13px';
+                return '<style>@keyframes n88SupplierLoadingPulse{0%{opacity:.35;transform:scale(.9)}50%{opacity:1;transform:scale(1.15)}100%{opacity:.35;transform:scale(.9)}}</style>'
+                    + '<div style="padding:' + padding + '; text-align:center; color:#c8c8c8; display:flex; align-items:center; justify-content:center; gap:8px; font-size:' + fontSize + '; font-family:monospace;">'
+                    + '<span style="width:8px; height:8px; border-radius:50%; display:inline-block; background:#FF0065; animation:n88SupplierLoadingPulse 1s ease-in-out infinite;"></span>'
+                    + '<span>' + String(message || 'Loading...').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>'
+                    + '</div>';
+            }
             
+            function n88SupplierItemDataReadyForProduction(it) {
+                if (!it || typeof it !== 'object') {
+                    return false;
+                }
+                var label = String(it.supplier_status_label || '').trim().toLowerCase();
+                if (label === 'ready for production') {
+                    return true;
+                }
+                var vs = it.validation_state && typeof it.validation_state === 'object' ? it.validation_state : {};
+                var card = String(vs.card_status_text || it.validation_card_status_text || '').toLowerCase();
+                if (card.indexOf('ready for production') !== -1 || card.indexOf('com received') !== -1) {
+                    return true;
+                }
+                if (vs.can_commit) {
+                    return true;
+                }
+                var commit = vs.commitment && typeof vs.commitment === 'object' ? vs.commitment : {};
+                if (commit.com_delivered_at) {
+                    return true;
+                }
+                var cs = String(commit.com_status || '').toLowerCase().trim();
+                if (cs === 'com_delivered' || cs === 'received' || cs === 'confirmed') {
+                    return true;
+                }
+                if ((parseInt(it.supplier_workflow_active_step, 10) || 0) >= 3) {
+                    return true;
+                }
+                return false;
+            }
+
+            function n88SupplierItemDataInProduction(it) {
+                if (!it || typeof it !== 'object') {
+                    return false;
+                }
+                var vs = it.validation_state && typeof it.validation_state === 'object' ? it.validation_state : {};
+                var commit = vs.commitment && typeof vs.commitment === 'object' ? vs.commitment : {};
+                if (vs.production_started) {
+                    return true;
+                }
+                if (commit.production_started_at) {
+                    return true;
+                }
+                var ps = String(commit.production_status || '').toLowerCase().replace(/-/g, '_').trim();
+                if (ps === 'in_production' || ps === 'started') {
+                    return true;
+                }
+                var label = String(it.supplier_status_label || '').trim().toLowerCase();
+                if (label === 'in production') {
+                    return true;
+                }
+                var card = String(vs.card_status_text || it.validation_card_status_text || '').toLowerCase();
+                if (card.indexOf('in production') !== -1) {
+                    return true;
+                }
+                if ((parseInt(it.supplier_workflow_active_step, 10) || 0) >= 4) {
+                    return true;
+                }
+                return false;
+            }
+
+            function n88SupplierShouldOpenSingleItemInsteadOfBatch(itemId) {
+                itemId = parseInt(itemId, 10) || 0;
+                if (!itemId) {
+                    return false;
+                }
+                var st = window.n88SupplierBatchState && window.n88SupplierBatchState.itemData ? window.n88SupplierBatchState.itemData[itemId] : null;
+                if (n88SupplierItemDataInProduction(st)) {
+                    return true;
+                }
+                var cur = window.currentItemData;
+                if (cur && String(cur.item_id || cur.id || '') === String(itemId) && n88SupplierItemDataInProduction(cur)) {
+                    return true;
+                }
+                return false;
+            }
+
+            window.n88SupplierItemDataReadyForProduction = n88SupplierItemDataReadyForProduction;
+            window.n88SupplierItemDataInProduction = n88SupplierItemDataInProduction;
+
             function openBidModal(itemId, preferredTab, preferredStep) {
                 // preferredTab: optional 'overview' or 'workflow'; legacy 'bid' now maps to overview
                 // Ensure lightbox functions are available before creating modal HTML
@@ -8253,7 +9509,7 @@ class N88_RFQ_Auth {
                 if (!modal || !modalContent) return;
                 
                 // Show loading state
-                modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Loading item details...</div>';
+                modalContent.innerHTML = getN88PinkLoadingHtml('Loading item details...');
                 modal.style.display = 'block';
                 modal.style.setProperty('background', 'transparent', 'important');
                 modal.style.setProperty('background-color', 'transparent', 'important');
@@ -8266,10 +9522,10 @@ class N88_RFQ_Auth {
                 }
                 var fullCacheKey = getSupplierDetailCacheKey(itemId, 'full');
                 var hasFullCache = !!(window.n88SupplierBatchState && window.n88SupplierBatchState.detailCache && window.n88SupplierBatchState.detailCache[fullCacheKey]);
-                // Supplier modal workflow state depends on full payload (submitted bid, award, prototype, deposit).
-                // Always load the full detail payload so Step 1 / Step 3 never render from incomplete summary data.
-                var detailSection = 'full';
-                fetchSupplierItemDetails(itemId, { section: detailSection, forceRefresh: true })
+                // Load only section-specific payload first to reduce initial latency.
+                // Overview -> specification; Workflow -> workflow. Full payload is fetched on-demand later.
+                var detailSection = (preferredTab === 'workflow') ? 'workflow' : 'specification';
+                fetchSupplierItemDetails(itemId, { section: detailSection, forceRefresh: false })
                 .then(function(data) {
                     if (!data.success) {
                         modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' + 
@@ -8290,6 +9546,33 @@ class N88_RFQ_Auth {
                     var item = data.data;
                     if (preferredStep !== null && preferredStep !== undefined && !isNaN(parseInt(preferredStep, 10))) {
                         item.supplier_workflow_active_step = parseInt(preferredStep, 10);
+                    }
+                    // Hard workflow-step policy for supplier modal:
+                    // pre-award sample/validation flow => Step 02, awarded => Step 03.
+                    var itemValidationState = item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : {};
+                    var itemValidationRequest = itemValidationState.request && typeof itemValidationState.request === 'object' ? itemValidationState.request : {};
+                    var itemSampleStatus = String(itemValidationState.sample_status || '').toLowerCase();
+                    var itemCardStatusText = String(itemValidationState.card_status_text || item.validation_card_status_text || '').toLowerCase();
+                    var itemBidStatus = String(item.bid_status || (item.bid_data && (item.bid_data.status || item.bid_data.bid_status)) || '').toLowerCase();
+                    var itemIsAwarded = !!(
+                        itemBidStatus === 'awarded' ||
+                        item.is_awarded_supplier === true ||
+                        (item.bid_data && (item.bid_data.is_awarded === true || String(item.bid_data.bid_status || '').toLowerCase() === 'awarded')) ||
+                        (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id))
+                    );
+                    var itemHasSampleValidationFlow = !!(
+                        itemValidationState.enabled ||
+                        itemValidationRequest.requested_at ||
+                        itemSampleStatus ||
+                        itemCardStatusText
+                    );
+                    if (itemIsAwarded) {
+                        item.supplier_workflow_active_step = 2;
+                    } else if (itemHasSampleValidationFlow) {
+                        item.supplier_workflow_active_step = 1;
+                    }
+                    if (n88SupplierItemDataInProduction(item)) {
+                        item.supplier_workflow_active_step = 3;
                     }
                     
                     // Format dimensions (Commit 2.3.5.4: Format as W x D x H + unit)
@@ -8896,7 +10179,9 @@ class N88_RFQ_Auth {
                             })() +
                             '</div>';
                     }
-                    var bidTabCTAHTML = ((effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') && !item.has_revision_mismatch ? '' :
+                    var isMessageOnlyPreRfq = (item.is_message_only_route === true) || (item.route_type === 'designer_message');
+                    var noBidForProposalYet = (effectiveBidStatus === null || effectiveBidStatus === undefined || effectiveBidStatus === '');
+                    var bidTabCTAHTML = (isMessageOnlyPreRfq && noBidForProposalYet) ? '' : (((effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') && !item.has_revision_mismatch ? '' :
                         ((effectiveBidStatus === 'submitted' || effectiveBidStatus === 'awarded') && item.has_revision_mismatch ?
                             // Specs changed - show resubmit button (opens form inside modal)
                             '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
@@ -8907,8 +10192,8 @@ class N88_RFQ_Auth {
                                 '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>'
                             )
                         )
-                    );
-                    var shouldRenderEmbeddedBidForm = effectiveBidStatus !== 'awarded';
+                    ));
+                    var shouldRenderEmbeddedBidForm = (effectiveBidStatus !== 'awarded') && !(isMessageOnlyPreRfq && noBidForProposalYet);
                     var bidTabHTML = (bidTabCTAHTML || shouldRenderEmbeddedBidForm) ? (
                         (bidTabCTAHTML ? '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' + bidTabCTAHTML + '</div>' : '') +
                         '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #555; overflow: visible;">' +
@@ -8941,6 +10226,23 @@ class N88_RFQ_Auth {
                     var step3Dates = step3DatesArr.length ? step3DatesArr.map(function(l) { return '<div style="font-size: 11px; color: #888; margin-bottom: 4px;">' + l + '</div>'; }).join('') : '';
                     var escTxt = function(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
                     var validationStateFull = item.validation_state || {};
+                    var validationRequestState = (validationStateFull && validationStateFull.request) ? validationStateFull.request : {};
+                    var validationSampleStatus = validationStateFull && validationStateFull.sample_status ? String(validationStateFull.sample_status).toLowerCase() : '';
+                    var validationCardStatusText = validationStateFull && validationStateFull.card_status_text ? String(validationStateFull.card_status_text).toLowerCase() : '';
+                    var isAwardedWorkflowState = (effectiveBidStatus === 'awarded' || item.is_awarded_supplier === true);
+                    var isPreAwardSampleWorkflow = !isAwardedWorkflowState && (
+                        !!(validationRequestState && validationRequestState.requested_at)
+                        || validationSampleStatus === 'sample_requested'
+                        || validationSampleStatus === 'sample_material_kit_requested'
+                        || validationSampleStatus === 'shipped'
+                        || validationSampleStatus === 'delivered'
+                        || validationSampleStatus === 'received'
+                        || validationSampleStatus === 'in_review'
+                        || validationCardStatusText === 'sample material kit requested'
+                        || validationCardStatusText === 'sample shipped'
+                        || validationCardStatusText === 'sample delivered'
+                        || validationCardStatusText === 'sample received'
+                    );
                     var commitmentState = (validationStateFull && validationStateFull.commitment) ? validationStateFull.commitment : {};
                     var poFile = commitmentState && commitmentState.po_file ? commitmentState.po_file : null;
                     var poUploadedAt = commitmentState && commitmentState.po_uploaded_at ? commitmentState.po_uploaded_at : '';
@@ -9013,6 +10315,8 @@ class N88_RFQ_Auth {
                         ? '<div style="margin-bottom: 12px; padding: 12px; border: 1px solid #555; border-radius: 4px; background: #111;">' + step3LifecycleParts.join('') + '</div>'
                         : '';
                     var step3CommercialBody = '';
+                    var productionStarted = !!(validationStateFull && (validationStateFull.production_started || (validationStateFull.commitment && validationStateFull.commitment.production_started_at)));
+                    var canBeginProduction = !!(validationStateFull && validationStateFull.can_commit && !productionStarted);
                     if (awardDecisionVisible) {
                         step3CommercialBody = '<div style="padding: 14px; border: 1px solid #555; border-radius: 4px; background: #111; color: #ddd; font-size: 12px;">' +
                             ((comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit' || comStatus === 'com_delivered' || comStatus === 'received' || comStatus === 'confirmed')
@@ -9029,6 +10333,9 @@ class N88_RFQ_Auth {
                             (depositReceiptUrl ? ('<div style="margin-bottom: 8px;">Deposit proof: <a href="' + escTxt(depositReceiptUrl) + '" target="_blank" rel="noopener noreferrer" style="color: #FF0065; text-decoration: none;">View file</a></div>') : '') +
                             (comTrackingNumber ? ('<div style="margin-bottom: 8px;">COM tracking: ' + escTxt(comTrackingNumber) + '</div>') : '') +
                             (comDeliveryAddress ? ('<div style="margin-bottom: 8px; white-space: pre-wrap;">COM delivery address: ' + escTxt(comDeliveryAddress) + '</div>') : '') +
+                            (canBeginProduction
+                                ? '<div style="margin-top:10px;"><button type="button" data-n88-begin-production-btn="' + (itemId || item.item_id || 0) + '" onclick="n88SupplierBeginProduction(' + (itemId || item.item_id || 0) + ')" style="padding:8px 12px; background:#FF0065; color:#000; border:none; border-radius:4px; font-size:11px; font-weight:700; cursor:pointer; font-family:monospace;">[ Begin Production ]</button></div>'
+                                : (productionStarted ? '<div style="margin-top:10px; font-size:11px; color:#8bc34a;">Production has started.</div>' : '')) +
                             '</div>';
                     }
                     var workflowStep1Content = (bidAndPrototype.bidBox || '') + (step1CtaHTML || '') + (bidAndPrototype.workflowStep1 || '');
@@ -9039,10 +10346,19 @@ class N88_RFQ_Auth {
                             '</div>';
                     }
                     var workflowStep1Visible = !!(workflowStep1Content && String(workflowStep1Content).trim());
+                    var step2ValidationStatusLabel = validationStateFull && validationStateFull.card_status_text ? String(validationStateFull.card_status_text) : '';
+                    var step2ValidationHint = isPreAwardSampleWorkflow
+                        ? '<div style="margin-bottom: 14px; padding: 12px; border: 1px solid #555; border-radius: 4px; background: #111; color: #ddd; font-size: 12px;">' +
+                            '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 6px;">Sample Workflow Active</div>' +
+                            '<div style="color:#ccc;">Current status: ' + escTxt(step2ValidationStatusLabel || 'Sample Material Kit Requested') + '</div>' +
+                          '</div>'
+                        : '';
+                    var step2Content = (step2ValidationHint || '') + (bidAndPrototype.workflowStep2 || '');
+                    var showStep2Panel = !!(paymentNotif || isPreAwardSampleWorkflow || (step2Content && String(step2Content).trim()));
                     var w1 = (workflowStep1Visible ? '<div id="n88-supplier-workflow-step-0" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 1 Proposal Submitted</div>' + step1Dates + workflowStep1Content + '</div>' : '');
-                    var w2 = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 2 Design Evaluation</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                    var w2 = (showStep2Panel ? '<div id="n88-supplier-workflow-step-1" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 2 Design Evaluation</div>' + step2Dates + step2Content + '</div>' : '');
                     var step3CommercialVisible = awardDecisionVisible || !!(poFile && poFile.url) || !!depositStatus || !!comStatus;
                     var w3Show = step3CommercialVisible;
                     var step3Fallback = (!step3CommercialVisible) ? '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Award, PO, deposit, and COM updates will appear here.</div>' : '';
@@ -9050,6 +10366,11 @@ class N88_RFQ_Auth {
                     var w3 = w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 3 Award Decision</div>' + step3Body + '</div>' : '';
                     var activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 0;
+                    if (isAwardedWorkflowState) {
+                        activeStepIdx = 2;
+                    } else if (isPreAwardSampleWorkflow) {
+                        activeStepIdx = 1;
+                    }
                     var green = '#FF0065';
                     var darkBorder = '#555';
                     var stepLabels = ['Proposal Submitted', 'Design Evaluation', 'Award Decision', 'Production', 'Quality Review & Packing', 'Delivery'];
@@ -9060,11 +10381,13 @@ class N88_RFQ_Auth {
                     var supplierDesc5 = '';
                     var supplierDesc6 = '';
                     var validationCanCommit = !!(item.validation_state && item.validation_state.can_commit);
-                    if (validationCanCommit) supplierDesc4 = 'Production begins.';
+                    var validationProductionStarted = !!(item.validation_state && (item.validation_state.production_started || (item.validation_state.commitment && item.validation_state.commitment.production_started_at)));
+                    if (validationCanCommit && validationProductionStarted) supplierDesc4 = 'Production is in progress.';
+                    else if (validationCanCommit) supplierDesc4 = 'Click Begin Production in Step 3 to start Step 4.';
                     var w1WithClass = (workflowStep1Visible ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 1 Proposal Submitted</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc1 + '</div>' + step1Dates + workflowStep1Content + '</div>' : '');
-                    var w2WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 2 Design Evaluation</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc2 + '</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                    var w2WithClass = (showStep2Panel ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 2 Design Evaluation</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc2 + '</div>' + step2Dates + step2Content + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 3 Award Decision</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + step3Body + '</div>' : '');
                     // Step 4: Official Quote PDF  sirf award pe depend kare, payment se taaluq nahi. Award hote hi supplier ko Step 04 mein PDF upload option mile.
@@ -9093,8 +10416,10 @@ class N88_RFQ_Auth {
                     } else if (bidAndPrototype.workflowStep4OfficialQuote && bidAndPrototype.workflowStep4OfficialQuote.length) {
                         step4OfficialQuoteHTML = bidAndPrototype.workflowStep4OfficialQuote;
                     }
-                    if (validationCanCommit) {
+                    if (validationCanCommit && validationProductionStarted) {
                         step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production begins.</div>';
+                    } else if (validationCanCommit) {
+                        step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #ddd; background: #101010;">Ready for production. Click <strong style="color:#FF0065;">Begin Production</strong> in Step 3 to start.</div>';
                     }
                     var w4Content = step4OfficialQuoteHTML.length ? step4OfficialQuoteHTML : '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timelineâ€¦</div>';
                     // Workflow tab: show when payment/CAD/prototype hai YA sirf award pe Step 4 (Official Quote PDF)  PDF upload ka payment se taaluq nahi
@@ -9436,18 +10761,6 @@ class N88_RFQ_Auth {
                     // Store item data for inline bid form
                     window.currentItemData = item;
                     window.currentItemId = itemId;
-                    if (detailSection !== 'full') {
-                        setTimeout(function() {
-                            fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(fullResult) {
-                                if (!fullResult || !fullResult.success || !fullResult.data) return;
-                                var openModal = document.getElementById('n88-supplier-bid-modal');
-                                if (!openModal || openModal.style.display !== 'block') return;
-                                if (window.currentItemId !== itemId) return;
-                                if (window.currentItemData && window.currentItemData.requested_section === 'full') return;
-                                openBidModal(itemId, preferredTab === 'workflow' ? 'workflow' : '__full__');
-                            }).catch(function() {});
-                        }, 60);
-                    }
                 })
                 .catch(function(error) {
                     var msg = (error && error.message) ? error.message : 'Error loading item details. Please try again.';
@@ -9483,17 +10796,40 @@ class N88_RFQ_Auth {
                             panel.style.display = 'flex';
                             panel.style.flexDirection = 'column';
                             if (name === 'workflow' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') {
-                                if (window.currentItemData && window.currentItemData.requested_section !== 'full') {
-                                    openBidModal(itemId, 'workflow');
+                                var runWorkflowTabRender = function() {
+                                    window.n88LoadSupplierWorkflowTimeline();
+                                    if (workflowThreadBox) workflowThreadBox.style.display = 'flex';
+                                    if (itemId && typeof loadSupplierMessagesInline === 'function') {
+                                        var workflowContext = getSupplierWorkflowMessageContextType(itemId);
+                                        updateSupplierWorkflowThreadHeading(itemId, workflowContext);
+                                        loadSupplierMessagesInline(itemId, workflowContext);
+                                    }
+                                };
+                                if (window.currentItemData && window.currentItemData.requested_section !== 'full' && window.currentItemData.requested_section !== 'workflow') {
+                                    if (!window.n88SupplierWorkflowFetchInFlight) {
+                                        window.n88SupplierWorkflowFetchInFlight = {};
+                                    }
+                                    if (!window.n88SupplierWorkflowFetchInFlight[itemId]) {
+                                        window.n88SupplierWorkflowFetchInFlight[itemId] = fetchSupplierItemDetails(itemId, { section: 'workflow', forceRefresh: false })
+                                            .then(function(workflowResult) {
+                                                if (workflowResult && workflowResult.success && workflowResult.data) {
+                                                    window.currentItemData = Object.assign({}, window.currentItemData || {}, workflowResult.data);
+                                                    window.currentItemData.requested_section = 'workflow';
+                                                }
+                                            })
+                                            .catch(function() {})
+                                            .finally(function() {
+                                                if (window.n88SupplierWorkflowFetchInFlight) {
+                                                    delete window.n88SupplierWorkflowFetchInFlight[itemId];
+                                                }
+                                            });
+                                    }
+                                    window.n88SupplierWorkflowFetchInFlight[itemId].then(function() {
+                                        runWorkflowTabRender();
+                                    });
                                     return;
                                 }
-                                window.n88LoadSupplierWorkflowTimeline();
-                                if (workflowThreadBox) workflowThreadBox.style.display = 'flex';
-                                if (itemId && typeof loadSupplierMessagesInline === 'function') {
-                                    var workflowContext = getSupplierWorkflowMessageContextType(itemId);
-                                    updateSupplierWorkflowThreadHeading(itemId, workflowContext);
-                                    loadSupplierMessagesInline(itemId, workflowContext);
-                                }
+                                runWorkflowTabRender();
                             }
                             if (name === 'prototype' && typeof window.initPrototypeVideoForms === 'function') {
                                 window.initPrototypeVideoForms();
@@ -9576,7 +10912,7 @@ class N88_RFQ_Auth {
                             window.currentItemData.validation_state = data.data && data.data.validation_state ? data.data.validation_state : window.currentItemData.validation_state;
                             window.currentItemData.validation_card_status_text = (window.currentItemData.validation_state && window.currentItemData.validation_state.card_status_text) ? window.currentItemData.validation_state.card_status_text : (window.currentItemData.validation_card_status_text || '');
                             window.currentItemData.supplier_status_label = window.currentItemData.validation_card_status_text || 'Ready for Production';
-                            window.currentItemData.supplier_workflow_active_step = 3;
+                            window.currentItemData.supplier_workflow_active_step = 2;
                         }
                         if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) {
                             var batchItem = window.n88SupplierBatchState.itemData[itemId];
@@ -9585,12 +10921,12 @@ class N88_RFQ_Auth {
                                 batchItem.validation_card_status_text = data.data.validation_state.card_status_text || '';
                             }
                             batchItem.supplier_status_label = batchItem.validation_card_status_text || (batchItem.validation_state && batchItem.validation_state.card_status_text) || 'Ready for Production';
-                            batchItem.supplier_workflow_active_step = 3;
+                            batchItem.supplier_workflow_active_step = 2;
                         }
                         var queueButtons = document.querySelectorAll('.n88-supplier-queue-action-btn[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
                         for (var qb = 0; qb < queueButtons.length; qb++) {
                             queueButtons[qb].setAttribute('data-open-tab', 'workflow');
-                            queueButtons[qb].setAttribute('data-open-step', '3');
+                            queueButtons[qb].setAttribute('data-open-step', '2');
                             queueButtons[qb].textContent = '[ Ready for Production ]';
                         }
                         var queueStatuses = document.querySelectorAll('.n88-supplier-queue-status-label[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
@@ -9598,7 +10934,10 @@ class N88_RFQ_Auth {
                             queueStatuses[qs].textContent = 'Ready for Production';
                             queueStatuses[qs].style.color = '#00ff00';
                         }
-                        openBidModal(itemId, 'workflow', 3);
+                        if (typeof n88SupplierRefreshOpenBatchModalAfterItemUpdate === 'function' && n88SupplierRefreshOpenBatchModalAfterItemUpdate(itemId)) {
+                            return;
+                        }
+                        openBidModal(itemId, 'workflow', 2);
                     })
                     .catch(function() {
                         for (var errIdx = 0; errIdx < actionButtons.length; errIdx++) {
@@ -9608,6 +10947,78 @@ class N88_RFQ_Auth {
                             actionButtons[errIdx].style.cursor = 'pointer';
                         }
                         alert('Failed to confirm COM received.');
+                    });
+            };
+
+            window.n88SupplierBeginProduction = function(itemId) {
+                if (!itemId) return;
+                var itemKey = String(itemId);
+                var beginButtons = document.querySelectorAll('[data-n88-begin-production-btn="' + itemKey.replace(/"/g, '&quot;') + '"]');
+                for (var i = 0; i < beginButtons.length; i++) {
+                    beginButtons[i].disabled = true;
+                    beginButtons[i].textContent = '[ Starting... ]';
+                    beginButtons[i].style.opacity = '0.65';
+                    beginButtons[i].style.cursor = 'not-allowed';
+                }
+                var fd = new FormData();
+                fd.append('action', 'n88_supplier_begin_validation_production');
+                fd.append('item_id', String(itemId));
+                fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd, credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data || !data.success) {
+                            for (var j = 0; j < beginButtons.length; j++) {
+                                beginButtons[j].disabled = false;
+                                beginButtons[j].textContent = '[ Begin Production ]';
+                                beginButtons[j].style.opacity = '1';
+                                beginButtons[j].style.cursor = 'pointer';
+                            }
+                            alert((data && data.data && data.data.message) || (data && data.message) || 'Failed to begin production.');
+                            return;
+                        }
+                        var newValidationState = data.data && data.data.validation_state ? data.data.validation_state : null;
+                        if (window.currentItemData) {
+                            if (newValidationState) {
+                                window.currentItemData.validation_state = newValidationState;
+                                window.currentItemData.validation_card_status_text = newValidationState.card_status_text || window.currentItemData.validation_card_status_text || '';
+                            }
+                            window.currentItemData.supplier_status_label = (newValidationState && newValidationState.card_status_text) || window.currentItemData.validation_card_status_text || 'In Production';
+                            window.currentItemData.supplier_workflow_active_step = 4;
+                        }
+                        if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) {
+                            var batchItem = window.n88SupplierBatchState.itemData[itemId];
+                            if (newValidationState) {
+                                batchItem.validation_state = newValidationState;
+                                batchItem.validation_card_status_text = newValidationState.card_status_text || '';
+                            }
+                            batchItem.supplier_status_label = batchItem.validation_card_status_text || 'In Production';
+                            batchItem.supplier_workflow_active_step = 4;
+                        }
+                        var queueButtons = document.querySelectorAll('.n88-supplier-queue-action-btn[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
+                        for (var qb = 0; qb < queueButtons.length; qb++) {
+                            queueButtons[qb].setAttribute('data-open-tab', 'workflow');
+                            queueButtons[qb].setAttribute('data-open-step', '3');
+                            queueButtons[qb].textContent = '[ In Production ]';
+                        }
+                        var queueStatuses = document.querySelectorAll('.n88-supplier-queue-status-label[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
+                        for (var qs = 0; qs < queueStatuses.length; qs++) {
+                            queueStatuses[qs].textContent = 'In Production';
+                            queueStatuses[qs].style.color = '#00ff00';
+                        }
+                        if (typeof n88SupplierRefreshOpenBatchModalAfterItemUpdate === 'function' && n88SupplierRefreshOpenBatchModalAfterItemUpdate(itemId)) {
+                            return;
+                        }
+                        openBidModal(itemId, 'workflow', 3);
+                    })
+                    .catch(function() {
+                        for (var k = 0; k < beginButtons.length; k++) {
+                            beginButtons[k].disabled = false;
+                            beginButtons[k].textContent = '[ Begin Production ]';
+                            beginButtons[k].style.opacity = '1';
+                            beginButtons[k].style.cursor = 'pointer';
+                        }
+                        alert('Failed to begin production.');
                     });
             };
 
@@ -9628,12 +11039,12 @@ class N88_RFQ_Auth {
                 var hasOriginalStructure = !!(step4El && step5El && step6El);
                 var step4HasOfficialQuote = step4El && (step4El.innerHTML.indexOf('official_quote_pdf') !== -1 || step4El.innerHTML.indexOf('Submit Official Quote PDF') !== -1 || step4El.innerHTML.indexOf('Quote file submitted') !== -1);
                 if (hasOriginalStructure) {
-                    var loadingHtml = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timelineâ€¦</div>';
+                    var loadingHtml = getN88PinkLoadingHtml('Loading timeline...', true);
                     if (!step4HasOfficialQuote) step4El.innerHTML = loadingHtml;
                     step5El.innerHTML = loadingHtml;
                     step6El.innerHTML = loadingHtml;
                 } else {
-                    container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timelineâ€¦</div>';
+                    container.innerHTML = getN88PinkLoadingHtml('Loading timeline...', true);
                 }
                 var formData = new FormData();
                 formData.append('action', 'n88_get_item_timeline');
@@ -9788,7 +11199,8 @@ class N88_RFQ_Auth {
                             block += '<div style="display: grid; gap: 8px;">';
                             block += '<input type="text" id="n88-validation-tracking-' + itemId + '" value="' + escHtml(supplier.tracking_number || '') + '" placeholder="Tracking number" style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px;" />';
                             block += '<textarea id="n88-validation-note-' + itemId + '" rows="3" placeholder="Supplier note" style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; font-family: monospace;">' + escHtml(supplier.note || '') + '</textarea>';
-                            block += '<input type="file" id="n88-validation-files-' + itemId + '" multiple style="padding: 6px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px;" />';
+                            block += '<input type="file" id="n88-validation-files-' + itemId + '" multiple onchange="if(window.n88RenderLocalUploadPreview){window.n88RenderLocalUploadPreview(\'n88-validation-files-' + itemId + '\',\'n88-validation-files-preview-' + itemId + '\');}" style="padding: 6px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px;" />';
+                            block += '<div id="n88-validation-files-preview-' + itemId + '" style="display:none;"></div>';
                             block += '<button type="button" id="n88-validation-submit-' + itemId + '" onclick="n88SupplierSubmitMaterialSamples(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Material Samples Shipped</button>';
                             block += '</div></div>';
                             return block;
@@ -10050,6 +11462,9 @@ class N88_RFQ_Auth {
                             var comStatus = commitment.com_status || '';
                             var comShippedAt = commitment.com_shipped_at || '';
                             var comDeliveredAt = commitment.com_delivered_at || '';
+                            var productionStartedAt = commitment.production_started_at || '';
+                            var productionStarted = !!(validationState.production_started || productionStartedAt);
+                            var canBeginProduction = !!(validationState.can_commit && !productionStarted);
                             var comTrackingNumber = commitment.com_tracking_number || '';
                             var comDeliveryAddress = commitment.com_delivery_address || '';
                             var depositFiles = Array.isArray(commitment.deposit_receipt_files) ? commitment.deposit_receipt_files : [];
@@ -10098,6 +11513,11 @@ class N88_RFQ_Auth {
                                 if (comDeliveredAt) html += '<div style="font-size: 11px; color: #aaa;">COM received at: ' + escHtml(comDeliveredAt) + '</div>';
                                 if (comStatus === 'com_in_transit' || comStatus === 'shipped' || comStatus === 'in_transit') {
                                     html += '<div style="margin-top: 6px;"><button type="button" data-n88-com-received-btn="' + itemId + '" onclick="n88SupplierMarkComReceived(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Confirm COM Received ]</button></div>';
+                                }
+                                if (canBeginProduction) {
+                                    html += '<div style="margin-top: 8px;"><button type="button" data-n88-begin-production-btn="' + itemId + '" onclick="n88SupplierBeginProduction(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: #FF0065; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-weight: 700;">[ Begin Production ]</button></div>';
+                                } else if (productionStarted) {
+                                    html += '<div style="margin-top: 8px; font-size: 11px; color: ' + green + ';">Production started' + (productionStartedAt ? (' at: ' + escHtml(productionStartedAt)) : '') + '</div>';
                                 }
                             }
                             html += '</div>';
@@ -10542,6 +11962,33 @@ class N88_RFQ_Auth {
             }
 
             function toggleBidForm(itemId, mode) {
+                var batchItemData = (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) ? window.n88SupplierBatchState.itemData[itemId] : null;
+                var currentItemData = (window.currentItemData && String(window.currentItemData.item_id || window.currentItemData.id || '') === String(itemId)) ? window.currentItemData : null;
+                var groupedItemIdsRaw =
+                    (batchItemData && (batchItemData.batch_request_item_ids || batchItemData.batch_item_ids || batchItemData.item_ids)) ||
+                    (currentItemData && (currentItemData.batch_request_item_ids || currentItemData.batch_item_ids || currentItemData.item_ids)) ||
+                    [];
+                var groupedItemIds = Array.isArray(groupedItemIdsRaw)
+                    ? groupedItemIdsRaw.map(function(v) { return parseInt(v, 10) || 0; }).filter(function(v) { return v > 0; })
+                    : [];
+                var groupedItemCount = parseInt(
+                    (batchItemData && (batchItemData.batch_item_count || batchItemData.item_count)) ||
+                    (currentItemData && (currentItemData.batch_item_count || currentItemData.item_count)) ||
+                    groupedItemIds.length ||
+                    0,
+                    10
+                ) || 0;
+                var groupedProposalId = parseInt(
+                    (batchItemData && (batchItemData.batch_primary_proposal_group_id || (Array.isArray(batchItemData.batch_proposal_group_ids) && batchItemData.batch_proposal_group_ids.length ? batchItemData.batch_proposal_group_ids[0] : 0))) ||
+                    (currentItemData && (currentItemData.batch_primary_proposal_group_id || (Array.isArray(currentItemData.batch_proposal_group_ids) && currentItemData.batch_proposal_group_ids.length ? currentItemData.batch_proposal_group_ids[0] : 0))) ||
+                    0,
+                    10
+                ) || 0;
+                var skipBatchForInProduction = !!(n88SupplierItemDataInProduction(batchItemData) || n88SupplierItemDataInProduction(currentItemData) || n88SupplierShouldOpenSingleItemInsteadOfBatch(itemId));
+                if (groupedProposalId > 0 && groupedItemCount > 1 && typeof openBatchProposalModalForGroup === 'function' && !skipBatchForInProduction) {
+                    openBatchProposalModalForGroup(groupedProposalId, itemId);
+                    return;
+                }
                 var formSection = document.getElementById('n88-bid-form-section-' + itemId);
                 var formContent = document.getElementById('n88-bid-form-content-' + itemId);
                 var toggleBtn = document.getElementById('n88-toggle-bid-form-btn-' + itemId);
@@ -10631,8 +12078,22 @@ class N88_RFQ_Auth {
             
             // Load bid form content into the embedded section
             function loadBidFormContent(itemId, container, onReady) {
-                container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff; font-family: monospace;">Loading bid form...</div>';
-                fetchSupplierItemDetails(itemId)
+                var state = window.n88SupplierBatchState || {};
+                var isBatchHost = !!(container && container.id && container.id.indexOf('n88-batch-form-host-') === 0);
+                var preloadedItem = null;
+                if (state.itemData) {
+                    preloadedItem = state.itemData[itemId] || state.itemData[String(itemId)] || null;
+                }
+                var hasFullPreloadedItem = !!(preloadedItem && (
+                    preloadedItem._n88_full_payload === true ||
+                    preloadedItem.requested_section === 'full' ||
+                    (preloadedItem.loaded_sections && preloadedItem.loaded_sections.workflow)
+                ));
+                var initialSection = isBatchHost ? 'full' : 'specification';
+                var itemPromise = preloadedItem
+                    ? Promise.resolve({ success: true, data: preloadedItem })
+                    : fetchSupplierItemDetails(itemId, { section: initialSection, forceRefresh: false });
+                itemPromise
                 .then(function(data) {
                     if (!data || !data.success) {
                         container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Error loading item details: ' + (data && data.data && data.data.message ? data.data.message : 'Unknown error') + '</div>';
@@ -10643,6 +12104,25 @@ class N88_RFQ_Auth {
                     }
                     
                     var item = data.data;
+                    var currentMode = getEmbeddedBidFormMode(itemId);
+                    if ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && currentMode !== 'edit_submitted') {
+                        container.innerHTML = '<div style="padding: 12px; border: 1px solid #2f5f46; border-radius: 8px; background: #0b1f16; color: #9ee8c4; font-family: monospace; font-size: 12px;">Proposal already submitted. Open "View Proposal" to review submitted response.</div>';
+                        if (typeof onReady === 'function') onReady();
+                        return;
+                    }
+                    var itemIsFullPayload = !!(
+                        item && (
+                            item._n88_full_payload === true ||
+                            item.requested_section === 'full' ||
+                            (item.loaded_sections && item.loaded_sections.workflow)
+                        )
+                    );
+                    if (itemIsFullPayload) {
+                        item._n88_full_payload = true;
+                    }
+                    if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData) {
+                        window.n88SupplierBatchState.itemData[itemId] = item;
+                    }
                     var bidFormHTML = buildEmbeddedBidFormHTML(item, itemId);
                     container.style.display = 'block';
                     container.style.width = '100%';
@@ -10673,8 +12153,19 @@ class N88_RFQ_Auth {
                                 restoreBidDataToFormEmbedded(currentSubmittedForm, item.bid_data, itemId);
                             }
                         } else {
-                            // Otherwise load from draft
-                            loadBidDraft(itemId);
+                            var preloadedDrafts = (window.n88SupplierBatchState && window.n88SupplierBatchState.preloadedDrafts) ? window.n88SupplierBatchState.preloadedDrafts : {};
+                            var preloadedDraft = preloadedDrafts[String(itemId)] || preloadedDrafts[itemId] || null;
+                            if (preloadedDraft) {
+                                var preloadedForm = document.getElementById('n88-bid-form-embedded-' + itemId);
+                                if (preloadedForm) {
+                                    restoreBidDataToFormEmbedded(preloadedForm, preloadedDraft, itemId);
+                                }
+                            } else {
+                                // For batch modal, keep open fast and avoid extra draft fetch on first load.
+                                if (!isBatchHost) {
+                                    loadBidDraft(itemId);
+                                }
+                            }
                         }
                         setEmbeddedBidFormMode(itemId, getEmbeddedBidFormMode(itemId));
                         if (typeof window.n88BatchProposalRefreshItemState === 'function') {
@@ -10686,6 +12177,19 @@ class N88_RFQ_Auth {
                             onReady();
                         }
                     }, 200);
+
+                    // If we rendered a lightweight cached item, hydrate full payload in background
+                    // without blocking visible form paint.
+                    if (!itemIsFullPayload) {
+                        fetchSupplierItemDetails(itemId, { section: 'full' }).then(function(fullResult) {
+                            if (!fullResult || !fullResult.success || !fullResult.data) return;
+                            var fullItem = fullResult.data;
+                            fullItem._n88_full_payload = true;
+                            if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData) {
+                                window.n88SupplierBatchState.itemData[itemId] = fullItem;
+                            }
+                        }).catch(function(){});
+                    }
                 })
                 .catch(function(error) {
                     console.error('Error loading bid form:', error);
@@ -11109,7 +12613,7 @@ class N88_RFQ_Auth {
                 modal.setAttribute('data-bid-form-mode', mode === 'edit_submitted' ? 'edit_submitted' : '');
                 
                 // Show loading state
-                modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Loading item details...</div>';
+                modalContent.innerHTML = getN88PinkLoadingHtml('Loading item details...');
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
                 
@@ -13367,18 +14871,63 @@ class N88_RFQ_Auth {
                     if (isBatchMode) {
                         persistBatchItemState(itemId, 'quote', 'quoted', data.data && data.data.bid_id ? data.data.bid_id : null);
                         var host = document.getElementById('n88-batch-form-host-' + itemId);
-                        if (host) {
-                            var successBox = host.querySelector('.n88-batch-submit-success');
-                            if (!successBox) {
-                                successBox = document.createElement('div');
-                                successBox.className = 'n88-batch-submit-success';
-                                successBox.style.cssText = 'margin-bottom:14px; padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1; font-family:monospace; font-size:11px;';
-                                host.insertBefore(successBox, host.firstChild);
+                        var applySubmittedShell = function(itemPayload) {
+                            var nextItem = itemPayload && typeof itemPayload === 'object' ? itemPayload : {};
+                            nextItem.item_id = parseInt(nextItem.item_id || itemId, 10) || parseInt(itemId, 10) || 0;
+                            nextItem.id = parseInt(nextItem.id || nextItem.item_id || itemId, 10) || nextItem.item_id || parseInt(itemId, 10) || 0;
+                            nextItem.bid_status = 'submitted';
+                            nextItem.has_revision_mismatch = false;
+                            nextItem.batch_item_state = 'quoted';
+                            if (data.data && data.data.bid_id) {
+                                nextItem.bid_id = data.data.bid_id;
                             }
-                            successBox.textContent = successMessage;
-                        }
+                            if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData) {
+                                window.n88SupplierBatchState.itemData[itemId] = nextItem;
+                            }
+                            if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                                window.n88BatchProposalRefreshItemState(itemId);
+                            }
+                            var submittedStackHtml = '';
+                            if (typeof renderBatchPostSubmitDetailStack === 'function') {
+                                submittedStackHtml = renderBatchPostSubmitDetailStack(nextItem) || '';
+                            }
+                            if (!submittedStackHtml && typeof renderBatchSubmittedBidShell === 'function') {
+                                submittedStackHtml = renderBatchSubmittedBidShell(nextItem) || '';
+                            }
+                            if (host && submittedStackHtml && String(submittedStackHtml).trim()) {
+                                var replacement = document.createElement('div');
+                                replacement.id = 'n88-batch-form-host-' + itemId;
+                                replacement.className = 'n88-batch-submitted-host';
+                                replacement.style.minWidth = '0';
+                                replacement.innerHTML = submittedStackHtml;
+                                host.parentNode.replaceChild(replacement, host);
+                            } else if (host) {
+                                var successBox = host.querySelector('.n88-batch-submit-success');
+                                if (!successBox) {
+                                    successBox = document.createElement('div');
+                                    successBox.className = 'n88-batch-submit-success';
+                                    successBox.style.cssText = 'margin-bottom:14px; padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1; font-family:monospace; font-size:11px;';
+                                    host.insertBefore(successBox, host.firstChild);
+                                }
+                                successBox.textContent = successMessage;
+                            }
+                        };
+                        fetchSupplierItemDetails(itemId, { section: 'full', forceRefresh: true }).then(function(fullResult) {
+                            if (fullResult && fullResult.success && fullResult.data) {
+                                var hydrated = fullResult.data;
+                                hydrated._n88_full_payload = true;
+                                applySubmittedShell(hydrated);
+                            } else {
+                                applySubmittedShell((window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) ? window.n88SupplierBatchState.itemData[itemId] : {});
+                            }
+                        }).catch(function() {
+                            applySubmittedShell((window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) ? window.n88SupplierBatchState.itemData[itemId] : {});
+                        });
                         if (!silent) {
                             alert(successMessage);
+                        }
+                        if (!options.batchMode) {
+                            window.location.reload();
                         }
                     } else if (!silent) {
                         alert(successMessage);
@@ -14264,6 +15813,7 @@ class N88_RFQ_Auth {
                         var preferredTab = this.getAttribute('data-open-tab') || '';
                         var preferredStepRaw = this.getAttribute('data-open-step');
                         var preferredStep = (preferredStepRaw !== null && preferredStepRaw !== '') ? parseInt(preferredStepRaw, 10) : null;
+                        var batchGroupId = parseInt(this.getAttribute('data-batch-group-id') || '0', 10) || 0;
                         
                         // M6: Block if expired
                         if (actionBadge === 'expired') {
@@ -14273,24 +15823,34 @@ class N88_RFQ_Auth {
                             return false;
                         }
                         
-                        if (preferredTab) {
-                            var batchGroupId = parseInt(this.getAttribute('data-batch-group-id') || '0', 10) || 0;
-                            if (batchGroupId > 0) {
-                                openBatchProposalModalForGroup(batchGroupId, itemId);
+                        var openSingle = function() {
+                            if (preferredTab) {
+                                openBidModal(itemId, preferredTab, preferredStep);
                                 return;
                             }
-                            openBidModal(itemId, preferredTab, preferredStep);
+                            openBidModal(itemId, null, preferredStep);
+                        };
+                        var batchItemIdsRaw = this.getAttribute('data-batch-item-ids') || '';
+                        var batchItemIds = batchItemIdsRaw
+                            ? batchItemIdsRaw.split(',').map(function(v) { return parseInt(v, 10) || 0; }).filter(function(v) { return v > 0; })
+                            : [];
+                        var queueStatusLabel = (this.getAttribute('data-supplier-status-label') || '').trim().toLowerCase();
+                        var skipBatchForRfp = queueStatusLabel === 'in production' || n88SupplierShouldOpenSingleItemInsteadOfBatch(itemId);
+                        if (skipBatchForRfp) {
+                            openBidModal(itemId, 'workflow', null);
                             return;
                         }
-                        var batchGroupId = parseInt(this.getAttribute('data-batch-group-id') || '0', 10) || 0;
-                        if (batchGroupId > 0) {
-                            openBatchProposalModalForGroup(batchGroupId, itemId);
+                        if (batchGroupId > 0 && batchItemIds.length > 1 && typeof openBatchProposalModalForGroup === 'function') {
+                            openBatchProposalModalForGroup(batchGroupId, itemId, batchItemIds);
                             return;
                         }
-                        openBidModal(itemId, null, preferredStep);
+                        if (batchItemIds.length > 1 && typeof openBatchProposalModalForSelection === 'function') {
+                            openBatchProposalModalForSelection(batchItemIds, 0, itemId);
+                            return;
+                        }
+                        openSingle();
                     });
                 });
-
                 document.querySelectorAll('.n88-supplier-batch-item-checkbox').forEach(function(checkbox) {
                     checkbox.addEventListener('change', function() {
                         var itemId = this.getAttribute('data-item-id');
@@ -14339,6 +15899,12 @@ class N88_RFQ_Auth {
                     if (e.target && e.target.classList && e.target.classList.contains('n88-batch-sample-select')) {
                         refreshBatchSampleSelectionUI();
                     }
+                    if (e.target && e.target.classList && e.target.classList.contains('n88-batch-com-received-select')) {
+                        refreshBatchComReceivedSelectionUI();
+                    }
+                    if (e.target && e.target.classList && e.target.classList.contains('n88-batch-begin-production-select')) {
+                        refreshBatchBeginProductionSelectionUI();
+                    }
                 });
 
                 document.addEventListener('click', function(e) {
@@ -14383,6 +15949,12 @@ class N88_RFQ_Auth {
                         } else if (e.target && e.target.id === 'n88-open-batch-sample-workflow-modal') {
                             e.preventDefault();
                             openBatchSampleWorkflowModal();
+                        } else if (e.target && e.target.id === 'n88-batch-com-received-submit-btn') {
+                            e.preventDefault();
+                            applyBatchComReceivedToSelectedItems();
+                        } else if (e.target && e.target.closest && e.target.closest('#n88-batch-begin-production-submit-btn')) {
+                            e.preventDefault();
+                            applyBatchBeginProductionToSelectedItems();
                         } else if (e.target && e.target.id === 'n88-batch-sample-submit-btn') {
                             e.preventDefault();
                             applyBatchSampleUpdateToSelectedItems();
@@ -16606,7 +18178,7 @@ class N88_RFQ_Auth {
 
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
         $requested_section = isset( $_POST['section'] ) ? sanitize_key( wp_unslash( $_POST['section'] ) ) : 'full';
-        if ( ! in_array( $requested_section, array( 'full', 'summary', 'workflow' ), true ) ) {
+        if ( ! in_array( $requested_section, array( 'full', 'summary', 'specification', 'workflow' ), true ) ) {
             $requested_section = 'full';
         }
 
@@ -16843,6 +18415,7 @@ class N88_RFQ_Auth {
         $routing_context = null;
         $route_label = '';
         $route_status = '';
+        $route_type  = '';
         if ( ! $is_system_operator ) {
             $route = $wpdb->get_row( $wpdb->prepare(
                 "SELECT route_type, status AS route_status FROM {$rfq_routes_table}
@@ -16853,11 +18426,14 @@ class N88_RFQ_Auth {
             ), ARRAY_A );
 
             if ( $route ) {
+                $route_type   = isset( $route['route_type'] ) ? (string) $route['route_type'] : '';
                 $route_status = isset( $route['route_status'] ) ? $route['route_status'] : '';
-                if ( $route['route_type'] === 'designer_invited' ) {
+                if ( 'designer_invited' === $route_type ) {
                     $route_label = 'Designer-invited RFQ';
-                } elseif ( $route['route_type'] === 'system_invited' ) {
+                } elseif ( 'system_invited' === $route_type ) {
                     $route_label = 'System-invited RFQ';
+                } elseif ( 'designer_message' === $route_type ) {
+                    $route_label = __( 'Direct messages (RFQ not sent yet)', 'n88-rfq-platform' );
                 }
             }
         }
@@ -17920,7 +19496,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        if ( 'summary' === $requested_section ) {
+        if ( in_array( $requested_section, array( 'summary', 'specification' ), true ) ) {
+            $summary_validation_state = $this->build_material_validation_state( $item_id, isset( $meta ) && is_array( $meta ) ? $meta : null );
+            $summary_validation_sample_status = isset( $summary_validation_state['sample_status'] ) ? strtolower( trim( (string) $summary_validation_state['sample_status'] ) ) : '';
+            $summary_validation_card_status_text = isset( $summary_validation_state['card_status_text'] ) ? strtolower( trim( (string) $summary_validation_state['card_status_text'] ) ) : '';
+            $summary_has_validation_flow_started = ! empty( $summary_validation_state['enabled'] )
+                || ! empty( $summary_validation_state['request']['requested_at'] )
+                || ! empty( $summary_validation_sample_status )
+                || ! empty( $summary_validation_card_status_text );
+            $summary_supplier_workflow_active_step = null;
+            if ( isset( $bid_status ) && $bid_status === 'awarded' ) {
+                $summary_supplier_workflow_active_step = 2; // Step 03 after award
+            } elseif ( $summary_has_validation_flow_started ) {
+                $summary_supplier_workflow_active_step = 1; // Step 02 during sample/validation flow
+            }
             $summary_response = array(
                 'requested_section' => $requested_section,
                 'loaded_sections' => array(
@@ -17962,7 +19551,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'is_resubmission' => false,
                 'has_operator_supplier_messages' => false,
                 'workflow_milestones' => array(),
-                'supplier_workflow_active_step' => ( isset( $bid_status ) && $bid_status === 'awarded' ) ? 2 : null,
+                'supplier_workflow_active_step' => $summary_supplier_workflow_active_step,
                 'latest_unread_designer_message_context' => '',
                 'latest_unread_designer_message_step_index' => null,
                 'official_quote_status' => isset( $meta['official_quote_status'] ) ? $meta['official_quote_status'] : '',
@@ -17981,7 +19570,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'project_id' => ! empty( $item['project_id'] ) ? (int) $item['project_id'] : null,
                 'project_name' => $project_name ? sanitize_text_field( $project_name ) : '',
                 'rfq_reference' => 'ITEM-' . intval( $item['id'] ),
-                'validation_state' => null,
+                'validation_state' => $summary_validation_state,
             );
 
             $this->log_ajax_performance(
@@ -18415,13 +20004,37 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $supplier_workflow_active_step = 2; // Step 3: Award Decision
         }
         $validation_state = $this->build_material_validation_state( $item_id, isset( $meta ) && is_array( $meta ) ? $meta : array() );
-        if ( ! empty( $validation_state['can_commit'] ) ) {
-            $supplier_workflow_active_step = 3;
+        if ( ! empty( $validation_state['can_commit'] ) && ! empty( $validation_state['production_started'] ) ) {
+            $supplier_workflow_active_step = 4;
+        } elseif ( ! empty( $validation_state['can_commit'] ) ) {
+            $supplier_workflow_active_step = 2;
         } elseif ( ! empty( $validation_state['readiness_flags']['awaiting_com'] ) ) {
             $supplier_workflow_active_step = 2;
         }
+        $validation_sample_status = isset( $validation_state['sample_status'] ) ? strtolower( trim( (string) $validation_state['sample_status'] ) ) : '';
+        $validation_card_status_text = isset( $validation_state['card_status_text'] ) ? strtolower( trim( (string) $validation_state['card_status_text'] ) ) : '';
+        if ( 'awarded' !== $bid_status && (
+            $validation_sample_status === 'sample_requested'
+            || $validation_sample_status === 'sample_material_kit_requested'
+            || $validation_card_status_text === strtolower( 'Sample Material Kit Requested' )
+        ) ) {
+            // Force Supplier Workflow tab Step 02 for "Sample Material Kit Requested".
+            $supplier_workflow_active_step = 1;
+        }
         if ( ! empty( $validation_state['request']['requested_at'] ) && empty( $validation_state['supplier']['updated_at'] ) && 'awarded' !== $bid_status ) {
             $supplier_workflow_active_step = 1; // Step 2: supplier must upload samples
+        }
+        // Supplier modal default workflow policy:
+        // - once sample-validation flow starts, keep opening on Step 02 until awarded
+        // - after award, open Step 03
+        $has_validation_flow_started = ! empty( $validation_state['enabled'] )
+            || ! empty( $validation_state['request']['requested_at'] )
+            || ! empty( $validation_sample_status )
+            || ! empty( $validation_card_status_text );
+        if ( $bid_status === 'awarded' ) {
+            $supplier_workflow_active_step = 2; // Step 03 after award
+        } elseif ( $has_validation_flow_started ) {
+            $supplier_workflow_active_step = 1; // Step 02 before award
         }
         $latest_unread_designer_message_context = '';
         $latest_unread_designer_message_step_index = null;
@@ -18512,6 +20125,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'rfq_fabric_notes' => isset( $meta['rfq_fabric_notes'] ) ? sanitize_textarea_field( $meta['rfq_fabric_notes'] ) : null,
             'route_label' => $route_label,
             'route_status' => $route_status,
+            'route_type'   => $route_type,
+            'is_message_only_route' => ( 'designer_message' === $route_type ),
             'reference_images' => $reference_images, // Keep for backward compatibility
             'inspiration_images' => $inspiration_images, // Standardized key
             'media_links' => $media_links,
@@ -18550,6 +20165,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'rfq_reference' => 'ITEM-' . intval( $item['id'] ),
             'validation_state' => $validation_state,
         );
+        if ( ! $this->is_cad_prototype_enabled() ) {
+            $response['payment_notification'] = null;
+            $response['workflow_milestones'] = array();
+            $response['supplier_workflow_active_step'] = null;
+            if ( isset( $response['bid_data'] ) && is_array( $response['bid_data'] ) ) {
+                unset(
+                    $response['bid_data']['payment_notification'],
+                    $response['bid_data']['prototype_timeline'],
+                    $response['bid_data']['prototype_timeline_option'],
+                    $response['bid_data']['prototype_cost'],
+                    $response['bid_data']['prototype_commitment']
+                );
+            }
+        }
 
         $this->log_ajax_performance(
             'n88_get_supplier_item_details',
@@ -18588,6 +20217,195 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         wp_send_json_success( $workspace );
+    }
+
+    /**
+     * Execute an internal AJAX handler and return its decoded JSON.
+     *
+     * @param string $method Method name on this class.
+     * @param array  $post_data Simulated POST payload.
+     * @return array
+     */
+    private function execute_internal_ajax_method( $method, $post_data = array() ) {
+        $original_post = $_POST;
+        $original_request = $_REQUEST;
+        $internal_die_handler = static function () {
+            return static function () {
+                throw new Exception( 'n88_internal_ajax_die' );
+            };
+        };
+
+        $_POST = is_array( $post_data ) ? $post_data : array();
+        $_REQUEST = array_merge( (array) $_REQUEST, $_POST );
+
+        add_filter( 'wp_die_handler', $internal_die_handler, 9999 );
+        add_filter( 'wp_die_ajax_handler', $internal_die_handler, 9999 );
+        add_filter( 'wp_die_json_handler', $internal_die_handler, 9999 );
+        ob_start();
+        try {
+            call_user_func( array( $this, $method ) );
+        } catch ( Throwable $throwable ) {
+            // wp_send_json_success/error ends in wp_die; swallow and parse output.
+        }
+        $raw = ob_get_clean();
+        remove_filter( 'wp_die_handler', $internal_die_handler, 9999 );
+        remove_filter( 'wp_die_ajax_handler', $internal_die_handler, 9999 );
+        remove_filter( 'wp_die_json_handler', $internal_die_handler, 9999 );
+
+        $_POST = $original_post;
+        $_REQUEST = $original_request;
+
+        $decoded = json_decode( trim( (string) $raw ), true );
+        if ( is_array( $decoded ) && array_key_exists( 'success', $decoded ) ) {
+            return $decoded;
+        }
+
+        return array(
+            'success' => false,
+            'data' => array(
+                'message' => 'Internal AJAX response parsing failed.',
+            ),
+        );
+    }
+
+    /**
+     * Single-call bootstrap payload for supplier batch modal.
+     * Returns workspace + full item detail payloads + drafts map.
+     */
+    public function ajax_get_supplier_batch_modal_payload() {
+        check_ajax_referer( 'n88_get_supplier_batch_workspace', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $proposal_group_id = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $item_ids_raw      = isset( $_POST['item_ids'] ) ? wp_unslash( $_POST['item_ids'] ) : '[]';
+        $item_ids          = json_decode( $item_ids_raw, true );
+        if ( ! is_array( $item_ids ) ) {
+            $item_ids = array();
+        }
+
+        $workspace = $proposal_group_id > 0
+            ? $this->get_supplier_batch_workspace_by_group( $current_user->ID, $proposal_group_id )
+            : $this->get_or_create_supplier_batch_workspace( $current_user->ID, $item_ids );
+
+        if ( is_wp_error( $workspace ) ) {
+            wp_send_json_error( array( 'message' => $workspace->get_error_message() ) );
+        }
+
+        $workspace_item_ids = isset( $workspace['item_ids'] ) && is_array( $workspace['item_ids'] ) ? $workspace['item_ids'] : array();
+        $workspace_item_ids = array_values( array_filter( array_unique( array_map( 'absint', $workspace_item_ids ) ) ) );
+        if ( count( $workspace_item_ids ) > 50 ) {
+            $workspace_item_ids = array_slice( $workspace_item_ids, 0, 50 );
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $users_table = $wpdb->prefix . 'users';
+
+        $item_details = array();
+        if ( ! empty( $workspace_item_ids ) ) {
+            $item_placeholders = implode( ',', array_fill( 0, count( $workspace_item_ids ), '%d' ) );
+            $item_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT i.id, i.title, i.item_type, i.primary_image_id, i.owner_user_id, i.meta_json,
+                            c.name AS category_name, u.display_name AS designer_name
+                    FROM {$items_table} i
+                    LEFT JOIN {$categories_table} c ON (i.item_type = c.category_id OR i.item_type = c.name)
+                    LEFT JOIN {$users_table} u ON u.ID = i.owner_user_id
+                    WHERE i.id IN ({$item_placeholders}) AND i.deleted_at IS NULL",
+                    $workspace_item_ids
+                ),
+                ARRAY_A
+            );
+
+            foreach ( (array) $item_rows as $row ) {
+                $row_item_id = isset( $row['id'] ) ? absint( $row['id'] ) : 0;
+                if ( ! $row_item_id ) {
+                    continue;
+                }
+                $item_meta = array();
+                if ( isset( $row['meta_json'] ) && '' !== (string) $row['meta_json'] ) {
+                    $decoded_meta = json_decode( (string) $row['meta_json'], true );
+                    if ( is_array( $decoded_meta ) ) {
+                        $item_meta = $decoded_meta;
+                    }
+                }
+                $item_details[ strval( $row_item_id ) ] = array(
+                    'item_id' => $row_item_id,
+                    'id' => $row_item_id,
+                    'title' => isset( $row['title'] ) ? sanitize_text_field( $row['title'] ) : ( 'Item #' . $row_item_id ),
+                    'category' => isset( $row['category_name'] ) && $row['category_name'] !== '' ? sanitize_text_field( $row['category_name'] ) : sanitize_text_field( (string) $row['item_type'] ),
+                    'project_name' => isset( $workspace['project_name'] ) ? sanitize_text_field( (string) $workspace['project_name'] ) : '',
+                    'designer_name' => isset( $row['designer_name'] ) ? sanitize_text_field( $row['designer_name'] ) : '',
+                    'primary_image_url' => ! empty( $row['primary_image_id'] ) ? wp_get_attachment_url( absint( $row['primary_image_id'] ) ) : '',
+                    'image_url' => ! empty( $row['primary_image_id'] ) ? wp_get_attachment_url( absint( $row['primary_image_id'] ) ) : '',
+                    'rfq_reference' => 'ITEM-' . $row_item_id,
+                    'rfq_fabric_supplied_flag' => isset( $item_meta['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( (string) $item_meta['rfq_fabric_supplied_flag'] ) : '',
+                    'bid_status' => null,
+                    'batch_proposal_group_ids' => array(),
+                    'batch_primary_proposal_group_id' => absint( isset( $workspace['proposal_group_id'] ) ? $workspace['proposal_group_id'] : 0 ),
+                    '_n88_full_payload' => false,
+                );
+            }
+        }
+
+        // Safety fallback: if lightweight query misses records, fill via item detail endpoint.
+        if ( ! empty( $workspace_item_ids ) ) {
+            $missing_item_ids = array_values(
+                array_filter(
+                    $workspace_item_ids,
+                    static function ( $item_id ) use ( $item_details ) {
+                        return ! isset( $item_details[ strval( $item_id ) ] ) && ! isset( $item_details[ $item_id ] );
+                    }
+                )
+            );
+            if ( ! empty( $missing_item_ids ) ) {
+                $item_nonce = wp_create_nonce( 'n88_get_supplier_item_details' );
+                foreach ( $missing_item_ids as $missing_item_id ) {
+                    $detail_result = $this->execute_internal_ajax_method(
+                        'ajax_get_supplier_item_details',
+                        array(
+                            '_ajax_nonce' => $item_nonce,
+                            'item_id'     => absint( $missing_item_id ),
+                            'section'     => 'full',
+                        )
+                    );
+                    if ( ! empty( $detail_result['success'] ) && ! empty( $detail_result['data'] ) && is_array( $detail_result['data'] ) ) {
+                        $item = $detail_result['data'];
+                        $item['_n88_full_payload'] = true;
+                        $item_details[ strval( $missing_item_id ) ] = $item;
+                    }
+                }
+            }
+        }
+
+        $drafts = array();
+        $draft_result = $this->execute_internal_ajax_method(
+            'ajax_get_supplier_batch_drafts',
+            array(
+                '_ajax_nonce' => wp_create_nonce( 'n88_get_bid_draft' ),
+                'item_ids'    => wp_json_encode( $workspace_item_ids ),
+            )
+        );
+        if ( ! empty( $draft_result['success'] ) && ! empty( $draft_result['data']['drafts'] ) && is_array( $draft_result['data']['drafts'] ) ) {
+            $drafts = $draft_result['data']['drafts'];
+        }
+
+        wp_send_json_success(
+            array(
+                'workspace' => $workspace,
+                'items'     => $item_details,
+                'drafts'    => $drafts,
+            )
+        );
     }
 
     /**
@@ -18990,28 +20808,6 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return $attachment_id;
         }
 
-        $supplier_files = $this->get_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() );
-        if ( empty( $supplier_files ) && ! empty( $supplier['files'] ) && is_array( $supplier['files'] ) ) {
-            $supplier_files = array();
-            foreach ( $supplier['files'] as $supplier_file ) {
-                if ( ! is_array( $supplier_file ) ) {
-                    continue;
-                }
-
-                $supplier_file_url = isset( $supplier_file['url'] ) ? esc_url_raw( $supplier_file['url'] ) : '';
-                if ( '' === $supplier_file_url ) {
-                    continue;
-                }
-
-                $supplier_files[] = array(
-                    'id'    => isset( $supplier_file['id'] ) ? absint( $supplier_file['id'] ) : 0,
-                    'url'   => $supplier_file_url,
-                    'name'  => isset( $supplier_file['name'] ) ? sanitize_file_name( $supplier_file['name'] ) : '',
-                    'title' => isset( $supplier_file['title'] ) ? sanitize_text_field( $supplier_file['title'] ) : '',
-                );
-            }
-        }
-
         return array(
             'attachment_id' => (int) $attachment_id,
             'url'           => wp_get_attachment_url( $attachment_id ),
@@ -19165,6 +20961,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $sample_status = isset( $validation['sample_status'] ) ? sanitize_key( $validation['sample_status'] ) : '';
         $supplier_status = isset( $supplier['status'] ) ? sanitize_key( $supplier['status'] ) : '';
+        $has_approved_review_data = ! empty( $review['approved_at'] )
+            || ( isset( $review['approved_material_codes'] ) && is_array( $review['approved_material_codes'] ) && ! empty( $review['approved_material_codes'] ) )
+            || ( isset( $review['approved_finish_codes'] ) && is_array( $review['approved_finish_codes'] ) && ! empty( $review['approved_finish_codes'] ) )
+            || ( isset( $review['approved_sample_image_ids'] ) && is_array( $review['approved_sample_image_ids'] ) && ! empty( $review['approved_sample_image_ids'] ) )
+            || ! empty( $review['notes'] )
+            || ( isset( $meta['approved_material_codes'] ) && is_array( $meta['approved_material_codes'] ) && ! empty( $meta['approved_material_codes'] ) )
+            || ( isset( $meta['approved_finish_codes'] ) && is_array( $meta['approved_finish_codes'] ) && ! empty( $meta['approved_finish_codes'] ) )
+            || ( isset( $meta['approved_sample_images'] ) && is_array( $meta['approved_sample_images'] ) && ! empty( $meta['approved_sample_images'] ) )
+            || ! empty( $meta['validation_notes'] );
+
+        // Approval must always take precedence over a stale "samples_received" state.
+        if ( $has_approved_review_data ) {
+            $sample_status = 'samples_approved';
+        }
         if ( ( ! $sample_status || 'sample_requested' === $sample_status ) && $supplier_status ) {
             $sample_status = $supplier_status;
         }
@@ -19210,6 +21020,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $po_uploaded     = ! empty( $commitment['po_file_id'] );
         $samples_approved = ! empty( $review['approved_at'] );
+        $has_awarded_bid = false;
+        if ( isset( $meta['item_status'] ) && 'Awarded' === $meta['item_status'] ) {
+            $has_awarded_bid = true;
+        } elseif ( ! empty( $meta['awarded_bid_snapshot'] ) ) {
+            $has_awarded_bid = true;
+        }
         $com_status      = isset( $commitment['com_status'] ) ? sanitize_key( $commitment['com_status'] ) : '';
         $com_in_transit  = in_array( $com_status, array( 'com_in_transit', 'shipped', 'in_transit' ), true );
         $com_completed   = ! $com_applicable || in_array( $com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
@@ -19225,9 +21041,44 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $can_commit = $samples_approved && $po_uploaded && $deposit_confirmed && $com_completed;
 
+        // Commit 3.D.8 (foundation): Execution activation paywall before Step 4.
+        $execution = isset( $commitment['execution_activation'] ) && is_array( $commitment['execution_activation'] )
+            ? $commitment['execution_activation']
+            : array();
+        $execution_payment_status = isset( $execution['payment_status'] ) ? sanitize_key( $execution['payment_status'] ) : '';
+        if ( ! in_array( $execution_payment_status, array( 'not_started', 'pending', 'pending_verification', 'confirmed' ), true ) ) {
+            $execution_payment_status = 'not_started';
+        }
+        $execution_payment_method = isset( $execution['payment_method'] ) ? sanitize_key( $execution['payment_method'] ) : '';
+        if ( ! in_array( $execution_payment_method, array( '', 'zelle', 'wire', 'ach' ), true ) ) {
+            $execution_payment_method = '';
+        }
+        $execution_awarded_item_count = isset( $execution['awarded_item_count'] ) ? absint( $execution['awarded_item_count'] ) : 0;
+        if ( $execution_awarded_item_count <= 0 ) {
+            $batch_awarded = isset( $batch_context['awarded_item_ids'] ) && is_array( $batch_context['awarded_item_ids'] )
+                ? array_values( array_unique( array_filter( array_map( 'absint', $batch_context['awarded_item_ids'] ) ) ) )
+                : array();
+            if ( ! empty( $batch_awarded ) ) {
+                $execution_awarded_item_count = count( $batch_awarded );
+            } elseif ( $has_awarded_bid ) {
+                $execution_awarded_item_count = 1;
+            }
+        }
+        $execution_fee_per_item = 750;
+        $execution_fee_total = $execution_awarded_item_count * $execution_fee_per_item;
+        $execution_locked = $execution_awarded_item_count > 0 && 'confirmed' !== $execution_payment_status;
+
+        $production_started = ! empty( $commitment['production_started_at'] ) || in_array( isset( $commitment['production_status'] ) ? sanitize_key( $commitment['production_status'] ) : '', array( 'in_production', 'started' ), true );
+
         $card_status_text  = '';
         $card_status_color = '#2196f3';
-        if ( $can_commit ) {
+        if ( $can_commit && $execution_locked ) {
+            $card_status_text  = 'Activate Production';
+            $card_status_color = '#ff9800';
+        } elseif ( $can_commit && $production_started ) {
+            $card_status_text  = 'In Production';
+            $card_status_color = '#4caf50';
+        } elseif ( $can_commit ) {
             $card_status_text  = 'Ready for Production';
             $card_status_color = '#4caf50';
         } elseif ( $readiness['awaiting_deposit'] ) {
@@ -19260,6 +21111,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         } elseif ( $sample_status === 'sample_requested' ) {
             $card_status_text  = 'Sample Material Kit Requested';
             $card_status_color = '#2196f3';
+        }
+
+        $supplier_files = $this->get_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() );
+        if ( empty( $supplier_files ) && ! empty( $supplier['files'] ) && is_array( $supplier['files'] ) ) {
+            $supplier_files = $this->sanitize_validation_attachment_entries( $supplier['files'] );
         }
 
         return array(
@@ -19329,9 +21185,28 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'deposit_status'        => $deposit_status,
                 'deposit_receipt_files' => $this->get_validation_attachment_entries( isset( $commitment['deposit_receipt_file_ids'] ) ? $commitment['deposit_receipt_file_ids'] : array() ),
                 'deposit_confirmed_at'  => isset( $commitment['deposit_confirmed_at'] ) ? $commitment['deposit_confirmed_at'] : null,
+                'production_status'     => isset( $commitment['production_status'] ) ? sanitize_key( $commitment['production_status'] ) : '',
+                'production_started_at' => isset( $commitment['production_started_at'] ) ? $commitment['production_started_at'] : null,
+                'execution_activation'  => array(
+                    'enabled'               => $execution_awarded_item_count > 0,
+                    'fee_per_awarded_item'  => $execution_fee_per_item,
+                    'awarded_item_count'    => $execution_awarded_item_count,
+                    'fee_total'             => $execution_fee_total,
+                    'payment_status'        => $execution_payment_status,
+                    'payment_method'        => $execution_payment_method,
+                    'reference_id'          => isset( $execution['reference_id'] ) ? sanitize_text_field( $execution['reference_id'] ) : '',
+                    'payment_submitted_at'  => isset( $execution['payment_submitted_at'] ) ? $execution['payment_submitted_at'] : null,
+                    'payment_confirmed_at'  => isset( $execution['payment_confirmed_at'] ) ? $execution['payment_confirmed_at'] : null,
+                    'locked'                => $execution_locked,
+                ),
             ),
             'readiness_flags'            => $readiness,
             'can_commit'                 => $can_commit,
+            'production_started'         => $production_started,
+            'execution_locked'           => $execution_locked,
+            'execution_payment_status'   => $execution_payment_status,
+            'execution_awarded_item_count' => $execution_awarded_item_count,
+            'execution_fee_total'        => $execution_fee_total,
             'approved_material_codes'    => isset( $meta['approved_material_codes'] ) && is_array( $meta['approved_material_codes'] ) ? array_values( $meta['approved_material_codes'] ) : array(),
             'approved_finish_codes'      => isset( $meta['approved_finish_codes'] ) && is_array( $meta['approved_finish_codes'] ) ? array_values( $meta['approved_finish_codes'] ) : array(),
             'approved_sample_images'     => $this->get_validation_attachment_entries( isset( $meta['approved_sample_images'] ) ? $meta['approved_sample_images'] : array() ),
@@ -19394,6 +21269,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( ! in_array( $requested_section, array( 'full', 'summary', 'details', 'workflow', 'bids', 'bids_summary' ), true ) ) {
             $requested_section = 'full';
         }
+        $cad_prototype_enabled = $this->is_cad_prototype_enabled();
         $load_summary  = in_array( $requested_section, array( 'full', 'summary', 'details', 'workflow', 'bids', 'bids_summary' ), true );
         $load_workflow = in_array( $requested_section, array( 'full', 'workflow' ), true );
         $load_bids     = in_array( $requested_section, array( 'full', 'bids', 'bids_summary' ), true );
@@ -19506,10 +21382,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     continue;
                 }
 
+                $supplier_wp_obj = get_userdata( $supplier_id_row );
+                $supplier_email_out = ( $supplier_wp_obj && ! empty( $supplier_wp_obj->user_email ) )
+                    ? sanitize_email( $supplier_wp_obj->user_email )
+                    : '';
+
                 $direct_supplier_options[] = array(
                     'supplier_id'           => $supplier_id_row,
                     'display_name'          => $supplier_name_map[ $supplier_id_row ],
                     'is_wireframe_supplier' => $default_wireframe_supplier_id > 0 && $supplier_id_row === $default_wireframe_supplier_id,
+                    'supplier_email'        => $supplier_email_out,
                 );
             }
         }
@@ -19519,11 +21401,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $direct_supplier_id = (int) $direct_supplier_options[0]['supplier_id'];
         }
 
-        // Check if bids exist (submitted, awarded, or declined)
+        // Check if bids exist (include draft so batch/workspace proposals still load after routes expire)
         $has_bids = $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(*) FROM {$item_bids_table} 
             WHERE item_id = %d 
-            AND status IN ('submitted', 'awarded', 'declined')",
+            AND status IN ('submitted', 'awarded', 'declined', 'draft')",
             $item_id
         ) ) > 0;
         
@@ -19534,6 +21416,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             AND status = 'awarded'",
             $item_id
         ) ) > 0;
+        $validation_state = $this->build_material_validation_state(
+            $item_id,
+            isset( $meta ) && is_array( $meta ) ? $meta : null
+        );
 
         $bids = array();
         $proposal_group_workspaces = array();
@@ -19560,12 +21446,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 FROM {$item_bids_table} b
                 LEFT JOIN {$users_table} supplier ON b.supplier_id = supplier.ID
                 WHERE b.item_id = %d 
-                AND b.status IN ('submitted', 'awarded', 'declined')
+                AND b.status IN ('submitted', 'awarded', 'declined', 'draft')
                 ORDER BY 
                     CASE b.status
                         WHEN 'awarded' THEN 1
                         WHEN 'submitted' THEN 2
-                        WHEN 'declined' THEN 3
+                        WHEN 'draft' THEN 3
+                        WHEN 'declined' THEN 4
                     END,
                     b.created_at ASC, b.bid_id ASC",
                 $item_id
@@ -19801,7 +21688,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $prototype_status_for_bid = null;
                 $has_prototype_request_for_bid = false;
                 $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
-                $prototype_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+                $prototype_table_exists = $cad_prototype_enabled && ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table );
                 
                 if ( $prototype_table_exists ) {
                     $prototype_payment_for_bid = $wpdb->get_row( $wpdb->prepare(
@@ -19827,8 +21714,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 
                 // Award gating: Can award if no prototype request OR prototype is approved
                 $can_award = ! $is_awarded && ! $is_declined && ( ! $has_prototype_request_for_bid || $prototype_status_for_bid === 'approved' );
-                
-                $bids[] = array(
+
+                $bid_payload = array(
                     'bid_id' => intval( $bid['bid_id'] ),
                     'supplier_id' => intval( $bid['supplier_id'] ),
                     'supplier_name' => ! empty( $bid['supplier_name'] ) ? sanitize_text_field( $bid['supplier_name'] ) : '',
@@ -19842,12 +21729,6 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'total_price_raw' => $total_price_raw !== null ? number_format( $total_price_raw, 2, '.', '' ) : null, // Supplier sees total raw price
                     'item_quantity' => $item_quantity, // Quantity used for calculation
                     'production_lead_time' => $bid['production_lead_time_text'] ? sanitize_text_field( $bid['production_lead_time_text'] ) : null,
-                    'prototype_timeline' => $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null,
-                    'prototype_cost' => $prototype_cost_landed ? $prototype_cost_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw ), // Designer sees landed cost (margin + duty)
-                    'prototype_cost_raw' => $prototype_cost_raw, // Keep raw price for reference
-                    'prototype_cost_duty_est' => $prototype_cost_landed ? $prototype_cost_landed['duty_est'] : null, // Duty estimate
-                    'prototype_commitment' => isset( $bid['prototype_video_yes'] ) && intval( $bid['prototype_video_yes'] ) === 1 ? true : false,
-                    'cad_yes' => isset( $bid['cad_yes'] ) && intval( $bid['cad_yes'] ) === 1 ? true : false,
                     'video_links' => array_map( function( $link ) {
                         return esc_url_raw( $link['url'] );
                     }, is_array( $media_links ) ? $media_links : array() ),
@@ -19876,6 +21757,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'is_declined' => $is_declined,
                     'can_award' => $can_award,
                 );
+                if ( ! $cad_prototype_enabled ) {
+                    unset(
+                        $bid_payload['prototype_timeline'],
+                        $bid_payload['prototype_cost'],
+                        $bid_payload['prototype_cost_raw'],
+                        $bid_payload['prototype_cost_duty_est'],
+                        $bid_payload['prototype_commitment'],
+                        $bid_payload['cad_yes'],
+                        $bid_payload['has_prototype_request'],
+                        $bid_payload['prototype_status']
+                    );
+                    $bid_payload['can_award'] = ! $is_awarded && ! $is_declined;
+                } else {
+                    $bid_payload['prototype_timeline'] = $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null;
+                    $bid_payload['prototype_cost'] = $prototype_cost_landed ? $prototype_cost_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw );
+                    $bid_payload['prototype_cost_raw'] = $prototype_cost_raw;
+                    $bid_payload['prototype_cost_duty_est'] = $prototype_cost_landed ? $prototype_cost_landed['duty_est'] : null;
+                    $bid_payload['prototype_commitment'] = isset( $bid['prototype_video_yes'] ) && intval( $bid['prototype_video_yes'] ) === 1 ? true : false;
+                    $bid_payload['cad_yes'] = isset( $bid['cad_yes'] ) && intval( $bid['cad_yes'] ) === 1 ? true : false;
+                }
+                $bids[] = $bid_payload;
             }
         }
 
@@ -20001,7 +21903,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $direction_keyword_ids = null;
         
         // Check if prototype payments table exists
-        $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+        $prototype_payments_table_exists = $this->is_cad_prototype_enabled() && ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table );
         if ( $prototype_payments_table_exists ) {
             $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
             $has_cad_status = in_array( 'cad_status', $pp_columns, true );
@@ -20332,7 +22234,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        $flush_json_success( array(
+        $response_payload = array(
             'requested_section' => $requested_section,
             'loaded_sections' => array(
                 'summary'  => $load_summary,
@@ -20389,7 +22291,453 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'validation_state'    => $validation_state,
             // Action Required: so card updates when operator opens modal (e.g. review payment proof)
             'action_required' => $has_unread_operator_messages || $has_unread_supplier_messages || ( $is_system_operator && isset( $meta ) && is_array( $meta ) && isset( $meta['deposit_status'] ) && $meta['deposit_status'] === 'sent_by_designer' ),
-        ) );
+        );
+        if ( ! $cad_prototype_enabled ) {
+            unset(
+                $response_payload['has_prototype_payment'],
+                $response_payload['prototype_payment_id'],
+                $response_payload['prototype_payment_bid_id'],
+                $response_payload['prototype_payment_supplier_id'],
+                $response_payload['prototype_payment_status'],
+                $response_payload['prototype_payment_total_due'],
+                $response_payload['has_payment_receipt_uploaded'],
+                $response_payload['cad_status'],
+                $response_payload['cad_revision_rounds_included'],
+                $response_payload['cad_revision_rounds_used'],
+                $response_payload['cad_approved_at'],
+                $response_payload['cad_approved_version'],
+                $response_payload['cad_released_to_supplier_at'],
+                $response_payload['cad_current_version'],
+                $response_payload['prototype_status'],
+                $response_payload['prototype_current_version'],
+                $response_payload['prototype_approved_version'],
+                $response_payload['prototype_submission'],
+                $response_payload['direction_keyword_ids'],
+                $response_payload['direction_keyword_names']
+            );
+            if ( isset( $response_payload['workflow_milestones'] ) && is_array( $response_payload['workflow_milestones'] ) ) {
+                $response_payload['workflow_milestones'] = array(
+                    'step1' => isset( $response_payload['workflow_milestones']['step1'] ) && is_array( $response_payload['workflow_milestones']['step1'] )
+                        ? $response_payload['workflow_milestones']['step1']
+                        : array(
+                            'proposals_received_at' => null,
+                            'cad_requested_at' => null,
+                            'payment_sent_at' => null,
+                            'payment_approved_at' => null,
+                        ),
+                );
+            }
+        }
+        $flush_json_success( $response_payload );
+    }
+
+    public function ajax_get_items_rfq_state_batch() {
+        $request_started_at = microtime( true );
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_admin = current_user_can( 'manage_options' );
+
+        if ( ! $is_designer && ! $is_system_operator && ! $is_admin ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer, operator, or admin account required.' ), 403 );
+        }
+
+        $item_ids = isset( $_POST['item_ids'] ) ? wp_unslash( $_POST['item_ids'] ) : array();
+        if ( is_string( $item_ids ) ) {
+            $decoded_item_ids = json_decode( $item_ids, true );
+            if ( is_array( $decoded_item_ids ) ) {
+                $item_ids = $decoded_item_ids;
+            } else {
+                $item_ids = explode( ',', $item_ids );
+            }
+        }
+
+        $item_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $item_ids ) ) ) );
+        if ( empty( $item_ids ) ) {
+            wp_send_json_error( array( 'message' => 'No valid item IDs provided.' ), 400 );
+        }
+
+        $skip_timeline = false;
+        if ( isset( $_POST['skip_timeline'] ) ) {
+            $stv = wp_unslash( $_POST['skip_timeline'] );
+            $skip_timeline = ( '1' === (string) $stv || 1 === $stv || true === $stv );
+        }
+        $states = $this->get_compact_item_rfq_state_batch( $item_ids, $current_user, $is_designer, $is_system_operator, $is_admin, array( 'skip_timeline' => $skip_timeline ) );
+
+        $this->log_ajax_performance(
+            'n88_get_items_rfq_state_batch',
+            $request_started_at,
+            array(
+                'status'     => 'success',
+                'item_count' => count( $item_ids ),
+                'returned'   => count( $states ),
+            )
+        );
+
+        wp_send_json_success(
+            array(
+                'requested_section' => 'bids_summary',
+                'items'             => $states,
+            )
+        );
+    }
+
+    private function get_compact_item_rfq_state_batch( $item_ids, $current_user, $is_designer, $is_system_operator, $is_admin, $options = array() ) {
+        global $wpdb;
+
+        $skip_timeline = ! empty( $options['skip_timeline'] );
+
+        $item_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $item_ids ) ) ) );
+        if ( empty( $item_ids ) ) {
+            return array();
+        }
+
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_placeholders = implode( ',', array_fill( 0, count( $item_ids ), '%d' ) );
+        $item_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, owner_user_id, meta_json FROM {$items_table} WHERE id IN ({$item_placeholders})",
+                $item_ids
+            ),
+            ARRAY_A
+        );
+
+        $item_rows_by_id = array();
+        foreach ( (array) $item_rows as $item_row ) {
+            $item_id = isset( $item_row['id'] ) ? absint( $item_row['id'] ) : 0;
+            if ( ! $item_id ) {
+                continue;
+            }
+            if ( ! $is_system_operator && ! $is_admin ) {
+                $owner_user_id = isset( $item_row['owner_user_id'] ) ? absint( $item_row['owner_user_id'] ) : 0;
+                if ( $owner_user_id !== (int) $current_user->ID ) {
+                    continue;
+                }
+            }
+            $item_rows_by_id[ $item_id ] = $item_row;
+        }
+
+        if ( empty( $item_rows_by_id ) ) {
+            return array();
+        }
+
+        $accessible_item_ids = array_keys( $item_rows_by_id );
+        $item_placeholders = implode( ',', array_fill( 0, count( $accessible_item_ids ), '%d' ) );
+
+        $default_wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $users_table = $wpdb->users;
+        $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+
+        $route_counts = array();
+        $route_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT item_id, COUNT(*) AS route_count
+                FROM {$rfq_routes_table}
+                WHERE item_id IN ({$item_placeholders})
+                AND (status IS NULL OR status != 'expired')
+                GROUP BY item_id",
+                $accessible_item_ids
+            ),
+            ARRAY_A
+        );
+        foreach ( (array) $route_rows as $route_row ) {
+            $route_item_id = isset( $route_row['item_id'] ) ? absint( $route_row['item_id'] ) : 0;
+            if ( $route_item_id ) {
+                $route_counts[ $route_item_id ] = isset( $route_row['route_count'] ) ? intval( $route_row['route_count'] ) : 0;
+            }
+        }
+
+        $delivery_cost_map = array();
+        $delivery_shipping_mode_map = array();
+        if ( $this->table_exists_cached( $delivery_context_table ) ) {
+            $delivery_columns = $this->table_columns_cached( $delivery_context_table );
+            $has_delivery_cost = in_array( 'delivery_cost_usd', $delivery_columns, true );
+            $has_shipping_mode = in_array( 'shipping_mode', $delivery_columns, true );
+            if ( $has_delivery_cost || $has_shipping_mode ) {
+                $select_delivery = 'item_id, delivery_country_code';
+                if ( $has_delivery_cost ) {
+                    $select_delivery .= ', delivery_cost_usd';
+                }
+                if ( $has_shipping_mode ) {
+                    $select_delivery .= ', shipping_mode';
+                }
+                $delivery_rows = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT {$select_delivery} FROM {$delivery_context_table} WHERE item_id IN ({$item_placeholders})",
+                        $accessible_item_ids
+                    ),
+                    ARRAY_A
+                );
+                foreach ( (array) $delivery_rows as $delivery_row ) {
+                    $delivery_item_id = isset( $delivery_row['item_id'] ) ? absint( $delivery_row['item_id'] ) : 0;
+                    $delivery_country = isset( $delivery_row['delivery_country_code'] ) ? strtoupper( trim( (string) $delivery_row['delivery_country_code'] ) ) : '';
+                    if ( ! $delivery_item_id || ! in_array( $delivery_country, array( 'US', 'CA' ), true ) ) {
+                        continue;
+                    }
+                    $delivery_cost_map[ $delivery_item_id ] = array_key_exists( 'delivery_cost_usd', $delivery_row ) && '' !== $delivery_row['delivery_cost_usd']
+                        ? floatval( $delivery_row['delivery_cost_usd'] )
+                        : null;
+                    $delivery_shipping_mode_map[ $delivery_item_id ] = array_key_exists( 'shipping_mode', $delivery_row ) ? $delivery_row['shipping_mode'] : null;
+                }
+            }
+        }
+
+        $bids_columns = $this->table_columns_cached( $item_bids_table );
+        $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
+        $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+
+        $select_fields = "b.bid_id, b.item_id, b.supplier_id, supplier.display_name AS supplier_name, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.status, b.created_at";
+        if ( $has_bid_meta_json ) {
+            $select_fields .= ", b.meta_json";
+        }
+        if ( $has_revision_column ) {
+            $select_fields .= ", b.rfq_revision_at_submit";
+        }
+
+        $bids_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT {$select_fields}
+                FROM {$item_bids_table} b
+                LEFT JOIN {$users_table} supplier ON b.supplier_id = supplier.ID
+                WHERE b.item_id IN ({$item_placeholders})
+                AND b.status IN ('submitted', 'awarded', 'declined', 'draft')
+                ORDER BY b.item_id ASC,
+                    CASE b.status
+                        WHEN 'awarded' THEN 1
+                        WHEN 'submitted' THEN 2
+                        WHEN 'draft' THEN 3
+                        WHEN 'declined' THEN 4
+                    END,
+                    b.created_at ASC, b.bid_id ASC",
+                $accessible_item_ids
+            ),
+            ARRAY_A
+        );
+
+        $group_items_table = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+        if ( $this->table_exists_cached( $group_items_table ) && ! empty( $accessible_item_ids ) ) {
+            $seen_bid_ids = array();
+            foreach ( (array) $bids_rows as $seen_row ) {
+                $sbid = isset( $seen_row['bid_id'] ) ? absint( $seen_row['bid_id'] ) : 0;
+                if ( $sbid ) {
+                    $seen_bid_ids[ $sbid ] = true;
+                }
+            }
+            $gi_select = "{$select_fields}, gi.item_id AS _gi_item_id";
+            $group_linked_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT {$gi_select}
+                    FROM {$group_items_table} gi
+                    INNER JOIN {$item_bids_table} b ON gi.linked_bid_id = b.bid_id
+                    LEFT JOIN {$users_table} supplier ON b.supplier_id = supplier.ID
+                    WHERE gi.item_id IN ({$item_placeholders})
+                    AND gi.linked_bid_id IS NOT NULL AND gi.linked_bid_id > 0
+                    AND b.status IN ('submitted', 'awarded', 'declined', 'draft')",
+                    $accessible_item_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $group_linked_rows as $glr ) {
+                $bid_id = isset( $glr['bid_id'] ) ? absint( $glr['bid_id'] ) : 0;
+                if ( ! $bid_id || isset( $seen_bid_ids[ $bid_id ] ) ) {
+                    continue;
+                }
+                $resolved_item = isset( $glr['_gi_item_id'] ) ? absint( $glr['_gi_item_id'] ) : 0;
+                unset( $glr['_gi_item_id'] );
+                if ( ! $resolved_item || ! isset( $item_rows_by_id[ $resolved_item ] ) ) {
+                    continue;
+                }
+                $glr['item_id'] = $resolved_item;
+                $seen_bid_ids[ $bid_id ] = true;
+                $bids_rows[] = $glr;
+            }
+        }
+
+        $supplier_ids = array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        'absint',
+                        wp_list_pluck( (array) $bids_rows, 'supplier_id' )
+                    )
+                )
+            )
+        );
+
+        $supplier_profiles = array();
+        if ( ! empty( $supplier_ids ) && $this->table_exists_cached( $supplier_profiles_table ) ) {
+            $supplier_placeholders = implode( ',', array_fill( 0, count( $supplier_ids ), '%d' ) );
+            $supplier_profile_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT supplier_id, origin_region, duty_rate_override
+                    FROM {$supplier_profiles_table}
+                    WHERE supplier_id IN ({$supplier_placeholders})",
+                    $supplier_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $supplier_profile_rows as $supplier_profile_row ) {
+                $profile_supplier_id = isset( $supplier_profile_row['supplier_id'] ) ? absint( $supplier_profile_row['supplier_id'] ) : 0;
+                if ( $profile_supplier_id ) {
+                    $supplier_profiles[ $profile_supplier_id ] = $supplier_profile_row;
+                }
+            }
+        }
+
+        $prototype_status_by_bid = array();
+        if ( $this->table_exists_cached( $prototype_payments_table ) ) {
+            $prototype_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT bid_id, prototype_status, created_at
+                    FROM {$prototype_payments_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND bid_id IS NOT NULL
+                    ORDER BY bid_id ASC, created_at DESC, id DESC",
+                    $accessible_item_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $prototype_rows as $prototype_row ) {
+                $prototype_bid_id = isset( $prototype_row['bid_id'] ) ? absint( $prototype_row['bid_id'] ) : 0;
+                if ( $prototype_bid_id && ! isset( $prototype_status_by_bid[ $prototype_bid_id ] ) ) {
+                    $prototype_status_by_bid[ $prototype_bid_id ] = isset( $prototype_row['prototype_status'] ) ? $prototype_row['prototype_status'] : null;
+                }
+            }
+        }
+
+        $states = array();
+        foreach ( $accessible_item_ids as $item_id ) {
+            $raw_meta = isset( $item_rows_by_id[ $item_id ]['meta_json'] ) ? $item_rows_by_id[ $item_id ]['meta_json'] : null;
+            $meta = ! empty( $raw_meta ) ? json_decode( $raw_meta, true ) : array();
+            if ( ! is_array( $meta ) ) {
+                $meta = array();
+            }
+            $states[ $item_id ] = array(
+                'requested_section' => 'bids_summary',
+                'loaded_sections'   => array(
+                    'summary'  => true,
+                    'bids'     => true,
+                    'workflow' => true,
+                ),
+                'has_rfq'           => ! empty( $route_counts[ $item_id ] ),
+                'has_bids'          => false,
+                'has_awarded_bid'   => false,
+                'bids'              => array(),
+                'validation_state'  => $this->build_material_validation_state( $item_id, $meta ),
+                'loading_sections'  => array(
+                    'summary'  => false,
+                    'bids'     => false,
+                    'workflow' => false,
+                ),
+            );
+            if ( $skip_timeline ) {
+                $states[ $item_id ]['timeline_payload'] = null;
+            } else {
+                $states[ $item_id ]['timeline_payload'] = $this->get_item_timeline_payload( $item_id, $current_user, $states[ $item_id ]['validation_state'] );
+            }
+        }
+
+        foreach ( (array) $bids_rows as $bid_row ) {
+            $item_id = isset( $bid_row['item_id'] ) ? absint( $bid_row['item_id'] ) : 0;
+            if ( ! $item_id || ! isset( $states[ $item_id ] ) ) {
+                continue;
+            }
+
+            $meta = isset( $item_rows_by_id[ $item_id ]['meta_json'] ) ? json_decode( (string) $item_rows_by_id[ $item_id ]['meta_json'], true ) : array();
+            if ( ! is_array( $meta ) ) {
+                $meta = array();
+            }
+
+            $item_quantity = isset( $meta['quantity'] ) && intval( $meta['quantity'] ) > 0 ? intval( $meta['quantity'] ) : 1;
+            $smart_alternatives_enabled = ! empty( $meta['smart_alternatives'] );
+            $smart_alternatives_note = isset( $meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $meta['smart_alternatives_note'] ) : '';
+
+            $bid_meta = array();
+            if ( $has_bid_meta_json && ! empty( $bid_row['meta_json'] ) ) {
+                $decoded_bid_meta = json_decode( $bid_row['meta_json'], true );
+                if ( is_array( $decoded_bid_meta ) ) {
+                    $bid_meta = $decoded_bid_meta;
+                }
+            }
+
+            $supplier_id = isset( $bid_row['supplier_id'] ) ? absint( $bid_row['supplier_id'] ) : 0;
+            $origin_region = isset( $supplier_profiles[ $supplier_id ]['origin_region'] ) ? $supplier_profiles[ $supplier_id ]['origin_region'] : null;
+            $duty_rate_override = isset( $supplier_profiles[ $supplier_id ]['duty_rate_override'] ) ? $supplier_profiles[ $supplier_id ]['duty_rate_override'] : null;
+            $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
+
+            $unit_price_raw = isset( $bid_row['unit_price'] ) && '' !== $bid_row['unit_price'] ? floatval( $bid_row['unit_price'] ) : null;
+            $prototype_cost_raw = isset( $bid_row['prototype_cost'] ) && '' !== $bid_row['prototype_cost'] ? floatval( $bid_row['prototype_cost'] ) : null;
+            $unit_price_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $unit_price_raw, $duty_rate );
+            $prototype_cost_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $prototype_cost_raw, $duty_rate );
+            $total_price_landed = null;
+            $total_price_raw = $unit_price_raw !== null ? ( $unit_price_raw * $item_quantity ) : null;
+            if ( $unit_price_landed && isset( $unit_price_landed['display_price'] ) ) {
+                $total_price_landed = floatval( $unit_price_landed['display_price'] ) * $item_quantity;
+            } elseif ( null !== $unit_price_raw ) {
+                $total_price_landed = $unit_price_raw * $item_quantity;
+            }
+
+            $bid_status = isset( $bid_row['status'] ) ? (string) $bid_row['status'] : 'submitted';
+            $is_awarded = ( 'awarded' === $bid_status );
+            $is_declined = ( 'declined' === $bid_status );
+            $prototype_status = isset( $prototype_status_by_bid[ absint( $bid_row['bid_id'] ) ] ) ? $prototype_status_by_bid[ absint( $bid_row['bid_id'] ) ] : null;
+            $has_prototype_request = array_key_exists( absint( $bid_row['bid_id'] ), $prototype_status_by_bid );
+            $can_award = ! $is_awarded && ! $is_declined && ( ! $has_prototype_request || 'approved' === $prototype_status );
+
+            $states[ $item_id ]['has_bids'] = true;
+            if ( $is_awarded ) {
+                $states[ $item_id ]['has_awarded_bid'] = true;
+            }
+            $states[ $item_id ]['has_rfq'] = true;
+            $states[ $item_id ]['bids'][] = array(
+                'bid_id'                    => absint( $bid_row['bid_id'] ),
+                'supplier_id'               => $supplier_id,
+                'supplier_name'             => ! empty( $bid_row['supplier_name'] ) ? sanitize_text_field( $bid_row['supplier_name'] ) : '',
+                'is_wireframe_supplier'     => $default_wireframe_supplier_id > 0 && $supplier_id === $default_wireframe_supplier_id,
+                'unit_price'                => $unit_price_landed ? $unit_price_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw ),
+                'unit_price_raw'            => $unit_price_raw,
+                'unit_price_duty_est'       => $unit_price_landed ? $unit_price_landed['duty_est'] : null,
+                'unit_price_duty_rate'      => $duty_rate,
+                'total_price'               => null !== $total_price_landed ? number_format( $total_price_landed, 2, '.', '' ) : null,
+                'total_price_raw'           => null !== $total_price_raw ? number_format( $total_price_raw, 2, '.', '' ) : null,
+                'item_quantity'             => $item_quantity,
+                'production_lead_time'      => ! empty( $bid_row['production_lead_time_text'] ) ? sanitize_text_field( $bid_row['production_lead_time_text'] ) : null,
+                'prototype_timeline'        => ! empty( $bid_row['prototype_timeline_option'] ) ? sanitize_text_field( $bid_row['prototype_timeline_option'] ) : null,
+                'prototype_cost'            => $prototype_cost_landed ? $prototype_cost_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw ),
+                'prototype_cost_raw'        => $prototype_cost_raw,
+                'prototype_commitment'      => isset( $bid_row['prototype_video_yes'] ) && intval( $bid_row['prototype_video_yes'] ) === 1,
+                'cad_yes'                   => isset( $bid_row['cad_yes'] ) && intval( $bid_row['cad_yes'] ) === 1,
+                'smart_alternatives_enabled'=> $smart_alternatives_enabled,
+                'smart_alternatives_note'   => $smart_alternatives_note,
+                'bid_smart_alternatives_note' => isset( $bid_meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $bid_meta['smart_alternatives_note'] ) : null,
+                'proposal_notes'            => isset( $bid_meta['proposal_notes'] ) ? sanitize_textarea_field( $bid_meta['proposal_notes'] ) : null,
+                'fabric_quantity'           => isset( $bid_meta['fabric_quantity'] ) ? sanitize_text_field( $bid_meta['fabric_quantity'] ) : null,
+                'proposal_group_id'         => ! empty( $bid_meta['proposal_group_id'] ) ? absint( $bid_meta['proposal_group_id'] ) : null,
+                'created_at'                => isset( $bid_row['created_at'] ) ? $bid_row['created_at'] : null,
+                'rfq_revision_at_submit'    => $has_revision_column && isset( $bid_row['rfq_revision_at_submit'] ) && null !== $bid_row['rfq_revision_at_submit'] ? intval( $bid_row['rfq_revision_at_submit'] ) : null,
+                'delivery_cost_usd'         => array_key_exists( $item_id, $delivery_cost_map ) ? $delivery_cost_map[ $item_id ] : null,
+                'delivery_shipping_mode'    => array_key_exists( $item_id, $delivery_shipping_mode_map ) ? $delivery_shipping_mode_map[ $item_id ] : null,
+                'has_prototype_request'     => $has_prototype_request,
+                'prototype_status'          => $prototype_status,
+                'bid_status'                => $bid_status,
+                'status'                    => $bid_status,
+                'is_awarded'                => $is_awarded,
+                'is_declined'               => $is_declined,
+                'can_award'                 => $can_award,
+            );
+        }
+
+        return $states;
     }
 
     /**
@@ -22792,6 +25140,171 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         ) );
     }
 
+    public function ajax_supplier_begin_validation_production() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ), 400 );
+        }
+
+        $current_user = wp_get_current_user();
+        $meta         = $this->get_item_meta_array( $item_id );
+        $validation   = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $supplier_id  = isset( $validation['supplier_id'] ) ? absint( $validation['supplier_id'] ) : ( isset( $validation['request']['supplier_id'] ) ? absint( $validation['request']['supplier_id'] ) : 0 );
+
+        if ( ! $supplier_id || intval( $current_user->ID ) !== $supplier_id ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $validation_state = $this->build_material_validation_state( $item_id, $meta );
+        if ( empty( $validation_state['can_commit'] ) ) {
+            wp_send_json_error( array( 'message' => 'Production can only begin after PO, deposit, and COM are complete.' ), 400 );
+        }
+        if ( isset( $validation_state['execution_payment_status'] ) && 'confirmed' !== sanitize_key( (string) $validation_state['execution_payment_status'] ) ) {
+            wp_send_json_error( array( 'message' => 'Production is locked until execution activation payment is confirmed by admin.' ), 400 );
+        }
+
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['commitment']['production_status']     = 'in_production';
+        $validation['commitment']['production_started_at'] = current_time( 'mysql' );
+        $validation['commitment']['production_started_by'] = $current_user->ID;
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to begin production.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Production started.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_submit_execution_activation_payment() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $payment_method = sanitize_key( wp_unslash( $_POST['payment_method'] ?? '' ) );
+        if ( ! in_array( $payment_method, array( 'zelle', 'wire', 'ach' ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Please select payment method (Zelle, Wire, or ACH).' ), 400 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $execution = isset( $validation['commitment']['execution_activation'] ) && is_array( $validation['commitment']['execution_activation'] )
+            ? $validation['commitment']['execution_activation']
+            : array();
+        $request = isset( $validation['request'] ) && is_array( $validation['request'] ) ? $validation['request'] : array();
+        $batch_context = isset( $request['batch_context'] ) && is_array( $request['batch_context'] ) ? $request['batch_context'] : array();
+        $batch_awarded_ids = isset( $batch_context['awarded_item_ids'] ) && is_array( $batch_context['awarded_item_ids'] )
+            ? array_values( array_unique( array_filter( array_map( 'absint', $batch_context['awarded_item_ids'] ) ) ) )
+            : array();
+
+        $awarded_item_count = isset( $_POST['awarded_item_count'] ) ? absint( $_POST['awarded_item_count'] ) : 0;
+        if ( $awarded_item_count <= 0 ) {
+            $awarded_item_count = ! empty( $batch_awarded_ids ) ? count( $batch_awarded_ids ) : 1;
+        }
+
+        $execution_fee_per_item = 750;
+        $execution_fee_total = $awarded_item_count * $execution_fee_per_item;
+        $reference_id = 'EXE-' . $item_id . '-' . gmdate( 'YmdHis' ) . '-' . wp_rand( 100, 999 );
+
+        $execution['fee_per_awarded_item'] = $execution_fee_per_item;
+        $execution['awarded_item_count']   = $awarded_item_count;
+        $execution['fee_total']            = $execution_fee_total;
+        $execution['payment_method']       = $payment_method;
+        $execution['payment_status']       = 'pending_verification';
+        $execution['payment_submitted_at'] = current_time( 'mysql' );
+        $execution['reference_id']         = $reference_id;
+        $execution['group_payment_scope']  = ! empty( $batch_awarded_ids ) ? 'batch' : 'single';
+        $execution['group_awarded_item_ids'] = $batch_awarded_ids;
+        $validation['commitment']['execution_activation'] = $execution;
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to submit execution payment details.' ) );
+        }
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'payment_submitted', 'item', array(
+                'item_id'            => $item_id,
+                'payment_method'     => $payment_method,
+                'payment_status'     => 'pending_verification',
+                'execution_fee_total'=> $execution_fee_total,
+                'awarded_item_count' => $awarded_item_count,
+                'reference_id'       => $reference_id,
+            ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Execution payment submitted. Awaiting admin verification.',
+            'reference_id'     => $reference_id,
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_confirm_execution_activation_payment() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_system_operator', (array) $current_user->roles, true ) && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Admin verification required.' ), 403 );
+        }
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ), 400 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $execution = isset( $validation['commitment']['execution_activation'] ) && is_array( $validation['commitment']['execution_activation'] )
+            ? $validation['commitment']['execution_activation']
+            : array();
+
+        $execution['payment_status'] = 'confirmed';
+        $execution['payment_confirmed_at'] = current_time( 'mysql' );
+        $execution['confirmed_by'] = get_current_user_id();
+        $validation['commitment']['execution_activation'] = $execution;
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to confirm execution payment.' ) );
+        }
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'payment_confirmed', 'item', array(
+                'item_id'        => $item_id,
+                'payment_status' => 'confirmed',
+                'reference_id'   => isset( $execution['reference_id'] ) ? $execution['reference_id'] : '',
+            ) );
+            n88_log_event( 'execution_unlocked', 'item', array(
+                'item_id'        => $item_id,
+                'payment_status' => 'confirmed',
+                'reference_id'   => isset( $execution['reference_id'] ) ? $execution['reference_id'] : '',
+            ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Execution payment confirmed. Production unlocked.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
     public function ajax_submit_validation_deposit() {
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
 
@@ -24051,6 +26564,219 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
+     * AJAX handler to fetch draft payloads for multiple items in one call.
+     */
+    public function ajax_get_supplier_batch_drafts() {
+        check_ajax_referer( 'n88_get_bid_draft', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', (array) $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', (array) $current_user->roles, true );
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $item_ids_raw = isset( $_POST['item_ids'] ) ? wp_unslash( $_POST['item_ids'] ) : '[]';
+        $item_ids = json_decode( $item_ids_raw, true );
+        if ( ! is_array( $item_ids ) ) {
+            $item_ids = array();
+        }
+        $item_ids = array_values( array_filter( array_unique( array_map( 'absint', $item_ids ) ) ) );
+        if ( empty( $item_ids ) ) {
+            wp_send_json_success( array( 'drafts' => array() ) );
+        }
+        if ( count( $item_ids ) > 100 ) {
+            $item_ids = array_slice( $item_ids, 0, 100 );
+        }
+
+        global $wpdb;
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+        $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
+
+        $drafts_by_item = array();
+        $placeholders = implode( ',', array_fill( 0, count( $item_ids ), '%d' ) );
+        $draft_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT bid_id, item_id, unit_price, production_lead_time_text, prototype_video_yes, prototype_timeline_option, prototype_cost, meta_json
+                FROM {$item_bids_table}
+                WHERE supplier_id = %d
+                AND status = 'draft'
+                AND item_id IN ({$placeholders})
+                ORDER BY bid_id DESC",
+                array_merge( array( $current_user->ID ), $item_ids )
+            ),
+            ARRAY_A
+        );
+
+        $latest_draft_row_by_item = array();
+        foreach ( (array) $draft_rows as $draft_row ) {
+            $row_item_id = isset( $draft_row['item_id'] ) ? absint( $draft_row['item_id'] ) : 0;
+            if ( ! $row_item_id || isset( $latest_draft_row_by_item[ $row_item_id ] ) ) {
+                continue;
+            }
+            $latest_draft_row_by_item[ $row_item_id ] = $draft_row;
+        }
+
+        $bid_ids = array_values(
+            array_filter(
+                array_map(
+                    'absint',
+                    wp_list_pluck( $latest_draft_row_by_item, 'bid_id' )
+                )
+            )
+        );
+
+        $links_by_bid = array();
+        $files_by_bid = array();
+        if ( ! empty( $bid_ids ) ) {
+            $bid_placeholders = implode( ',', array_fill( 0, count( $bid_ids ), '%d' ) );
+            $link_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT bid_id, url, provider FROM {$bid_media_links_table}
+                    WHERE bid_id IN ({$bid_placeholders})
+                    ORDER BY sort_order ASC, id ASC",
+                    $bid_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $link_rows as $link_row ) {
+                $bid_id = isset( $link_row['bid_id'] ) ? absint( $link_row['bid_id'] ) : 0;
+                if ( ! $bid_id ) {
+                    continue;
+                }
+                if ( ! isset( $links_by_bid[ $bid_id ] ) ) {
+                    $links_by_bid[ $bid_id ] = array();
+                }
+                $links_by_bid[ $bid_id ][] = $link_row;
+            }
+
+            $file_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT bid_id, file_url FROM {$bid_media_files_table}
+                    WHERE bid_id IN ({$bid_placeholders})
+                    ORDER BY sort_order ASC, id ASC",
+                    $bid_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $file_rows as $file_row ) {
+                $bid_id = isset( $file_row['bid_id'] ) ? absint( $file_row['bid_id'] ) : 0;
+                if ( ! $bid_id ) {
+                    continue;
+                }
+                if ( ! isset( $files_by_bid[ $bid_id ] ) ) {
+                    $files_by_bid[ $bid_id ] = array();
+                }
+                $files_by_bid[ $bid_id ][] = $file_row;
+            }
+        }
+
+        foreach ( $item_ids as $item_id ) {
+            if ( isset( $latest_draft_row_by_item[ $item_id ] ) ) {
+                $row = $latest_draft_row_by_item[ $item_id ];
+                $bid_id = absint( $row['bid_id'] );
+                $video_links = isset( $links_by_bid[ $bid_id ] ) ? $links_by_bid[ $bid_id ] : array();
+                $bid_photos = isset( $files_by_bid[ $bid_id ] ) ? $files_by_bid[ $bid_id ] : array();
+
+                $photo_urls = array();
+                $bid_photo_ids = array();
+                $bid_photo_urls_array = array();
+                foreach ( $bid_photos as $photo ) {
+                    if ( empty( $photo['file_url'] ) ) {
+                        continue;
+                    }
+                    $file_url = esc_url_raw( $photo['file_url'] );
+                    $photo_urls[] = $file_url;
+                    $attachment_id = attachment_url_to_postid( $photo['file_url'] );
+                    if ( $attachment_id ) {
+                        $attachment_id = absint( $attachment_id );
+                        $bid_photo_ids[] = $attachment_id;
+                        $bid_photo_urls_array[] = array(
+                            'id' => $attachment_id,
+                            'url' => $file_url,
+                        );
+                    } else {
+                        $bid_photo_urls_array[] = array(
+                            'id' => null,
+                            'url' => $file_url,
+                        );
+                    }
+                }
+
+                $smart_alternatives_suggestion = null;
+                $material_included = null;
+                $sample_required = null;
+                $proposal_notes = null;
+                $fabric_quantity = null;
+                if ( ! empty( $row['meta_json'] ) ) {
+                    $bid_meta = json_decode( $row['meta_json'], true );
+                    if ( is_array( $bid_meta ) ) {
+                        if ( isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
+                            $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                        }
+                        if ( isset( $bid_meta['material_included'] ) ) {
+                            $material_included = sanitize_text_field( $bid_meta['material_included'] );
+                        }
+                        if ( isset( $bid_meta['sample_required'] ) ) {
+                            $sample_required = sanitize_text_field( $bid_meta['sample_required'] );
+                        }
+                        if ( isset( $bid_meta['proposal_notes'] ) ) {
+                            $proposal_notes = sanitize_textarea_field( $bid_meta['proposal_notes'] );
+                        }
+                        if ( isset( $bid_meta['fabric_quantity'] ) ) {
+                            $fabric_quantity = sanitize_text_field( $bid_meta['fabric_quantity'] );
+                        }
+                    }
+                }
+
+                $drafts_by_item[ strval( $item_id ) ] = array(
+                    'unit_price' => ! empty( $row['unit_price'] ) ? floatval( $row['unit_price'] ) : null,
+                    'production_lead_time_text' => ! empty( $row['production_lead_time_text'] ) ? sanitize_text_field( $row['production_lead_time_text'] ) : null,
+                    'prototype_video_yes' => intval( $row['prototype_video_yes'] ) === 1,
+                    'prototype_timeline_option' => ! empty( $row['prototype_timeline_option'] ) ? sanitize_text_field( $row['prototype_timeline_option'] ) : null,
+                    'prototype_cost' => ! empty( $row['prototype_cost'] ) ? floatval( $row['prototype_cost'] ) : null,
+                    'video_links' => array_values(
+                        array_filter(
+                            array_map(
+                                static function( $link_row ) {
+                                    return ! empty( $link_row['url'] ) ? esc_url_raw( $link_row['url'] ) : '';
+                                },
+                                (array) $video_links
+                            )
+                        )
+                    ),
+                    'bid_photos' => $photo_urls,
+                    'bid_photo_ids' => $bid_photo_ids,
+                    'bid_photo_urls' => $bid_photo_urls_array,
+                    'material_included' => $material_included,
+                    'sample_required' => $sample_required,
+                    'proposal_notes' => $proposal_notes,
+                    'fabric_quantity' => $fabric_quantity,
+                    'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
+                );
+                continue;
+            }
+
+            $meta_key = 'n88_bid_draft_' . $item_id;
+            $draft_json = get_user_meta( $current_user->ID, $meta_key, true );
+            if ( empty( $draft_json ) ) {
+                continue;
+            }
+            $draft = json_decode( $draft_json, true );
+            if ( is_array( $draft ) ) {
+                $drafts_by_item[ strval( $item_id ) ] = $draft;
+            }
+        }
+
+        wp_send_json_success( array( 'drafts' => $drafts_by_item ) );
+    }
+
+    /**
      * AJAX handler for RFQ submission routing (Commit 2.3.4)
      * Handles single-item and multi-item submissions
      * Creates routes and delivery context per item
@@ -24145,6 +26871,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $custom_specification = isset( $item_data['custom_specification'] ) ? trim( sanitize_textarea_field( $item_data['custom_specification'] ) ) : '';
             $delivery_country = isset( $item_data['delivery_country'] ) ? strtoupper( trim( sanitize_text_field( $item_data['delivery_country'] ) ) ) : '';
             $delivery_postal = isset( $item_data['delivery_postal'] ) ? trim( sanitize_text_field( $item_data['delivery_postal'] ) ) : '';
+            $preferred_delivery_date = isset( $item_data['preferred_delivery_date'] ) ? sanitize_text_field( $item_data['preferred_delivery_date'] ) : '';
+            $category = isset( $item_data['category'] ) ? sanitize_text_field( $item_data['category'] ) : '';
+            $selected_keyword_ids = isset( $item_data['selected_keyword_ids'] ) && is_array( $item_data['selected_keyword_ids'] )
+                ? array_values( array_filter( array_map( 'absint', $item_data['selected_keyword_ids'] ) ) )
+                : array();
+            $rfq_overall_notes = isset( $item_data['rfq_overall_notes'] ) ? sanitize_textarea_field( $item_data['rfq_overall_notes'] ) : '';
+            $rfq_fabric_supplied_flag = ( isset( $item_data['rfq_fabric_supplied_flag'] ) && 'no' === sanitize_text_field( $item_data['rfq_fabric_supplied_flag'] ) ) ? 'no' : 'yes';
+            $rfq_fabric_notes = isset( $item_data['rfq_fabric_notes'] ) ? sanitize_textarea_field( $item_data['rfq_fabric_notes'] ) : '';
 
             // Validate item exists and user owns it
             $item = $wpdb->get_row( $wpdb->prepare(
@@ -24219,6 +26953,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'custom_specification' => $custom_specification,
                     'delivery_country' => $delivery_country,
                     'delivery_postal' => $delivery_postal,
+                    'preferred_delivery_date' => $preferred_delivery_date,
+                    'category' => $category,
+                    'selected_keyword_ids' => $selected_keyword_ids,
+                    'rfq_overall_notes' => $rfq_overall_notes,
+                    'rfq_fabric_supplied_flag' => $rfq_fabric_supplied_flag,
+                    'rfq_fabric_notes' => $rfq_fabric_notes,
                 );
             }
         }
@@ -24230,6 +26970,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'errors' => $errors,
             ) );
         }
+
+        $validated_item_ids = array_values(
+            array_unique(
+                array_map(
+                    'absint',
+                    wp_list_pluck( $validated_items, 'item_id' )
+                )
+            )
+        );
 
         // Start transaction
         $wpdb->query( 'START TRANSACTION' );
@@ -24311,6 +27060,69 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             foreach ( $validated_items as $item_data ) {
                 $item_id = $item_data['item_id'];
                 $item = $item_data['item'];
+
+                // Save item facts inside same submit call so client doesn't need a separate save request.
+                $item_meta_json = $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                        $item_id
+                    )
+                );
+                $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
+                if ( ! is_array( $item_meta ) ) {
+                    $item_meta = array();
+                }
+
+                if ( count( $validated_item_ids ) > 1 ) {
+                    $item_meta['rfq_batch_item_ids'] = $validated_item_ids;
+                    $item_meta['rfq_batch_request'] = true;
+                } else {
+                    $item_meta['rfq_batch_item_ids'] = array( $item_id );
+                    $item_meta['rfq_batch_request'] = false;
+                }
+                $item_meta['quantity'] = (int) $item_data['quantity'];
+                $item_meta['measurement_type'] = $item_data['measurement_type'];
+                if ( 'dimensions' === $item_data['measurement_type'] ) {
+                    $item_meta['dims'] = array(
+                        'w'    => (float) $item_data['width'],
+                        'd'    => (float) $item_data['depth'],
+                        'h'    => (float) $item_data['height'],
+                        'unit' => $item_data['dimension_unit'],
+                    );
+                } else {
+                    unset( $item_meta['dims'] );
+                }
+                $item_meta['measurement_area'] = (float) $item_data['measurement_area'];
+                $item_meta['measurement_area_unit'] = $item_data['measurement_area_unit'];
+                $item_meta['measurement_length'] = (float) $item_data['measurement_length'];
+                $item_meta['measurement_length_unit'] = $item_data['measurement_length_unit'];
+                $item_meta['custom_specification'] = $item_data['custom_specification'];
+                $item_meta['delivery_country'] = $item_data['delivery_country'];
+                $item_meta['delivery_postal'] = $item_data['delivery_postal'];
+                $item_meta['preferred_delivery_date'] = $item_data['preferred_delivery_date'];
+                $item_meta['selected_keyword_ids'] = $item_data['selected_keyword_ids'];
+                $item_meta['rfq_overall_notes'] = $item_data['rfq_overall_notes'];
+                $item_meta['rfq_fabric_supplied_flag'] = $item_data['rfq_fabric_supplied_flag'];
+                $item_meta['rfq_fabric_notes'] = $item_data['rfq_fabric_notes'];
+
+                $item_update_data = array(
+                    'meta_json' => wp_json_encode( $item_meta ),
+                );
+                $item_update_format = array( '%s' );
+                if ( ! empty( $item_data['category'] ) ) {
+                    $item_update_data['item_type'] = $item_data['category'];
+                    $item_update_format[] = '%s';
+                }
+                $item_update_result = $wpdb->update(
+                    $items_table,
+                    $item_update_data,
+                    array( 'id' => $item_id ),
+                    $item_update_format,
+                    array( '%d' )
+                );
+                if ( false === $item_update_result ) {
+                    throw new Exception( 'Failed to save item facts for item #' . $item_id . '.' );
+                }
 
                 // 1. Write/update delivery context (including quantity and dimensions from RFQ submission)
                 $shipping_mode = in_array( $item_data['delivery_country'], array( 'US', 'CA' ), true ) ? 'auto' : 'manual';
@@ -24395,13 +27207,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 // 2. Create designer_invited routes (for each invited supplier that exists)
                 foreach ( $invited_supplier_ids as $invited_supplier_id ) {
                     // Check if route already exists (idempotent)
-                    $existing_route = $wpdb->get_var( $wpdb->prepare(
-                        "SELECT route_id FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d",
+                    $existing_route_row = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT route_id, route_type FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d",
                         $item_id,
                         $invited_supplier_id
-                    ) );
+                    ), ARRAY_A );
 
-                    if ( ! $existing_route ) {
+                    if ( ! $existing_route_row ) {
                         $wpdb->insert(
                             $rfq_routes_table,
                             array(
@@ -24413,6 +27225,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 'status' => 'sent',
                             ),
                             array( '%d', '%d', '%s', '%s', '%s', '%s' )
+                        );
+                    } elseif ( ! empty( $existing_route_row['route_type'] ) && 'designer_message' === $existing_route_row['route_type'] ) {
+                        // Pre-RFQ message-only row: promote to a real designer RFQ invite.
+                        $wpdb->update(
+                            $rfq_routes_table,
+                            array(
+                                'route_type' => 'designer_invited',
+                                'routed_at'  => current_time( 'mysql' ),
+                                'status'     => 'sent',
+                            ),
+                            array( 'route_id' => (int) $existing_route_row['route_id'] ),
+                            array( '%s', '%s', '%s' ),
+                            array( '%d' )
                         );
                     }
                 }
@@ -24481,20 +27306,24 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $item_meta = array();
                 }
                 
+                $initialized_revision = false;
                 // Only set revision if not already set (first RFQ submission)
                 if ( ! isset( $item_meta['rfq_revision_current'] ) || empty( $item_meta['rfq_revision_current'] ) ) {
                     $item_meta['rfq_revision_current'] = 1;
                     $item_meta['revision_changed'] = false; // Reset revision_changed flag on new RFQ
-                    
-                    $updated_meta_json = wp_json_encode( $item_meta );
-                    $wpdb->update(
-                        $items_table,
-                        array( 'meta_json' => $updated_meta_json ),
-                        array( 'id' => $item_id ),
-                        array( '%s' ),
-                        array( '%d' )
-                    );
-                    
+                    $initialized_revision = true;
+                }
+
+                $updated_meta_json = wp_json_encode( $item_meta );
+                $wpdb->update(
+                    $items_table,
+                    array( 'meta_json' => $updated_meta_json ),
+                    array( 'id' => $item_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+
+                if ( $initialized_revision ) {
                     error_log( 'RFQ Submission - Initialized rfq_revision_current to 1 for item ' . $item_id );
                 }
             }
@@ -29376,6 +32205,60 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
+     * Return the stable batch designer↔supplier message thread key for a set of item IDs (designer-owned items only).
+     */
+    public function ajax_compute_batch_message_thread_key() {
+        check_ajax_referer( 'n88_get_item_messages', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+            return;
+        }
+
+        $raw_ids = isset( $_POST['item_ids'] ) ? wp_unslash( $_POST['item_ids'] ) : array();
+        if ( is_string( $raw_ids ) ) {
+            $decoded = json_decode( $raw_ids, true );
+            $raw_ids   = is_array( $decoded ) ? $decoded : array();
+        }
+        $item_ids = $this->normalize_supplier_batch_item_ids( $raw_ids );
+        if ( empty( $item_ids ) ) {
+            wp_send_json_error( array( 'message' => 'No valid item IDs.' ), 400 );
+            return;
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $owner_id    = (int) $current_user->ID;
+        foreach ( $item_ids as $item_id ) {
+            $owner = (int) $wpdb->get_var( $wpdb->prepare( "SELECT owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL LIMIT 1", $item_id ) );
+            if ( $owner !== $owner_id ) {
+                wp_send_json_error( array( 'message' => 'Access denied for one or more items.' ), 403 );
+                return;
+            }
+        }
+
+        $key = $this->build_batch_compose_message_thread_key( $item_ids );
+        if ( ! $key ) {
+            wp_send_json_error( array( 'message' => 'Could not build thread key.' ), 400 );
+            return;
+        }
+
+        wp_send_json_success(
+            array(
+                'batch_message_thread_key' => $key,
+                'item_ids'                 => $item_ids,
+            )
+        );
+    }
+
+    /**
      * AJAX handler to get item messages (Commit 2.3.9.1C-a)
      */
     public function ajax_get_item_messages() {
@@ -29401,6 +32284,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $context_type = isset( $_POST['context_type'] ) ? $this->normalize_item_message_context_type( wp_unslash( $_POST['context_type'] ) ) : '';
         $requested_supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
+        $proposal_group_id_for_batch = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $batch_thread_key_for_batch  = $this->sanitize_batch_message_thread_key( isset( $_POST['batch_thread_key'] ) ? wp_unslash( $_POST['batch_thread_key'] ) : '' );
         $offset = isset( $_POST['offset'] ) ? max( 0, absint( $_POST['offset'] ) ) : 0;
         $limit  = isset( $_POST['limit'] ) ? max( 1, min( 100, absint( $_POST['limit'] ) ) ) : 50;
         if ( $thread_type === 'designer_supplier' ) {
@@ -29497,10 +32382,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     wp_send_json_error( array( 'message' => 'Access denied. You can only view messages for your own RFQ items.' ), 403 );
                     return;
                 }
+                $supplier_email_batch_resolve = isset( $_POST['supplier_email'] ) ? sanitize_email( wp_unslash( $_POST['supplier_email'] ) ) : '';
+                if ( ! $requested_supplier_id && 'batch_proposal' === $context_type && $supplier_email_batch_resolve ) {
+                    $sup_by_email = get_user_by( 'email', $supplier_email_batch_resolve );
+                    if ( $sup_by_email ) {
+                        $requested_supplier_id = (int) $sup_by_email->ID;
+                    }
+                }
                 if ( ! $requested_supplier_id ) {
                     $requested_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
                 }
-                if ( $requested_supplier_id && ! $this->supplier_has_designer_supplier_thread_access( $item_id, $requested_supplier_id ) ) {
+                if ( 'batch_proposal' !== $context_type && $requested_supplier_id && ! $this->supplier_has_designer_supplier_thread_access( $item_id, $requested_supplier_id ) ) {
                     $requested_supplier_id = 0;
                 }
                 if ( ! $requested_supplier_id ) {
@@ -29521,7 +32413,33 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        if ( $thread_type === 'designer_supplier' && $thread_supplier_id && $thread_designer_id && $this->designer_supplier_thread_needs_repair( $item_id, $thread_supplier_id, $thread_designer_id ) ) {
+        if ( $thread_type === 'designer_supplier' && 'batch_proposal' === $context_type ) {
+            if ( ! $proposal_group_id_for_batch && ! $batch_thread_key_for_batch ) {
+                wp_send_json_error( array( 'message' => 'Missing batch scope for batch proposal messages.' ), 400 );
+                return;
+            }
+            if ( $proposal_group_id_for_batch ) {
+                $where_clauses[] = $wpdb->prepare( 'm.proposal_group_id = %d', $proposal_group_id_for_batch );
+            } else {
+                $where_clauses[] = 'm.proposal_group_id IS NULL';
+                $where_clauses[] = $wpdb->prepare( 'm.category = %s', $batch_thread_key_for_batch );
+            }
+            $dsm_supplier = (int) $thread_supplier_id;
+            $dsm_designer = (int) $thread_designer_id;
+            if ( ! $this->user_may_access_batch_designer_supplier_messages(
+                $item_id,
+                $dsm_supplier,
+                $proposal_group_id_for_batch,
+                $batch_thread_key_for_batch,
+                $dsm_designer,
+                $is_supplier
+            ) ) {
+                wp_send_json_error( array( 'message' => 'Access denied for this batch conversation.' ), 403 );
+                return;
+            }
+        }
+
+        if ( $thread_type === 'designer_supplier' && 'batch_proposal' !== $context_type && $thread_supplier_id && $thread_designer_id && $this->designer_supplier_thread_needs_repair( $item_id, $thread_supplier_id, $thread_designer_id ) ) {
             $this->repair_designer_supplier_thread_messages( $item_id, $thread_supplier_id, $thread_designer_id );
         }
 
@@ -29686,6 +32604,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
      * AJAX handler to send item message (Commit 2.3.9.1C-a)
      */
     public function ajax_send_item_message() {
+        $request_started_at = microtime( true );
         check_ajax_referer( 'n88_send_item_message', '_ajax_nonce' );
 
         if ( ! is_user_logged_in() ) {
@@ -29707,11 +32626,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $message_text = isset( $_POST['message_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['message_text'] ) ) : '';
         $context_type = isset( $_POST['context_type'] ) ? $this->normalize_item_message_context_type( wp_unslash( $_POST['context_type'] ) ) : '';
-        if ( $thread_type === 'designer_supplier' ) {
+        if ( $thread_type === 'designer_supplier' && 'batch_proposal' === $context_type ) {
             $this->ensure_supplier_proposal_workspace_support();
         }
         $this->ensure_item_message_context_support();
         $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
+        $proposal_group_id_post = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $batch_thread_key_post    = $this->sanitize_batch_message_thread_key( isset( $_POST['batch_thread_key'] ) ? wp_unslash( $_POST['batch_thread_key'] ) : '' );
         // Message tags (designer_operator designer only): required  at least one of clarifying_questions, mse_material
         $message_tags = array();
         if ( isset( $_POST['message_tags'] ) && is_array( $_POST['message_tags'] ) ) {
@@ -29845,11 +32766,32 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         return;
                     }
                 }
-                if ( ! $supplier_id ) {
-                    $supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
-                }
-                if ( $supplier_id && ! $this->supplier_has_designer_supplier_thread_access( $item_id, $supplier_id ) ) {
-                    $supplier_id = 0;
+                // Fast path for batch proposal chat: frontend always chooses supplier_id or supplier_email.
+                // Skip expensive direct-thread supplier resolution queries in this hot path.
+                if ( 'batch_proposal' !== $context_type ) {
+                    $eligible = $this->get_designer_supplier_thread_supplier_ids( $item_id );
+                    if ( ! $supplier_id && 1 === count( $eligible ) ) {
+                        $supplier_id = (int) $eligible[0];
+                    } elseif ( ! $supplier_id && count( $eligible ) > 1 ) {
+                        wp_send_json_error( array( 'message' => __( 'Select a supplier in the message panel. Messages go to one supplier at a time.', 'n88-rfq-platform' ) ) );
+                        return;
+                    } elseif ( ! $supplier_id ) {
+                        $resolved = (int) $this->resolve_designer_supplier_thread_supplier_id( $item_id );
+                        if ( $resolved > 0 && count( $eligible ) > 1 && ! in_array( $resolved, $eligible, true ) ) {
+                            $resolved = 0;
+                        }
+                        if ( $resolved > 0 && ( count( $eligible ) <= 1 || in_array( $resolved, $eligible, true ) ) ) {
+                            $supplier_id = $resolved;
+                        } elseif ( $resolved > 0 && count( $eligible ) > 1 ) {
+                            wp_send_json_error( array( 'message' => __( 'Select a supplier in the message panel. Messages go to one supplier at a time.', 'n88-rfq-platform' ) ) );
+                            return;
+                        } else {
+                            $supplier_id = $resolved;
+                        }
+                    }
+                    if ( $supplier_id && ! $this->supplier_has_designer_supplier_thread_access( $item_id, $supplier_id ) ) {
+                        $supplier_id = 0;
+                    }
                 }
             }
         }
@@ -29889,10 +32831,42 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        $proposal_group_id_insert = null;
+        if ( $thread_type === 'designer_supplier' && 'batch_proposal' === $context_type ) {
+            if ( ! $proposal_group_id_post && ! $batch_thread_key_post ) {
+                wp_send_json_error( array( 'message' => __( 'Missing batch scope for batch proposal messages.', 'n88-rfq-platform' ) ), 400 );
+                return;
+            }
+            if ( ! $this->user_may_access_batch_designer_supplier_messages(
+                $item_id,
+                (int) $supplier_id,
+                $proposal_group_id_post,
+                $proposal_group_id_post ? '' : $batch_thread_key_post,
+                (int) $designer_id,
+                $is_supplier
+            ) ) {
+                wp_send_json_error( array( 'message' => __( 'Access denied for this batch conversation.', 'n88-rfq-platform' ) ), 403 );
+                return;
+            }
+            if ( $proposal_group_id_post > 0 ) {
+                $proposal_group_id_insert = $proposal_group_id_post;
+            } else {
+                $proposal_group_id_insert = null;
+                $category               = $batch_thread_key_post;
+            }
+        }
+
         // Optional file attachments
         $attachment_urls = array();
-        if ( ( ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) || ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) || ( $thread_type === 'designer_supplier' && in_array( $sender_role, array( 'designer', 'supplier' ), true ) ) ) && ! empty( $_FILES['message_attachments'] ) ) {
-            $files = $_FILES['message_attachments'];
+        if ( ( ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) || ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) || ( $thread_type === 'designer_supplier' && in_array( $sender_role, array( 'designer', 'supplier' ), true ) ) ) ) {
+            // Host/PHP environments may expose multi-file keys as either message_attachments or message_attachments[].
+            $files = array();
+            if ( ! empty( $_FILES['message_attachments'] ) ) {
+                $files = $_FILES['message_attachments'];
+            } elseif ( ! empty( $_FILES['message_attachments[]'] ) ) {
+                $files = $_FILES['message_attachments[]'];
+            }
+        if ( ! empty( $files ) ) {
             $count = is_array( $files['name'] ) ? count( $files['name'] ) : 1;
             if ( $count > 5 ) {
                 $count = 5;
@@ -29903,7 +32877,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $name = is_array( $files['name'] ) ? $files['name'][ $i ] : $files['name'];
                 $tmp = is_array( $files['tmp_name'] ) ? $files['tmp_name'][ $i ] : $files['tmp_name'];
                 $error = is_array( $files['error'] ) ? $files['error'][ $i ] : $files['error'];
-                if ( $error !== UPLOAD_ERR_OK || empty( $tmp ) || ! is_uploaded_file( $tmp ) ) {
+                if ( $error !== UPLOAD_ERR_OK || empty( $tmp ) ) {
                     continue;
                 }
                 $file = array( 'name' => $name, 'tmp_name' => $tmp, 'error' => $error, 'size' => is_array( $files['size'] ) ? $files['size'][ $i ] : $files['size'], 'type' => is_array( $files['type'] ) ? $files['type'][ $i ] : $files['type'] );
@@ -29915,28 +32889,31 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     }
                 }
             }
+            }
         }
 
         // Insert message
         $message_attachments_json = empty( $attachment_urls ) ? null : wp_json_encode( $attachment_urls );
-        $insert_result = $wpdb->insert(
-            $messages_table,
-            array(
-                'thread_type' => $thread_type,
-                'item_id' => $item_id,
-                'bid_id' => $bid_id,
-                'supplier_id' => $supplier_id,
-                'designer_id' => $designer_id,
-                'sender_role' => $sender_role,
-                'sender_user_id' => $current_user->ID,
-                'message_text' => $message_text,
-                'category' => $category ? $category : null,
-                'context_type' => $context_type ? $context_type : null,
-                'message_attachments' => $message_attachments_json,
-                'created_at' => current_time( 'mysql' ),
-            ),
-            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s' )
+        $insert_row = array(
+            'thread_type'         => $thread_type,
+            'item_id'             => $item_id,
+            'bid_id'              => $bid_id,
+            'supplier_id'       => $supplier_id,
+            'designer_id'         => $designer_id,
+            'sender_role'         => $sender_role,
+            'sender_user_id'      => $current_user->ID,
+            'message_text'        => $message_text,
+            'category'            => $category ? $category : null,
+            'context_type'        => $context_type ? $context_type : null,
+            'message_attachments' => $message_attachments_json,
+            'created_at'          => current_time( 'mysql' ),
         );
+        $insert_formats = array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s' );
+        if ( null !== $proposal_group_id_insert ) {
+            $insert_row['proposal_group_id'] = $proposal_group_id_insert;
+            $insert_formats[]                = '%d';
+        }
+        $insert_result = $wpdb->insert( $messages_table, $insert_row, $insert_formats );
 
         if ( ! $insert_result ) {
             $db_error = $wpdb->last_error ? $wpdb->last_error : 'Unknown database error';
@@ -29957,8 +32934,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $message_id = $wpdb->insert_id;
 
-        if ( $thread_type === 'designer_supplier' && $supplier_id && $designer_id ) {
+        if ( $thread_type === 'designer_supplier' && $supplier_id && $designer_id && 'batch_proposal' !== $context_type ) {
             $this->repair_designer_supplier_thread_messages( $item_id, $supplier_id, $designer_id, $message_id );
+        }
+        if ( $thread_type === 'designer_supplier' && $sender_role === 'designer' && $supplier_id && 'batch_proposal' !== $context_type ) {
+            $this->ensure_rfq_route_for_designer_message( $item_id, $supplier_id );
         }
 
         // Queue Surfacing Fix: When supplier sends clarification, mark item for operator attention
@@ -30001,10 +32981,36 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $response = array(
             'message_id'    => $message_id,
             'context_type'  => $context_type,
+            'message'       => array(
+                'message_id'            => (int) $message_id,
+                'item_id'               => (int) $item_id,
+                'thread_type'           => $thread_type,
+                'message_text'          => $message_text,
+                'sender_role'           => $sender_role,
+                'sender_user_id'        => (int) $current_user->ID,
+                'sender_name'           => $current_user->display_name,
+                'created_at'            => current_time( 'mysql' ),
+                'supplier_id'           => null !== $supplier_id ? (int) $supplier_id : null,
+                'designer_id'           => null !== $designer_id ? (int) $designer_id : null,
+                'context_type'          => $context_type ? $context_type : null,
+                'message_attachments'   => $message_attachments_json,
+            ),
         );
         if ( $thread_type === 'designer_supplier' && $supplier_id ) {
             $response['supplier_id'] = (int) $supplier_id;
         }
+
+        $this->log_ajax_performance(
+            'n88_send_item_message',
+            $request_started_at,
+            array(
+                'item_id'      => (int) $item_id,
+                'thread_type'  => (string) $thread_type,
+                'context_type' => (string) $context_type,
+                'sender_role'  => (string) $sender_role,
+                'has_files'    => ! empty( $attachment_urls ) ? 1 : 0,
+            )
+        );
 
         wp_send_json_success( $response );
     }
@@ -31506,29 +34512,46 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( ! class_exists( 'N88_Item_Timeline' ) ) {
             wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
         }
-        $timeline = N88_Item_Timeline::get_timeline_for_item( $item_id );
         $current_user = wp_get_current_user();
-        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $timeline_payload = $this->get_item_timeline_payload( $item_id, $current_user );
+        if ( empty( $timeline_payload ) ) {
+            wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
+        }
+        wp_send_json_success( $timeline_payload );
+    }
+
+    private function get_item_timeline_payload( $item_id, $current_user = null, $validation_state = null ) {
+        if ( ! class_exists( 'N88_Item_Timeline' ) ) {
+            return null;
+        }
+
+        if ( ! $current_user ) {
+            $current_user = wp_get_current_user();
+        }
+
+        $timeline     = N88_Item_Timeline::get_timeline_for_item( $item_id );
+        $is_operator  = in_array( 'n88_system_operator', (array) $current_user->roles, true );
+        $for_designer = ! $is_operator && ! current_user_can( 'manage_options' );
+
         $evidence_by_step = array();
         if ( class_exists( 'N88_Timeline_Step_Evidence' ) ) {
-            $for_designer = ! $is_operator && ! current_user_can( 'manage_options' );
             $evidence_by_step = N88_Timeline_Step_Evidence::get_evidence_for_item( $item_id, $for_designer );
             if ( class_exists( 'N88_Evidence_Comments' ) ) {
                 $evidence_by_step = $this->evidence_attach_comments( $evidence_by_step );
             }
         }
-        $can_add_evidence_comment = $this->user_is_designer_owner_of_item( $item_id );
+
         $steps_with_supplier_evidence = array();
         $supplier_step_evidence_by_step = array();
         if ( class_exists( 'N88_Step_Evidence_Submissions' ) ) {
             $steps_with_supplier_evidence = N88_Step_Evidence_Submissions::get_steps_with_supplier_evidence( $item_id );
-            $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+            $is_supplier = in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) || in_array( 'n88_supplier', (array) $current_user->roles, true ) || in_array( 'supplier', (array) $current_user->roles, true );
             if ( $is_supplier && $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
                 $supplier_step_evidence_by_step = N88_Step_Evidence_Submissions::get_by_item_for_supplier( $item_id, $current_user->ID );
             }
         }
+
         $step_456_videos = array();
-        $step_456_comments = array();
         if ( class_exists( 'N88_Timeline_Step_Videos' ) ) {
             $step_456_videos = array(
                 4 => N88_Timeline_Step_Videos::get_submissions_for_step( $item_id, 4 ),
@@ -31536,6 +34559,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 6 => N88_Timeline_Step_Videos::get_submissions_for_step( $item_id, 6 ),
             );
         }
+
+        $step_456_comments = array();
         if ( class_exists( 'N88_Timeline_Step_Comments' ) ) {
             $step_456_comments = array(
                 4 => N88_Timeline_Step_Comments::get_comments_for_step( $item_id, 4 ),
@@ -31543,18 +34568,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 6 => N88_Timeline_Step_Comments::get_comments_for_step( $item_id, 6 ),
             );
         }
-        $validation_state = $this->build_material_validation_state( $item_id );
-        wp_send_json_success( array(
+
+        if ( null === $validation_state ) {
+            $validation_state = $this->build_material_validation_state( $item_id );
+        }
+
+        return array(
             'timeline'                       => $timeline,
             'is_operator'                    => $is_operator,
             'evidence_by_step'               => $evidence_by_step,
-            'can_add_evidence_comment'       => $can_add_evidence_comment,
+            'can_add_evidence_comment'       => $this->user_is_designer_owner_of_item( $item_id ),
             'steps_with_supplier_evidence'   => $steps_with_supplier_evidence,
             'supplier_step_evidence_by_step' => $supplier_step_evidence_by_step,
             'step_456_videos'                => $step_456_videos,
-            'step_456_comments'               => $step_456_comments,
+            'step_456_comments'              => $step_456_comments,
             'validation_state'               => $validation_state,
-        ) );
+        );
     }
 
     /**
