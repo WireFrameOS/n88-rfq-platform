@@ -713,7 +713,7 @@ class N88_RFQ_Auth {
                 'route_type'     => 'designer_message',
                 'eligible_after' => null,
                 'routed_at'      => current_time( 'mysql' ),
-                'status'         => 'sent',
+                'status'         => 'queued',
             ),
             array( '%d', '%d', '%s', '%s', '%s', '%s' )
         );
@@ -21197,6 +21197,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'reference_id'          => isset( $execution['reference_id'] ) ? sanitize_text_field( $execution['reference_id'] ) : '',
                     'payment_submitted_at'  => isset( $execution['payment_submitted_at'] ) ? $execution['payment_submitted_at'] : null,
                     'payment_confirmed_at'  => isset( $execution['payment_confirmed_at'] ) ? $execution['payment_confirmed_at'] : null,
+                    'payment_receipt_files' => $this->get_validation_attachment_entries( isset( $execution['payment_receipt_file_ids'] ) ? $execution['payment_receipt_file_ids'] : array() ),
                     'locked'                => $execution_locked,
                 ),
             ),
@@ -25218,6 +25219,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $execution_fee_per_item = 750;
         $execution_fee_total = $awarded_item_count * $execution_fee_per_item;
         $reference_id = 'EXE-' . $item_id . '-' . gmdate( 'YmdHis' ) . '-' . wp_rand( 100, 999 );
+        $receipt_ids = array();
+        if ( ! empty( $_FILES['execution_payment_receipt'] ) && ! empty( $_FILES['execution_payment_receipt']['name'] ) ) {
+            $upload = $this->upload_material_validation_attachment( $_FILES['execution_payment_receipt'], 'Execution Activation Payment Receipt ' . $item_id );
+            if ( ! is_wp_error( $upload ) && ! empty( $upload['attachment_id'] ) ) {
+                $receipt_ids[] = (int) $upload['attachment_id'];
+            }
+        }
 
         $execution['fee_per_awarded_item'] = $execution_fee_per_item;
         $execution['awarded_item_count']   = $awarded_item_count;
@@ -25228,6 +25236,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $execution['reference_id']         = $reference_id;
         $execution['group_payment_scope']  = ! empty( $batch_awarded_ids ) ? 'batch' : 'single';
         $execution['group_awarded_item_ids'] = $batch_awarded_ids;
+        if ( ! empty( $receipt_ids ) ) {
+            $execution['payment_receipt_file_ids'] = array_values( array_unique( array_map( 'absint', $receipt_ids ) ) );
+        }
         $validation['commitment']['execution_activation'] = $execution;
         $meta['material_validation'] = $validation;
 
@@ -25260,8 +25271,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
         }
         $current_user = wp_get_current_user();
-        if ( ! in_array( 'n88_system_operator', (array) $current_user->roles, true ) && ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => 'Access denied. Admin verification required.' ), 403 );
+        $is_operator_or_admin = in_array( 'n88_system_operator', (array) $current_user->roles, true ) || current_user_can( 'manage_options' );
+        $is_wireframe_admin_supplier = false;
+        if ( $current_user && isset( $current_user->user_email ) ) {
+            $is_wireframe_admin_supplier = strtolower( (string) $current_user->user_email ) === strtolower( (string) self::N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL );
+        }
+        if ( ! $is_operator_or_admin && ! $is_wireframe_admin_supplier ) {
+            wp_send_json_error( array( 'message' => 'Access denied. WireFrame admin verification required.' ), 403 );
         }
 
         $item_id = absint( $_POST['item_id'] ?? 0 );
@@ -32937,7 +32953,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $thread_type === 'designer_supplier' && $supplier_id && $designer_id && 'batch_proposal' !== $context_type ) {
             $this->repair_designer_supplier_thread_messages( $item_id, $supplier_id, $designer_id, $message_id );
         }
-        if ( $thread_type === 'designer_supplier' && $sender_role === 'designer' && $supplier_id && 'batch_proposal' !== $context_type ) {
+        if ( $thread_type === 'designer_supplier' && $sender_role === 'designer' && $supplier_id ) {
             $this->ensure_rfq_route_for_designer_message( $item_id, $supplier_id );
         }
 

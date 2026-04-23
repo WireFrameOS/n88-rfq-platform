@@ -563,6 +563,7 @@ class N88_RFQ_Admin {
                     'reference_id'          => isset( $execution['reference_id'] ) ? sanitize_text_field( $execution['reference_id'] ) : '',
                     'payment_submitted_at'  => isset( $execution['payment_submitted_at'] ) ? $execution['payment_submitted_at'] : null,
                     'payment_confirmed_at'  => isset( $execution['payment_confirmed_at'] ) ? $execution['payment_confirmed_at'] : null,
+                    'payment_receipt_files' => $this->get_item_validation_attachment_entries( isset( $execution['payment_receipt_file_ids'] ) ? $execution['payment_receipt_file_ids'] : array() ),
                     'locked'                => $execution_locked,
                 ),
             ),
@@ -5405,6 +5406,7 @@ class N88_RFQ_Admin {
         $current_user = wp_get_current_user();
         $is_operator = $current_user && ( in_array( 'n88_system_operator', $current_user->roles, true ) || current_user_can( 'manage_options' ) );
         $is_supplier = $current_user && ( in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'supplier_admin', $current_user->roles, true ) );
+        $is_wireframe_admin = $current_user && isset( $current_user->user_email ) && strtolower( (string) $current_user->user_email ) === 'wireframestudioos@gmail.com';
         
         // Localize script for board data (AJAX URL and nonce for item modal)
         wp_localize_script( 'n88-debounced-save', 'n88BoardData', array(
@@ -5414,6 +5416,7 @@ class N88_RFQ_Admin {
             'isViewOnly' => $is_view_only, // Commit 2.6.1: View-only flag for team members
             'isOperator' => $is_operator, // So designer messages show "Comment by designer" when operator views
             'isSupplier' => $is_supplier,
+            'isWireframeAdmin' => $is_wireframe_admin,
             'isCadPrototypeEnabled' => $this->is_cad_prototype_enabled(),
             // Same query args used when loading initial board items — keeps status refresh + batch scope aligned when URL omits project_id.
             'boardProjectId' => isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0,
@@ -15161,6 +15164,16 @@ class N88_RFQ_Admin {
                     var _executionPaymentSubmittingState = React.useState(false);
                     var executionPaymentSubmitting = _executionPaymentSubmittingState[0];
                     var setExecutionPaymentSubmitting = _executionPaymentSubmittingState[1];
+                    var _executionPaymentReceiptFileState = React.useState(null);
+                    var executionPaymentReceiptFile = _executionPaymentReceiptFileState[0];
+                    var setExecutionPaymentReceiptFile = _executionPaymentReceiptFileState[1];
+                    var executionPaymentReceiptInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var _executionApprovalModalOpenState = React.useState(false);
+                    var executionApprovalModalOpen = _executionApprovalModalOpenState[0];
+                    var setExecutionApprovalModalOpen = _executionApprovalModalOpenState[1];
+                    var _executionApprovalSubmittingState = React.useState(false);
+                    var executionApprovalSubmitting = _executionApprovalSubmittingState[0];
+                    var setExecutionApprovalSubmitting = _executionApprovalSubmittingState[1];
                     React.useEffect(function() {
                         var files = validationDepositReceipts || [];
                         var urls = [];
@@ -15745,6 +15758,7 @@ class N88_RFQ_Admin {
                     var _isOperatorTimelineState = React.useState(true);
                     var isOperatorTimeline = _isOperatorTimelineState[0];
                     var setIsOperatorTimeline = _isOperatorTimelineState[1];
+                    var isWireframeAdminViewer = !!(window.n88BoardData && window.n88BoardData.isWireframeAdmin);
                     var _evidenceBlockedModalState = React.useState(null);
                     var evidenceBlockedModal = _evidenceBlockedModalState[0];
                     var setEvidenceBlockedModal = _evidenceBlockedModalState[1];
@@ -15928,6 +15942,11 @@ class N88_RFQ_Admin {
                             ? validationStateAuto.readiness_flags
                             : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.readiness_flags && typeof item.meta.material_validation.readiness_flags === 'object') ? item.meta.material_validation.readiness_flags : {});
                         var commitmentComStatusAuto = String(validationCommitmentAuto.com_status || '').toLowerCase();
+                        var executionActivationAuto = validationCommitmentAuto.execution_activation && typeof validationCommitmentAuto.execution_activation === 'object'
+                            ? validationCommitmentAuto.execution_activation
+                            : {};
+                        var executionPaymentStatusAuto = String(executionActivationAuto.payment_status || validationStateAuto.execution_payment_status || 'not_started').toLowerCase();
+                        var executionPaymentConfirmedAuto = executionPaymentStatusAuto === 'confirmed';
                         var productionStartedAuto = !!(
                             validationStateAuto.production_started ||
                             validationCommitmentAuto.production_started_at ||
@@ -15935,7 +15954,7 @@ class N88_RFQ_Admin {
                             validationCardTextAuto === 'in production'
                         );
                         var readyForProductionAuto = !!(
-                            productionStartedAuto
+                            productionStartedAuto && executionPaymentConfirmedAuto
                         );
                         var sampleReviewStepThree = !!(
                             itemState.has_awarded_bid ||
@@ -22394,7 +22413,7 @@ class N88_RFQ_Admin {
                                             isItemStateSectionLoading('workflow') ? renderLoadingNotice('Loading workflow details...') : null,
                                             timelineError ? React.createElement('div', { style: { padding: '16px', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' } }, timelineError) : null,
                                             // Operator: standalone Step 4 Deposit block - visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps
-                                            !timelineLoading && itemState && itemState.has_awarded_bid && isOperatorTimeline ? React.createElement('div', { style: { marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
+                                            false && !timelineLoading && itemState && itemState.has_awarded_bid && isOperatorTimeline ? React.createElement('div', { style: { marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Step 4 - Sent Deposit to start production'),
                                                 itemState.deposit_status === 'received' ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, '\u2713 Deposit received ' + (itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '') + '. Production (Step 4) can be started.')
                                                 : React.createElement('div', null,
@@ -22442,11 +22461,17 @@ class N88_RFQ_Admin {
                                                     }
                                                 }, (function() {
                                                     var stepEls = [];
+                                                    var timelineValidationState = itemState && itemState.validation_state && typeof itemState.validation_state === 'object' ? itemState.validation_state : {};
+                                                    var timelineCommitmentState = timelineValidationState.commitment && typeof timelineValidationState.commitment === 'object' ? timelineValidationState.commitment : {};
+                                                    var timelineExecutionState = timelineCommitmentState.execution_activation && typeof timelineCommitmentState.execution_activation === 'object' ? timelineCommitmentState.execution_activation : {};
+                                                    var timelineExecutionPaymentStatus = String(timelineExecutionState.payment_status || timelineValidationState.execution_payment_status || 'not_started').toLowerCase();
                                                     timelineData.steps.forEach(function(step, idx) {
                                                         var isSelected = selectedStepIndex === idx;
+                                                        var isStep4LockedByPayment = Number(step.step_number) === 4 && timelineExecutionPaymentStatus !== 'confirmed';
                                                         stepEls.push(React.createElement('div', {
                                                             key: step.step_id || idx,
                                                             onClick: function() {
+                                                                if (isStep4LockedByPayment) return;
                                                                 workflowTimelineUserNavRef.current = true;
                                                                 setSelectedStepIndex(idx);
                                                             },
@@ -22455,7 +22480,8 @@ class N88_RFQ_Admin {
                                                                 display: 'flex',
                                                                 flexDirection: 'column',
                                                                 alignItems: 'center',
-                                                                cursor: 'pointer',
+                                                                cursor: isStep4LockedByPayment ? 'not-allowed' : 'pointer',
+                                                                opacity: isStep4LockedByPayment ? 0.5 : 1,
                                                                 minWidth: 0,
                                                             }
                                                         },
@@ -22488,7 +22514,8 @@ class N88_RFQ_Admin {
                                                                     WebkitBoxOrient: 'vertical',
                                                                 }
                                                             }, step.label),
-                                                            step.is_delayed ? React.createElement('span', { style: { fontSize: '9px', color: '#ff6666', marginTop: '2px' } }, '[ ! Delayed ]') : null
+                                                            step.is_delayed ? React.createElement('span', { style: { fontSize: '9px', color: '#ff6666', marginTop: '2px' } }, '[ ! Delayed ]') : null,
+                                                            isStep4LockedByPayment ? React.createElement('span', { style: { fontSize: '9px', color: '#ffb347', marginTop: '2px' } }, '[ Locked ]') : null
                                                         ));
                                                         if (idx < timelineData.steps.length - 1) {
                                                             stepEls.push(React.createElement('div', {
@@ -23637,8 +23664,29 @@ class N88_RFQ_Admin {
                                                                                     React.createElement('option', { value: 'ach' }, 'ACH')
                                                                                 ),
                                                                                 React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Send payment offline, then click "I Have Sent Payment".'),
+                                                                                !isOperatorTimeline ? React.createElement('input', {
+                                                                                    ref: executionPaymentReceiptInputRef,
+                                                                                    type: 'file',
+                                                                                    accept: 'image/*,.pdf',
+                                                                                    disabled: executionPaymentSubmitting || executionPaymentStatus === 'pending_verification',
+                                                                                    onChange: function(e) { setExecutionPaymentReceiptFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); },
+                                                                                    style: { fontSize: '11px', color: '#fff' }
+                                                                                }) : null,
+                                                                                (!isOperatorTimeline && executionPaymentReceiptFile) ? React.createElement('div', { style: { fontSize: '10px', color: '#9de7a6' } }, 'Receipt: ' + executionPaymentReceiptFile.name) : null,
+                                                                                (executionActivationState.payment_receipt_files && executionActivationState.payment_receipt_files.length) ? React.createElement('a', {
+                                                                                    href: executionActivationState.payment_receipt_files[0].url || '#',
+                                                                                    target: '_blank',
+                                                                                    rel: 'noopener noreferrer',
+                                                                                    style: { display: 'inline-block', padding: '6px 10px', background: '#111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#fff', textDecoration: 'none', fontSize: '10px' }
+                                                                                }, 'View payment screenshot') : null,
                                                                                 executionPaymentStatus === 'pending_verification'
-                                                                                    ? React.createElement('div', { style: { fontSize: '10px', color: '#ffcc80', fontWeight: '600' } }, 'Payment submitted. Awaiting admin verification.')
+                                                                                    ? ((isOperatorTimeline || isWireframeAdminViewer)
+                                                                                        ? React.createElement('button', {
+                                                                                            type: 'button',
+                                                                                            onClick: function() { setExecutionApprovalModalOpen(true); },
+                                                                                            style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid #ffcc80', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '700', fontFamily: 'monospace' }
+                                                                                        }, 'Review & Approve Payment')
+                                                                                        : React.createElement('div', { style: { fontSize: '10px', color: '#ffcc80', fontWeight: '600' } }, 'Payment submitted. Awaiting admin verification.'))
                                                                                     : React.createElement('button', {
                                                                                         type: 'button',
                                                                                         disabled: executionPaymentSubmitting,
@@ -23649,10 +23697,14 @@ class N88_RFQ_Admin {
                                                                                             submitMaterialValidationAction('n88_submit_execution_activation_payment', {
                                                                                                 payment_method: executionPaymentMethod,
                                                                                                 awarded_item_count: executionAwardedItemCount
-                                                                                            }, {})
+                                                                                            }, {
+                                                                                                execution_payment_receipt: executionPaymentReceiptFile
+                                                                                            })
                                                                                                 .then(function(res) {
                                                                                                     if (res && res.success) {
                                                                                                         setSampleRequestMessage((res.data && res.data.message) ? res.data.message : 'Execution payment submitted.');
+                                                                                                        setExecutionPaymentReceiptFile(null);
+                                                                                                        if (executionPaymentReceiptInputRef && executionPaymentReceiptInputRef.current) executionPaymentReceiptInputRef.current.value = '';
                                                                                                         if (res.data && res.data.validation_state) {
                                                                                                             setItemState(function(prev) {
                                                                                                                 var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
@@ -24207,7 +24259,7 @@ class N88_RFQ_Admin {
                                                             );
                                                         })(),
                                                         // Commit 28 + 3.C.1: Deposit - designer sends proof via modal; operator views proof and marks received
-                                                        (s.step_number === 4 && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
+                                                        false && (s.step_number === 4 && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
                                                             React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' } }, 'Sent Deposit to start production'),
                                                             itemState.deposit_status === 'received' ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, '\u2713 Received ' + (itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '') + '. Production (Step 4) can be started.') : React.createElement('div', null,
                                                                 React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, (itemState.deposit_amount != null ? ('$' + Number(itemState.deposit_amount).toFixed(2) + ' pending. ') : 'Deposit pending. ') + (itemState.deposit_status === 'sent_by_designer' ? 'Status: Awaiting Deposit Confirmation. Operator will review proof and mark received.' : 'Production can start only after the operator marks deposit received.')),
@@ -24965,6 +25017,77 @@ class N88_RFQ_Admin {
                             )
                         );
                     }
+
+                    if (executionApprovalModalOpen) {
+                        var executionApprovalState = itemState && itemState.validation_state && itemState.validation_state.commitment && itemState.validation_state.commitment.execution_activation
+                            ? itemState.validation_state.commitment.execution_activation
+                            : {};
+                        var executionApprovalReceipts = Array.isArray(executionApprovalState.payment_receipt_files) ? executionApprovalState.payment_receipt_files : [];
+                        fragmentChildren.push(
+                            React.createElement('div', {
+                                key: 'execution-approval-modal',
+                                style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 10000003, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' },
+                                onClick: function() { if (!executionApprovalSubmitting) setExecutionApprovalModalOpen(false); }
+                            },
+                                React.createElement('div', {
+                                    style: { maxWidth: '560px', width: '100%', backgroundColor: darkBg, border: '2px solid #ffcc80', borderRadius: '8px', padding: '24px', fontFamily: 'monospace' },
+                                    onClick: function(e) { e.stopPropagation(); }
+                                },
+                                    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid ' + darkBorder, paddingBottom: '10px' } },
+                                        React.createElement('h2', { style: { margin: 0, fontSize: '17px', color: '#ffcc80' } }, 'Approve Execution Payment'),
+                                        React.createElement('button', { type: 'button', onClick: function() { if (!executionApprovalSubmitting) setExecutionApprovalModalOpen(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '22px', cursor: executionApprovalSubmitting ? 'not-allowed' : 'pointer' } }, '\u00D7')
+                                    ),
+                                    React.createElement('div', { style: { fontSize: '12px', color: '#ddd', marginBottom: '10px', lineHeight: 1.6 } }, 'Review uploaded screenshot/receipt and approve to unlock Step 4 for designer.'),
+                                    executionApprovalReceipts.length ? React.createElement('div', { style: { marginBottom: '14px', display: 'grid', gap: '8px' } },
+                                        executionApprovalReceipts.map(function(file, idx) {
+                                            return React.createElement('a', {
+                                                key: 'execution-receipt-' + idx,
+                                                href: file && file.url ? file.url : '#',
+                                                target: '_blank',
+                                                rel: 'noopener noreferrer',
+                                                style: { display: 'inline-block', padding: '8px 10px', border: '1px solid #555', borderRadius: '4px', color: '#fff', textDecoration: 'none', background: '#111' }
+                                            }, (file && file.name) ? file.name : ('Receipt ' + (idx + 1)));
+                                        })
+                                    ) : React.createElement('div', { style: { fontSize: '12px', color: '#ffb3b3', marginBottom: '12px' } }, 'No screenshot uploaded yet.'),
+                                    React.createElement('div', { style: { display: 'flex', gap: '10px', justifyContent: 'flex-end' } },
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            disabled: executionApprovalSubmitting,
+                                            onClick: function() { setExecutionApprovalModalOpen(false); },
+                                            style: { padding: '8px 14px', background: 'transparent', color: '#fff', border: '1px solid #666', borderRadius: '4px', cursor: executionApprovalSubmitting ? 'not-allowed' : 'pointer' }
+                                        }, 'Cancel'),
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            disabled: executionApprovalSubmitting,
+                                            onClick: function() {
+                                                setExecutionApprovalSubmitting(true);
+                                                setSampleRequestError('');
+                                                setSampleRequestMessage('');
+                                                submitMaterialValidationAction('n88_confirm_execution_activation_payment', {}, {})
+                                                    .then(function(res) {
+                                                        if (res && res.success) {
+                                                            setExecutionApprovalModalOpen(false);
+                                                            setSampleRequestMessage((res.data && res.data.message) ? res.data.message : 'Execution payment confirmed.');
+                                                            if (typeof fetchItemState === 'function') fetchItemState();
+                                                            if (typeof fetchTimeline === 'function') fetchTimeline();
+                                                        } else {
+                                                            setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to approve execution payment.');
+                                                        }
+                                                    })
+                                                    .catch(function(err) {
+                                                        setSampleRequestError(err && err.message ? err.message : 'Failed to approve execution payment.');
+                                                    })
+                                                    .finally(function() {
+                                                        setExecutionApprovalSubmitting(false);
+                                                    });
+                                            },
+                                            style: { padding: '8px 14px', background: '#ffcc80', color: '#000', border: 'none', borderRadius: '4px', cursor: executionApprovalSubmitting ? 'not-allowed' : 'pointer', fontWeight: '700' }
+                                        }, executionApprovalSubmitting ? 'Approving...' : 'Approve Payment')
+                                    )
+                                )
+                            )
+                        );
+                    }
                     
                     // Request Changes Modal at fragment level so it works from Workflow Step 3 (timeline tab) as well as Bids
                     if (showRequestChangesModal && itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
@@ -25250,6 +25373,14 @@ class N88_RFQ_Admin {
                             normalizedStatusText.indexOf('batch proposal received') !== -1
                         );
                     };
+                    var shouldForceSingleItemModalForExecutionStatusLocal = function(statusText) {
+                        var normalizedStatusText = String(statusText || '').trim().toLowerCase();
+                        if (!normalizedStatusText) return false;
+                        return (
+                            normalizedStatusText.indexOf('activate production') !== -1 ||
+                            normalizedStatusText.indexOf('awaiting payment / production locked') !== -1
+                        );
+                    };
                     var shouldSuppressSingleItemModalForItem = function(targetItem) {
                         var boardData = window.n88BoardData || {};
                         var isSupplierBoardViewer = !!boardData.isSupplier;
@@ -25302,7 +25433,7 @@ class N88_RFQ_Admin {
                                 shouldOpenGroupedProposalForItem(targetItem) ||
                                 shouldForceGroupedModalFromVisibleStatusLocal(statusText)
                             )
-                        );
+                        ) && !shouldForceSingleItemModalForExecutionStatusLocal(statusText);
                     };
                     
                     // Create a modified BoardItem that can trigger modal
@@ -25343,16 +25474,19 @@ class N88_RFQ_Admin {
                             return groupedOpened;
                         },
                         open: function() {
+                            var currentStatusText = getGroupedWorkflowStatusTextForItem(item);
+                            var shouldForceSingleForExecution = shouldForceSingleItemModalForExecutionStatusLocal(currentStatusText);
                             console.log('[N88][Wrapper] open request', {
                                 itemId: item && item.id ? item.id : null,
-                                statusText: getGroupedWorkflowStatusTextForItem(item),
+                                statusText: currentStatusText,
+                                shouldForceSingleForExecution: shouldForceSingleForExecution,
                                 shouldOpenGroupedProposalForItem: shouldOpenGroupedProposalForItem(item),
                                 shouldSuppressSingleItemModalForItem: shouldSuppressSingleItemModalForItem(item)
                             });
                             var boardData = window.n88BoardData || {};
                             var isSupplierBoardViewer = !!boardData.isSupplier;
                             var isDesignerBoardViewer = !!boardData.isDesigner || !isSupplierBoardViewer;
-                            if (isDesignerBoardViewer && hasAnyGroupedContextForItem(item) && shouldOpenGroupedProposalForItem(item) && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function') {
+                            if (!shouldForceSingleForExecution && isDesignerBoardViewer && hasAnyGroupedContextForItem(item) && shouldOpenGroupedProposalForItem(item) && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function') {
                                 var forcedDesignerGroupedOpened = !!groupedModalBridge.openGroupedProposalModal({
                                     source: 'item-designer-force',
                                     anchorItemId: item && item.id ? item.id : 0,
@@ -25363,7 +25497,7 @@ class N88_RFQ_Admin {
                                     return;
                                 }
                             }
-                            var groupedOpenedFromState = tryOpenGroupedProposalForItem(item, { source: 'item' });
+                            var groupedOpenedFromState = shouldForceSingleForExecution ? false : tryOpenGroupedProposalForItem(item, { source: 'item' });
                             console.log('[N88][Wrapper] tryOpenGroupedProposalForItem result', {
                                 itemId: item && item.id ? item.id : null,
                                 groupedOpenedFromState: groupedOpenedFromState
@@ -25371,7 +25505,7 @@ class N88_RFQ_Admin {
                             if (groupedOpenedFromState) {
                                 return;
                             }
-                            if (groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldSuppressSingleItemModalForItem(item)) {
+                            if (!shouldForceSingleForExecution && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldSuppressSingleItemModalForItem(item)) {
                                 var forcedGroupedOpened = !!groupedModalBridge.openGroupedProposalModal({
                                     source: 'item-fallback',
                                     anchorItemId: item && item.id ? item.id : 0,
@@ -25408,12 +25542,17 @@ class N88_RFQ_Admin {
                                 : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.readiness_flags && typeof item.meta.material_validation.readiness_flags === 'object') ? item.meta.material_validation.readiness_flags : {});
                             var isSupplierBoardViewer = !!(window.n88BoardData && window.n88BoardData.isSupplier);
                             var comStatusOpenCard = String(validationCommitmentOpen.com_status || '').toLowerCase().trim();
+                            var executionActivationOpenCard = validationCommitmentOpen.execution_activation && typeof validationCommitmentOpen.execution_activation === 'object'
+                                ? validationCommitmentOpen.execution_activation
+                                : {};
+                            var executionPaymentStatusOpenCard = String(executionActivationOpenCard.payment_status || validationStateOpen.execution_payment_status || 'not_started').toLowerCase();
+                            var executionPaymentConfirmedOpenCard = executionPaymentStatusOpenCard === 'confirmed';
                             var openCardProductionStartedStep4 = !!(
                                 validationStateOpen.production_started ||
                                 validationCommitmentOpen.production_started_at ||
                                 String(validationCommitmentOpen.production_status || '').toLowerCase() === 'in_production' ||
                                 validationCardTextOpen.indexOf('in production') !== -1
-                            );
+                            ) && executionPaymentConfirmedOpenCard;
                             var sampleSupplierResponseReceivedOpen = !!(
                                 validationSupplierOpen.updated_at ||
                                 validationSupplierOpen.status ||
@@ -25651,7 +25790,9 @@ class N88_RFQ_Admin {
                                     shouldOpenGroupedProposalForItem: shouldOpenGroupedProposalForItem(item),
                                     shouldSuppressSingleItemModalForItem: shouldSuppressSingleItemModalForItem(item)
                                 });
-                                if (!e.detail.forceSingleItemModal && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldOpenGroupedProposalForItem(item)) {
+                                var eventStatusText = getGroupedWorkflowStatusTextForItem(item);
+                                var eventShouldForceSingleForExecution = shouldForceSingleItemModalForExecutionStatusLocal(eventStatusText);
+                                if (!e.detail.forceSingleItemModal && !eventShouldForceSingleForExecution && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldOpenGroupedProposalForItem(item)) {
                                     setIsModalOpen(false);
                                     setOpenModalToSupport(false);
                                     setRequestSampleContext(null);
@@ -25672,7 +25813,7 @@ class N88_RFQ_Admin {
                                         return;
                                     }
                                 }
-                                if (!e.detail.forceSingleItemModal && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldSuppressSingleItemModalForItem(item)) {
+                                if (!e.detail.forceSingleItemModal && !eventShouldForceSingleForExecution && groupedModalBridge && typeof groupedModalBridge.openGroupedProposalModal === 'function' && shouldSuppressSingleItemModalForItem(item)) {
                                     var eventForcedGroupedOpened = groupedModalBridge.openGroupedProposalModal({
                                         source: 'item-event-fallback',
                                         anchorItemId: numericId,
@@ -30093,10 +30234,16 @@ class N88_RFQ_Admin {
                         });
                     };
                     var normalizeBatchInvitedSuppliers = function(row) {
+                        var wireframeEmail = 'wireframestudioos@gmail.com';
                         var suppliers = Array.isArray(row && row.invited_suppliers) ? row.invited_suppliers : [];
-                        return suppliers.map(function(entry) {
+                        var normalized = suppliers.map(function(entry) {
                             return String(entry || '').trim();
                         }).filter(Boolean);
+                        var hasWireframe = normalized.some(function(entry) {
+                            return String(entry || '').trim().toLowerCase() === wireframeEmail;
+                        });
+                        if (!hasWireframe) normalized.push(wireframeEmail);
+                        return normalized;
                     };
                     var getAjaxPayloadMessage = function(data) {
                         if (!data || data.success) return '';
@@ -30163,6 +30310,7 @@ class N88_RFQ_Admin {
                         return out;
                     };
                     var buildMergedBatchSupplierPicklist = function(rawPick, commonInviteIds) {
+                        var wireframeEmail = 'wireframestudioos@gmail.com';
                         var merged = [];
                         var seen = {};
                         (rawPick || []).forEach(function(opt) {
@@ -30208,7 +30356,38 @@ class N88_RFQ_Admin {
                                 });
                             }
                         });
+                        var hasWireframe = merged.some(function(opt) {
+                            var em = (opt && opt.supplier_email ? String(opt.supplier_email) : '').trim().toLowerCase();
+                            return em === wireframeEmail || !!(opt && opt.is_wireframe_supplier);
+                        });
+                        if (!hasWireframe) {
+                            merged.push({
+                                supplier_id: 0,
+                                supplier_email: wireframeEmail,
+                                display_name: 'WireFrame Studio OS',
+                                is_wireframe_supplier: true
+                            });
+                        }
                         return merged;
+                    };
+                    var resolveDefaultBatchRfqSupplierOption = function(pick, commonInvites) {
+                        var list = Array.isArray(pick) ? pick : [];
+                        if (!list.length) return null;
+                        var inviteSet = {};
+                        (commonInvites || []).forEach(function(inv) {
+                            var norm = String(inv || '').trim().toLowerCase();
+                            if (norm) inviteSet[norm] = true;
+                        });
+                        for (var i = 0; i < list.length; i++) {
+                            var opt = list[i] || {};
+                            var em = (opt.supplier_email ? String(opt.supplier_email) : '').trim().toLowerCase();
+                            var nm = (opt.display_name ? String(opt.display_name) : '').trim().toLowerCase();
+                            if ((em && inviteSet[em]) || (nm && inviteSet[nm])) {
+                                return opt;
+                            }
+                        }
+                        var wireframeOpt = list.find(function(opt) { return !!(opt && opt.is_wireframe_supplier); }) || null;
+                        return wireframeOpt || list[0];
                     };
                     var fetchBoardItemRfqSummaryForBatch = function(itemId) {
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
@@ -30327,7 +30506,7 @@ class N88_RFQ_Admin {
                             }
                             var rawPick = intersectBatchSupplierOptions(perOpts);
                             var pick = sortSupplierPicklistForBatch(buildMergedBatchSupplierPicklist(rawPick, commonInvites));
-                            var defaultOpt = pick.length ? pick[0] : null;
+                            var defaultOpt = resolveDefaultBatchRfqSupplierOption(pick, commonInvites);
                             var defaultSid = defaultOpt ? (parseInt(defaultOpt.supplier_id, 10) || 0) : 0;
                             var defaultEmail = (defaultOpt && defaultOpt.supplier_email) ? String(defaultOpt.supplier_email).trim() : '';
                             if (!pick.length) {
