@@ -2257,6 +2257,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         direction_keyword_ids: null,
         direction_keyword_names: null,
         workflow_milestones: null,
+        payment_milestones_summary: null,
         rfq_revision_current: null,
         revision_changed: false,
         deposit_status: '',
@@ -2436,6 +2437,19 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [timelineLoading, setTimelineLoading] = React.useState(false);
     const [timelineError, setTimelineError] = React.useState(null);
     const [selectedStepIndex, setSelectedStepIndex] = React.useState(0);
+    const [milestoneSummaryLoading, setMilestoneSummaryLoading] = React.useState(false);
+    const [milestoneDetailsByStage, setMilestoneDetailsByStage] = React.useState({});
+    const [expandedMilestoneStage, setExpandedMilestoneStage] = React.useState('');
+    const [milestoneSetupDraft, setMilestoneSetupDraft] = React.useState([]);
+    const [milestoneSaving, setMilestoneSaving] = React.useState(false);
+    const [milestoneSetupPromptOpen, setMilestoneSetupPromptOpen] = React.useState(true);
+    const [milestoneSetupChoice, setMilestoneSetupChoice] = React.useState('none');
+    const [milestoneUiNotice, setMilestoneUiNotice] = React.useState('');
+    const [paymentProofFilesByStage, setPaymentProofFilesByStage] = React.useState({});
+    const [paymentNotesByStage, setPaymentNotesByStage] = React.useState({});
+    const [paymentMethodsByStage, setPaymentMethodsByStage] = React.useState({});
+    const [revisionNotesByStage, setRevisionNotesByStage] = React.useState({});
+    const [milestoneActionBusyByStage, setMilestoneActionBusyByStage] = React.useState({});
     // Commit 3.A.2S: Designer view of supplier step evidence (View Step Evidence)
     const [supplierStepEvidenceView, setSupplierStepEvidenceView] = React.useState(null);
     const [supplierStepEvidenceLoading, setSupplierStepEvidenceLoading] = React.useState(false);
@@ -2667,6 +2681,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         direction_keyword_ids: workflowLoaded ? (data.data.direction_keyword_ids || null) : prev.direction_keyword_ids,
                         direction_keyword_names: workflowLoaded ? (data.data.direction_keyword_names || null) : prev.direction_keyword_names,
                         workflow_milestones: workflowLoaded ? (data.data.workflow_milestones || null) : prev.workflow_milestones,
+                        payment_milestones_summary: workflowLoaded ? (data.data?.validation_state?.payment_milestones || null) : prev.payment_milestones_summary,
                         deposit_status: data.data.deposit_status || '',
                         deposit_amount: data.data.deposit_amount != null ? data.data.deposit_amount : null,
                         deposit_calculated_at: data.data.deposit_calculated_at || null,
@@ -2793,6 +2808,164 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             fetchTimeline();
         }
     }, [activeTab, itemId, timelineData, timelineLoading, timelineError, fetchTimeline]);
+    const fetchMilestoneSummary = React.useCallback(async () => {
+        if (!itemId) return null;
+        const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) return null;
+        setMilestoneSummaryLoading(true);
+        try {
+            const fd = new FormData();
+            fd.append('action', 'n88_get_payment_milestone_summary');
+            fd.append('item_id', String(itemId));
+            fd.append('_ajax_nonce', nonce);
+            const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data?.success) {
+                const nextSummary = data.data || null;
+                setItemState((prev) => ({ ...prev, payment_milestones_summary: nextSummary }));
+                return nextSummary;
+            }
+        } catch (err) {
+            console.error('Failed to fetch milestone summary:', err);
+        } finally {
+            setMilestoneSummaryLoading(false);
+        }
+        return null;
+    }, [itemId]);
+    const saveMilestoneSetup = React.useCallback(async (enabled, rows = []) => {
+        if (!itemId) return false;
+        const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) return false;
+        setMilestoneSaving(true);
+        try {
+            const fd = new FormData();
+            fd.append('action', 'n88_save_payment_milestones');
+            fd.append('item_id', String(itemId));
+            fd.append('milestones_enabled', enabled ? '1' : '0');
+            if (enabled && Array.isArray(rows) && rows.length) {
+                fd.append('milestones', JSON.stringify(rows));
+            }
+            fd.append('_ajax_nonce', nonce);
+            const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!data?.success) {
+                alert(data?.data?.message || 'Could not save milestones.');
+                return false;
+            }
+            const nextSummary = data.data || null;
+            setItemState((prev) => ({ ...prev, payment_milestones_summary: nextSummary }));
+            if (enabled) {
+                setMilestoneUiNotice('Milestones saved. Stage 4.1 is ready to start.');
+                const firstStage = Array.isArray(nextSummary?.stages) && nextSummary.stages.length ? nextSummary.stages[0] : null;
+                if (firstStage?.stage_key) setExpandedMilestoneStage(firstStage.stage_key);
+            } else {
+                setMilestoneUiNotice('Milestones disabled. Normal flow continues.');
+                setExpandedMilestoneStage('');
+            }
+            return true;
+        } catch (err) {
+            console.error(err);
+            alert('Could not save milestones.');
+            return false;
+        } finally {
+            setMilestoneSaving(false);
+        }
+    }, [itemId]);
+    const fetchMilestoneStageDetails = React.useCallback(async (stageKey) => {
+        if (!itemId || !stageKey) return null;
+        if (milestoneDetailsByStage[stageKey]) return milestoneDetailsByStage[stageKey];
+        const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) return null;
+        try {
+            const fd = new FormData();
+            fd.append('action', 'n88_get_payment_milestone_stage_details');
+            fd.append('item_id', String(itemId));
+            fd.append('stage_key', String(stageKey));
+            fd.append('_ajax_nonce', nonce);
+            const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data?.success) {
+                setMilestoneDetailsByStage((prev) => ({ ...prev, [stageKey]: data.data || {} }));
+                return data.data || {};
+            }
+        } catch (err) {
+            console.error(err);
+        }
+        return null;
+    }, [itemId, milestoneDetailsByStage]);
+    const runMilestoneAction = React.useCallback(async (stageKey, actionName, appendFields = null) => {
+        if (!itemId || !stageKey || !actionName) return false;
+        const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) return false;
+        setMilestoneActionBusyByStage((prev) => ({ ...prev, [stageKey]: true }));
+        try {
+            const fd = new FormData();
+            fd.append('action', actionName);
+            fd.append('item_id', String(itemId));
+            fd.append('stage_key', String(stageKey));
+            if (typeof appendFields === 'function') appendFields(fd);
+            fd.append('_ajax_nonce', nonce);
+            const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!data?.success) {
+                alert(data?.data?.message || 'Milestone action failed.');
+                return false;
+            }
+            setItemState((prev) => ({ ...prev, payment_milestones_summary: data.data || null }));
+            setMilestoneDetailsByStage((prev) => {
+                const next = { ...prev };
+                delete next[stageKey];
+                return next;
+            });
+            await fetchMilestoneSummary();
+            return true;
+        } catch (err) {
+            console.error(err);
+            alert('Milestone action failed.');
+            return false;
+        } finally {
+            setMilestoneActionBusyByStage((prev) => ({ ...prev, [stageKey]: false }));
+        }
+    }, [itemId, fetchMilestoneSummary]);
+    React.useEffect(() => {
+        if (!isOpen || activeTab !== 'workflow' || !itemId || !itemState.has_awarded_bid || milestoneSummaryLoading) return;
+        if (itemState.payment_milestones_summary && typeof itemState.payment_milestones_summary === 'object') return;
+        const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) return;
+        setMilestoneSummaryLoading(true);
+        const fd = new FormData();
+        fd.append('action', 'n88_get_payment_milestone_summary');
+        fd.append('item_id', String(itemId));
+        fd.append('_ajax_nonce', nonce);
+        fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd })
+            .then((r) => r.json())
+            .then((res) => {
+                if (res?.success) {
+                    setItemState((prev) => ({ ...prev, payment_milestones_summary: res.data || null }));
+                }
+            })
+            .finally(() => setMilestoneSummaryLoading(false));
+    }, [isOpen, activeTab, itemId, itemState.has_awarded_bid, itemState.payment_milestones_summary, milestoneSummaryLoading]);
+    React.useEffect(() => {
+        const stages = itemState?.payment_milestones_summary?.stages;
+        if (!Array.isArray(stages) || !stages.length) {
+            setMilestoneSetupDraft([]);
+            return;
+        }
+        setMilestoneSetupDraft(stages.map((s) => ({
+            stage_key: s.stage_key,
+            stage_label: s.stage_label,
+            percent_alloc: Number(s.percent_alloc || 0),
+            amount_alloc: s.amount_alloc == null ? '' : String(s.amount_alloc),
+            stage_enabled: !!s.stage_enabled,
+            payment_required: !!s.payment_required,
+        })));
+    }, [itemState?.payment_milestones_summary?.stages]);
+    React.useEffect(() => {
+        if (!milestoneUiNotice) return;
+        const t = setTimeout(() => setMilestoneUiNotice(''), 3000);
+        return () => clearTimeout(t);
+    }, [milestoneUiNotice]);
     // Reset timeline when item changes so next open fetches fresh
     React.useEffect(() => {
         setTimelineData(null);
@@ -2800,6 +2973,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         setSelectedStepIndex(0);
         setSupplierStepEvidenceView(null);
         setDesignerStep456CommentDraft({});
+        setMilestoneSetupPromptOpen(true);
+        setMilestoneSetupChoice('none');
     }, [itemId]);
     
     // Load keywords when bid is selected (Commit 2.3.9.1B)
@@ -7656,7 +7831,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 <div style={{ padding: '16px', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' }}>{timelineError}</div>
                                             )}
                                             {/* Operator: standalone Step 4 Deposit block — always visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps */}
-                                            {!timelineLoading && itemState && itemState.has_awarded_bid && window.n88BoardData && window.n88BoardData.isOperator && (
+                                            {false && !timelineLoading && itemState && itemState.has_awarded_bid && window.n88BoardData && window.n88BoardData.isOperator && (
                                                 <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
                                                     <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Step 4 — Sent Deposit to start production</div>
                                                     {itemState.deposit_status === 'received' ? (
@@ -8277,8 +8452,268 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         </div>
                                                                     );
                                                                 })()}
+                                                                {s.step_number === 4 && itemState.has_awarded_bid && (() => {
+                                                                    const isOperator = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                                                                    const summary = itemState.payment_milestones_summary;
+                                                                    const stages = Array.isArray(summary?.stages) ? summary.stages : [];
+                                                                    const paidPercent = Number(summary?.paid_percent || 0).toFixed(2).replace(/\.00$/, '');
+                                                                    return (
+                                                                        <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: `1px solid ${darkBorder}`, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                                            <div style={{ fontSize: '12px', fontWeight: '700', color: greenAccent, marginBottom: '8px' }}>Payment Milestones (Step 4)</div>
+                                                                            {milestoneUiNotice && <div style={{ fontSize: '11px', color: greenAccent, marginBottom: '8px' }}>{milestoneUiNotice}</div>}
+                                                                            {milestoneSummaryLoading && <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>Loading milestones…</div>}
+                                                                            {!summary?.enabled && (
+                                                                                <div style={{ fontSize: '11px', color: darkText }}>
+                                                                                    {milestoneSetupPromptOpen ? (
+                                                                                        <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', background: '#0b0b0b' }}>
+                                                                                            <div style={{ padding: '10px 12px', borderBottom: `1px solid ${darkBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                                                <div style={{ color: '#fff', fontSize: '12px', fontWeight: '700' }}>SET PAYMENT MILESTONES</div>
+                                                                                                <button type="button" onClick={() => setMilestoneSetupPromptOpen(false)} style={{ padding: '4px 8px', fontSize: '11px', background: 'transparent', color: '#bbb', border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}>[ Close ]</button>
+                                                                                            </div>
+                                                                                            <div style={{ padding: '12px' }}>
+                                                                                                <div style={{ marginBottom: '10px' }}>How do you want to handle production payments?</div>
+                                                                                                <label style={{ display: 'block', marginBottom: '8px', cursor: 'pointer' }}>
+                                                                                                    <input type="radio" name="milestone-choice" checked={milestoneSetupChoice === 'none'} onChange={() => setMilestoneSetupChoice('none')} style={{ marginRight: '8px' }} />
+                                                                                                    No milestones
+                                                                                                    <div style={{ marginLeft: '22px', color: '#aaa' }}>Deposit + final payment only</div>
+                                                                                                </label>
+                                                                                                <label style={{ display: 'block', marginBottom: '12px', cursor: 'pointer' }}>
+                                                                                                    <input type="radio" name="milestone-choice" checked={milestoneSetupChoice === 'yes'} onChange={() => setMilestoneSetupChoice('yes')} style={{ marginRight: '8px' }} />
+                                                                                                    Yes — Create Payment Milestones
+                                                                                                    <div style={{ marginLeft: '22px', color: '#aaa' }}>Tie payments to approved production stages</div>
+                                                                                                </label>
+                                                                                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        disabled={milestoneSaving}
+                                                                                                        onClick={async () => {
+                                                                                                            if (milestoneSetupChoice === 'yes') {
+                                                                                                                const ok = await saveMilestoneSetup(true);
+                                                                                                                if (ok) setMilestoneSetupPromptOpen(false);
+                                                                                                            } else {
+                                                                                                                await saveMilestoneSetup(false);
+                                                                                                                setMilestoneSetupPromptOpen(false);
+                                                                                                            }
+                                                                                                        }}
+                                                                                                        style={{ padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+                                                                                                    >
+                                                                                                        [ Continue ]
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <button type="button" onClick={() => setMilestoneSetupPromptOpen(true)} style={{ padding: '6px 10px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}>
+                                                                                            Set Payment Milestones
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                            {summary?.enabled && (
+                                                                                <>
+                                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>
+                                                                                        <span style={{ color: greenAccent, fontWeight: '600' }}>{paidPercent}% Paid</span>
+                                                                                        {' '}· Next: <span style={{ color: '#fff' }}>{summary?.next_stage_label || 'Completed'}</span>
+                                                                                    </div>
+                                                                                    {!isOperator && stages.length > 0 && (
+                                                                                        <div style={{ marginBottom: '12px', padding: '10px', border: `1px solid ${darkBorder}`, borderRadius: '4px', background: '#0f0f0f' }}>
+                                                                                            <div style={{ fontSize: '11px', color: '#ddd', marginBottom: '8px' }}>Edit future milestones (total must be 100%)</div>
+                                                                                            {milestoneSetupDraft.map((row, idx) => (
+                                                                                                <div key={row.stage_key || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', marginBottom: '6px' }}>
+                                                                                                    <input
+                                                                                                        type="text"
+                                                                                                        value={row.stage_label}
+                                                                                                        onChange={(e) => setMilestoneSetupDraft((prev) => prev.map((r, i) => i === idx ? { ...r, stage_label: e.target.value } : r))}
+                                                                                                        style={{ background: '#111', color: '#ddd', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', fontSize: '11px' }}
+                                                                                                    />
+                                                                                                    <input
+                                                                                                        type="number"
+                                                                                                        min="0"
+                                                                                                        max="100"
+                                                                                                        step="0.01"
+                                                                                                        value={row.percent_alloc}
+                                                                                                        readOnly
+                                                                                                        disabled
+                                                                                                        title="Percent allocation is locked for this setup."
+                                                                                                        style={{ background: '#0b0b0b', color: '#888', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', fontSize: '11px', cursor: 'not-allowed' }}
+                                                                                                    />
+                                                                                                    <input
+                                                                                                        type="number"
+                                                                                                        min="0"
+                                                                                                        step="0.01"
+                                                                                                        value={row.amount_alloc}
+                                                                                                        onChange={(e) => setMilestoneSetupDraft((prev) => prev.map((r, i) => i === idx ? { ...r, amount_alloc: e.target.value } : r))}
+                                                                                                        style={{ background: '#111', color: '#ddd', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', fontSize: '11px' }}
+                                                                                                    />
+                                                                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#bbb', fontSize: '11px' }}>
+                                                                                                        <input
+                                                                                                            type="checkbox"
+                                                                                                            checked={!!row.stage_enabled}
+                                                                                                            onChange={(e) => setMilestoneSetupDraft((prev) => prev.map((r, i) => i === idx ? { ...r, stage_enabled: !!e.target.checked } : r))}
+                                                                                                        />
+                                                                                                        On
+                                                                                                    </label>
+                                                                                                </div>
+                                                                                            ))}
+                                                                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    disabled={milestoneSaving}
+                                                                                                    onClick={() => {
+                                                                                                        const total = milestoneSetupDraft.reduce((sum, row) => sum + (row.stage_enabled ? Number(row.percent_alloc || 0) : 0), 0);
+                                                                                                        if (Math.abs(total - 100) > 0.01) {
+                                                                                                            alert('Milestone total must equal 100%.');
+                                                                                                            return;
+                                                                                                        }
+                                                                                                        saveMilestoneSetup(true, milestoneSetupDraft);
+                                                                                                    }}
+                                                                                                    style={{ padding: '6px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+                                                                                                >
+                                                                                                    Save Milestones
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    disabled={milestoneSaving}
+                                                                                                    onClick={() => saveMilestoneSetup(false)}
+                                                                                                    style={{ padding: '6px 10px', fontSize: '11px', background: 'transparent', color: '#bbb', border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}
+                                                                                                >
+                                                                                                    Disable milestones
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    {stages.map((stage) => {
+                                                                                        const stageKey = stage.stage_key;
+                                                                                        const isExpanded = expandedMilestoneStage === stageKey;
+                                                                                        const details = milestoneDetailsByStage[stageKey] || stage;
+                                                                                        const isBusy = !!milestoneActionBusyByStage[stageKey];
+                                                                                        const queueState = !details.stage_submitted_at
+                                                                                            ? 'Awaiting Approval'
+                                                                                            : !details.stage_approved_at
+                                                                                                ? 'Awaiting Approval'
+                                                                                                : !details.payment_confirmed_at
+                                                                                                    ? 'Payment Pending'
+                                                                                                    : 'Payment Received → Proceed';
+                                                                                        return (
+                                                                                            <div key={stageKey} style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', marginBottom: '8px', overflow: 'hidden' }}>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={async () => {
+                                                                                                        if (isExpanded) {
+                                                                                                            setExpandedMilestoneStage('');
+                                                                                                            return;
+                                                                                                        }
+                                                                                                        setExpandedMilestoneStage(stageKey);
+                                                                                                        await fetchMilestoneStageDetails(stageKey);
+                                                                                                    }}
+                                                                                                    style={{ width: '100%', textAlign: 'left', padding: '10px', background: '#111', color: '#ddd', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: '8px' }}
+                                                                                                >
+                                                                                                    <span>{stage.stage_label} ({stage.percent_alloc}%)</span>
+                                                                                                    <span style={{ color: greenAccent }}>{queueState}</span>
+                                                                                                </button>
+                                                                                                {isExpanded && (
+                                                                                                    <div style={{ padding: '10px', background: '#0b0b0b', fontSize: '11px', color: darkText }}>
+                                                                                                        {details.stage_proof_attachment_url && <div style={{ marginBottom: '6px' }}><a href={details.stage_proof_attachment_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>View supplier proof</a></div>}
+                                                                                                        {details.stage_proof_note && <div style={{ marginBottom: '6px' }}>Supplier note: {details.stage_proof_note}</div>}
+                                                                                                        {details.stage_meeting_link && <div style={{ marginBottom: '6px' }}><a href={details.stage_meeting_link} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>Open meeting link</a></div>}
+                                                                                                        {details.stage_revision_requested_at && <div style={{ marginBottom: '6px', color: '#ffb347' }}>Revision requested {new Date(details.stage_revision_requested_at).toLocaleString()}</div>}
+                                                                                                        {details.stage_revision_note && <div style={{ marginBottom: '6px' }}>Revision note: {details.stage_revision_note}</div>}
+                                                                                                        {details.stage_submitted_at && !details.stage_approved_at && !isOperator && (
+                                                                                                            <div style={{ marginBottom: '8px' }}>
+                                                                                                                <textarea
+                                                                                                                    rows={2}
+                                                                                                                    placeholder="Add revision note (optional)"
+                                                                                                                    value={revisionNotesByStage[stageKey] || ''}
+                                                                                                                    onChange={(e) => setRevisionNotesByStage((prev) => ({ ...prev, [stageKey]: e.target.value }))}
+                                                                                                                    style={{ width: '100%', background: '#111', color: '#ddd', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' }}
+                                                                                                                />
+                                                                                                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        disabled={isBusy}
+                                                                                                                        onClick={() => runMilestoneAction(stageKey, 'n88_approve_stage_progress')}
+                                                                                                                        style={{ padding: '6px 10px', fontSize: '11px', background: '#1e3a8a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                                                                                                    >
+                                                                                                                        Approve Stage Progress
+                                                                                                                    </button>
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        disabled={isBusy}
+                                                                                                                        onClick={() => runMilestoneAction(stageKey, 'n88_request_stage_progress_revision', (fd) => {
+                                                                                                                            if (revisionNotesByStage[stageKey]) fd.append('note', revisionNotesByStage[stageKey]);
+                                                                                                                        })}
+                                                                                                                        style={{ padding: '6px 10px', fontSize: '11px', background: '#3a1f1f', color: '#ffb347', border: '1px solid #ffb347', borderRadius: '4px', cursor: 'pointer' }}
+                                                                                                                    >
+                                                                                                                        Request Revision
+                                                                                                                    </button>
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                        {details.stage_approved_at && !details.payment_confirmed_at && (
+                                                                                                            <div style={{ borderTop: `1px solid ${darkBorder}`, paddingTop: '8px', marginTop: '8px' }}>
+                                                                                                                <div style={{ marginBottom: '6px', color: '#ddd' }}>Payment required for this stage.</div>
+                                                                                                                {details.payment_attachment_url && <div style={{ marginBottom: '6px' }}><a href={details.payment_attachment_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>View payment proof</a></div>}
+                                                                                                                {details.payment_note && <div style={{ marginBottom: '6px' }}>Payment note: {details.payment_note}</div>}
+                                                                                                                {!isOperator && (
+                                                                                                                    <>
+                                                                                                                        <input
+                                                                                                                            type="text"
+                                                                                                                            placeholder="Payment method (optional)"
+                                                                                                                            value={paymentMethodsByStage[stageKey] || ''}
+                                                                                                                            onChange={(e) => setPaymentMethodsByStage((prev) => ({ ...prev, [stageKey]: e.target.value }))}
+                                                                                                                            style={{ width: '100%', background: '#111', color: '#ddd', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' }}
+                                                                                                                        />
+                                                                                                                        <textarea
+                                                                                                                            rows={2}
+                                                                                                                            placeholder="Add payment note"
+                                                                                                                            value={paymentNotesByStage[stageKey] || ''}
+                                                                                                                            onChange={(e) => setPaymentNotesByStage((prev) => ({ ...prev, [stageKey]: e.target.value }))}
+                                                                                                                            style={{ width: '100%', background: '#111', color: '#ddd', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' }}
+                                                                                                                        />
+                                                                                                                        <input
+                                                                                                                            type="file"
+                                                                                                                            onChange={(e) => setPaymentProofFilesByStage((prev) => ({ ...prev, [stageKey]: e.target.files?.[0] || null }))}
+                                                                                                                            style={{ marginBottom: '6px', fontSize: '11px', color: '#ccc' }}
+                                                                                                                        />
+                                                                                                                        <button
+                                                                                                                            type="button"
+                                                                                                                            disabled={isBusy}
+                                                                                                                            onClick={() => runMilestoneAction(stageKey, 'n88_submit_stage_payment_proof', (fd) => {
+                                                                                                                                if (paymentMethodsByStage[stageKey]) fd.append('payment_method', paymentMethodsByStage[stageKey]);
+                                                                                                                                if (paymentNotesByStage[stageKey]) fd.append('note', paymentNotesByStage[stageKey]);
+                                                                                                                                const file = paymentProofFilesByStage[stageKey];
+                                                                                                                                if (file) fd.append('payment_proof', file);
+                                                                                                                            })}
+                                                                                                                            style={{ padding: '6px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+                                                                                                                        >
+                                                                                                                            Submit Payment Proof
+                                                                                                                        </button>
+                                                                                                                    </>
+                                                                                                                )}
+                                                                                                                {isOperator && (
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        disabled={isBusy}
+                                                                                                                        onClick={() => runMilestoneAction(stageKey, 'n88_approve_stage_payment')}
+                                                                                                                        style={{ padding: '6px 10px', fontSize: '11px', background: '#0f5132', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                                                                                                    >
+                                                                                                                        Confirm Payment
+                                                                                                                    </button>
+                                                                                                                )}
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        );
+                                                                                    })}
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })()}
                                                                 {/* Commit 28: Deposit — show when Step 4 selected and item awarded; operator marks received before production can start */}
-                                                                {s.step_number === 4 && itemState.has_awarded_bid && (
+                                                                {false && s.step_number === 4 && itemState.has_awarded_bid && (
                                                                     <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
                                                                         <div style={{ fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' }}>Sent Deposit to start production</div>
                                                                         {itemState.deposit_status === 'received' ? (

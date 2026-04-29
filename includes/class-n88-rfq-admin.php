@@ -14805,7 +14805,7 @@ class N88_RFQ_Admin {
                 
                 var ItemDetailModalInline = function(props) {
                     var item = props.item;
-                    var isOpen = props.isOpen;
+                    var isOpen = !!props.isOpen;
                     var openToDetailsAndSupport = props.openToDetailsAndSupport || false;
                     var onClose = props.onClose;
                     var onSave = props.onSave;
@@ -15771,6 +15771,45 @@ class N88_RFQ_Admin {
                     var _evidenceCommentSubmittingState = React.useState(false);
                     var evidenceCommentSubmitting = _evidenceCommentSubmittingState[0];
                     var setEvidenceCommentSubmitting = _evidenceCommentSubmittingState[1];
+                    var _milestoneSummaryLoadingState = React.useState(false);
+                    var milestoneSummaryLoading = _milestoneSummaryLoadingState[0];
+                    var setMilestoneSummaryLoading = _milestoneSummaryLoadingState[1];
+                    var _milestoneDetailsByStageState = React.useState({});
+                    var milestoneDetailsByStage = _milestoneDetailsByStageState[0];
+                    var setMilestoneDetailsByStage = _milestoneDetailsByStageState[1];
+                    var _expandedMilestoneStageState = React.useState('');
+                    var expandedMilestoneStage = _expandedMilestoneStageState[0];
+                    var setExpandedMilestoneStage = _expandedMilestoneStageState[1];
+                    var _milestoneSetupDraftState = React.useState([]);
+                    var milestoneSetupDraft = _milestoneSetupDraftState[0];
+                    var setMilestoneSetupDraft = _milestoneSetupDraftState[1];
+                    var _milestoneSavingState = React.useState(false);
+                    var milestoneSaving = _milestoneSavingState[0];
+                    var setMilestoneSaving = _milestoneSavingState[1];
+                    var _milestoneSetupPromptOpenState = React.useState(true);
+                    var milestoneSetupPromptOpen = _milestoneSetupPromptOpenState[0];
+                    var setMilestoneSetupPromptOpen = _milestoneSetupPromptOpenState[1];
+                    var _milestoneSetupChoiceState = React.useState('none');
+                    var milestoneSetupChoice = _milestoneSetupChoiceState[0];
+                    var setMilestoneSetupChoice = _milestoneSetupChoiceState[1];
+                    var _milestoneUiNoticeState = React.useState('');
+                    var milestoneUiNotice = _milestoneUiNoticeState[0];
+                    var setMilestoneUiNotice = _milestoneUiNoticeState[1];
+                    var _paymentProofFilesByStageState = React.useState({});
+                    var paymentProofFilesByStage = _paymentProofFilesByStageState[0];
+                    var setPaymentProofFilesByStage = _paymentProofFilesByStageState[1];
+                    var _paymentNotesByStageState = React.useState({});
+                    var paymentNotesByStage = _paymentNotesByStageState[0];
+                    var setPaymentNotesByStage = _paymentNotesByStageState[1];
+                    var _paymentMethodsByStageState = React.useState({});
+                    var paymentMethodsByStage = _paymentMethodsByStageState[0];
+                    var setPaymentMethodsByStage = _paymentMethodsByStageState[1];
+                    var _revisionNotesByStageState = React.useState({});
+                    var revisionNotesByStage = _revisionNotesByStageState[0];
+                    var setRevisionNotesByStage = _revisionNotesByStageState[1];
+                    var _milestoneActionBusyByStageState = React.useState({});
+                    var milestoneActionBusyByStage = _milestoneActionBusyByStageState[0];
+                    var setMilestoneActionBusyByStage = _milestoneActionBusyByStageState[1];
 
                     React.useEffect(function() {
                         if (!isOpen) {
@@ -15954,7 +15993,9 @@ class N88_RFQ_Admin {
                             validationCardTextAuto === 'in production'
                         );
                         var readyForProductionAuto = !!(
-                            productionStartedAuto && executionPaymentConfirmedAuto
+                            productionStartedAuto ||
+                            validationStateAuto.can_commit ||
+                            validationCardTextAuto === 'ready for production'
                         );
                         var sampleReviewStepThree = !!(
                             itemState.has_awarded_bid ||
@@ -15993,7 +16034,7 @@ class N88_RFQ_Admin {
                             validationCardTextAuto === 'samples approved';
                         if (readyForProductionAuto && !workflowTimelineUserNavRef.current) {
                             setActiveTab('timeline');
-                            setSelectedStepIndex(3); // Step 4: only after supplier has begun production
+                            setSelectedStepIndex(3); // Step 4: auto-open once payment is approved and production is unlocked
                             return;
                         }
                         if (sampleReviewStepThree) {
@@ -17004,12 +17045,168 @@ class N88_RFQ_Admin {
                         setSupplierStepEvidenceView(null);
                         setOperatorStep456VideoFormStep(null);
                         setDetailsEditMode(false);
+                        setMilestoneSetupPromptOpen(true);
+                        setMilestoneSetupChoice('none');
                     }, [itemId, preloadedTimelineDataProp]);
                     React.useEffect(function() {
                         if (activeTab !== 'details') {
                             setDetailsEditMode(false);
                         }
                     }, [activeTab]);
+                    var fetchMilestoneSummary = React.useCallback(function() {
+                        if (!itemId) return Promise.resolve(null);
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                        if (!nonce) return Promise.resolve(null);
+                        setMilestoneSummaryLoading(true);
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_payment_milestone_summary');
+                        fd.append('item_id', String(itemId));
+                        fd.append('_ajax_nonce', nonce);
+                        return fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data && data.success) {
+                                    var nextSummary = data.data || null;
+                                    setItemState(function(prev) {
+                                        var nextValidation = Object.assign({}, (prev && prev.validation_state && typeof prev.validation_state === 'object') ? prev.validation_state : {});
+                                        nextValidation.payment_milestones = nextSummary;
+                                        nextValidation.payment_milestones_enabled = !!(nextSummary && nextSummary.enabled);
+                                        return Object.assign({}, prev, { validation_state: nextValidation });
+                                    });
+                                    return nextSummary;
+                                }
+                                return null;
+                            })
+                            .catch(function() { return null; })
+                            .finally(function() { setMilestoneSummaryLoading(false); });
+                    }, [itemId]);
+                    var saveMilestoneSetup = React.useCallback(function(enabled, rows) {
+                        if (!itemId) return Promise.resolve(false);
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                        if (!nonce) return Promise.resolve(false);
+                        setMilestoneSaving(true);
+                        var fd = new FormData();
+                        fd.append('action', 'n88_save_payment_milestones');
+                        fd.append('item_id', String(itemId));
+                        fd.append('milestones_enabled', enabled ? '1' : '0');
+                        if (enabled && Array.isArray(rows) && rows.length) fd.append('milestones', JSON.stringify(rows));
+                        fd.append('_ajax_nonce', nonce);
+                        return fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (!(data && data.success)) {
+                                    alert((data && data.data && data.data.message) ? data.data.message : 'Could not save milestones.');
+                                    return false;
+                                }
+                                var nextSummary = data.data || null;
+                                setItemState(function(prev) {
+                                    var nextValidation = Object.assign({}, (prev && prev.validation_state && typeof prev.validation_state === 'object') ? prev.validation_state : {});
+                                    nextValidation.payment_milestones = nextSummary;
+                                    nextValidation.payment_milestones_enabled = !!(nextSummary && nextSummary.enabled);
+                                    return Object.assign({}, prev, { validation_state: nextValidation });
+                                });
+                                if (enabled) {
+                                    setMilestoneUiNotice('Milestones saved. Stage 4.1 is ready to start.');
+                                    var firstStage = (nextSummary && Array.isArray(nextSummary.stages) && nextSummary.stages.length) ? nextSummary.stages[0] : null;
+                                    if (firstStage && firstStage.stage_key) setExpandedMilestoneStage(firstStage.stage_key);
+                                } else {
+                                    setMilestoneUiNotice('Milestones disabled. Normal flow continues.');
+                                    setExpandedMilestoneStage('');
+                                }
+                                return true;
+                            })
+                            .catch(function() {
+                                alert('Could not save milestones.');
+                                return false;
+                            })
+                            .finally(function() { setMilestoneSaving(false); });
+                    }, [itemId]);
+                    var fetchMilestoneStageDetails = React.useCallback(function(stageKey) {
+                        if (!itemId || !stageKey) return Promise.resolve(null);
+                        if (milestoneDetailsByStage && milestoneDetailsByStage[stageKey]) return Promise.resolve(milestoneDetailsByStage[stageKey]);
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                        if (!nonce) return Promise.resolve(null);
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_payment_milestone_stage_details');
+                        fd.append('item_id', String(itemId));
+                        fd.append('stage_key', String(stageKey));
+                        fd.append('_ajax_nonce', nonce);
+                        return fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data && data.success) {
+                                    setMilestoneDetailsByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = data.data || {}; return next; });
+                                    return data.data || {};
+                                }
+                                return null;
+                            })
+                            .catch(function() { return null; });
+                    }, [itemId, milestoneDetailsByStage]);
+                    var runMilestoneAction = React.useCallback(function(stageKey, actionName, appendFields) {
+                        if (!itemId || !stageKey || !actionName) return Promise.resolve(false);
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                        if (!nonce) return Promise.resolve(false);
+                        setMilestoneActionBusyByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = true; return next; });
+                        var fd = new FormData();
+                        fd.append('action', actionName);
+                        fd.append('item_id', String(itemId));
+                        fd.append('stage_key', String(stageKey));
+                        if (typeof appendFields === 'function') appendFields(fd);
+                        fd.append('_ajax_nonce', nonce);
+                        return fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (!(data && data.success)) {
+                                    alert((data && data.data && data.data.message) ? data.data.message : 'Milestone action failed.');
+                                    return false;
+                                }
+                                var nextSummary = data.data || null;
+                                setItemState(function(prev) {
+                                    var nextValidation = Object.assign({}, (prev && prev.validation_state && typeof prev.validation_state === 'object') ? prev.validation_state : {});
+                                    nextValidation.payment_milestones = nextSummary;
+                                    nextValidation.payment_milestones_enabled = !!(nextSummary && nextSummary.enabled);
+                                    return Object.assign({}, prev, { validation_state: nextValidation });
+                                });
+                                setMilestoneDetailsByStage(function(prev) { var next = Object.assign({}, prev); delete next[stageKey]; return next; });
+                                return true;
+                            })
+                            .catch(function() {
+                                alert('Milestone action failed.');
+                                return false;
+                            })
+                            .finally(function() {
+                                setMilestoneActionBusyByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = false; return next; });
+                            });
+                    }, [itemId]);
+                    React.useEffect(function() {
+                        if (!isOpen || activeTab !== 'timeline' || !itemState.has_awarded_bid || milestoneSummaryLoading) return;
+                        var validationState = itemState.validation_state && typeof itemState.validation_state === 'object' ? itemState.validation_state : {};
+                        if (validationState.payment_milestones && typeof validationState.payment_milestones === 'object') return;
+                        fetchMilestoneSummary();
+                    }, [isOpen, activeTab, itemState.has_awarded_bid, itemState.validation_state, milestoneSummaryLoading, fetchMilestoneSummary]);
+                    React.useEffect(function() {
+                        var validationState = itemState.validation_state && typeof itemState.validation_state === 'object' ? itemState.validation_state : {};
+                        var stages = validationState.payment_milestones && Array.isArray(validationState.payment_milestones.stages) ? validationState.payment_milestones.stages : [];
+                        if (!stages.length) {
+                            setMilestoneSetupDraft([]);
+                            return;
+                        }
+                        setMilestoneSetupDraft(stages.map(function(stage) {
+                            return {
+                                stage_key: stage.stage_key,
+                                stage_label: stage.stage_label,
+                                percent_alloc: Number(stage.percent_alloc || 0),
+                                amount_alloc: stage.amount_alloc == null ? '' : String(stage.amount_alloc),
+                                stage_enabled: !!stage.stage_enabled,
+                                payment_required: !!stage.payment_required
+                            };
+                        }));
+                    }, [itemState.validation_state]);
+                    React.useEffect(function() {
+                        if (!milestoneUiNotice) return;
+                        var t = window.setTimeout(function() { setMilestoneUiNotice(''); }, 3000);
+                        return function() { window.clearTimeout(t); };
+                    }, [milestoneUiNotice]);
                     
                     // Commit 2.3.9.2A: CAD workflow actions state
                     var _isCadActionBusyState = React.useState(false);
@@ -24258,6 +24455,107 @@ class N88_RFQ_Admin {
                                                                 )
                                                             );
                                                         })(),
+                                                        (s.step_number === 4 && itemState.has_awarded_bid) ? (function() {
+                                                            var validationStateMs = itemState.validation_state && typeof itemState.validation_state === 'object' ? itemState.validation_state : {};
+                                                            var summary = validationStateMs.payment_milestones || null;
+                                                            var stages = summary && Array.isArray(summary.stages) ? summary.stages : [];
+                                                            var paidPercent = summary && summary.paid_percent != null ? String(Number(summary.paid_percent).toFixed(2)).replace(/\.00$/, '') : '0';
+                                                            var isOperatorMs = !!isOperatorTimeline;
+                                                            return React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
+                                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '700', color: greenAccent, marginBottom: '8px' } }, 'Payment Milestones (Step 4)'),
+                                                                milestoneUiNotice ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '8px' } }, milestoneUiNotice) : null,
+                                                                milestoneSummaryLoading ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, 'Loading milestones...') : null,
+                                                                (!summary || !summary.enabled) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } },
+                                                                    milestoneSetupPromptOpen ? React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#0b0b0b' } },
+                                                                        React.createElement('div', { style: { padding: '10px 12px', borderBottom: '1px solid ' + darkBorder, display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+                                                                            React.createElement('div', { style: { color: '#fff', fontSize: '12px', fontWeight: '700' } }, 'SET PAYMENT MILESTONES'),
+                                                                            React.createElement('button', { type: 'button', onClick: function() { setMilestoneSetupPromptOpen(false); }, style: { padding: '4px 8px', fontSize: '11px', background: 'transparent', color: '#bbb', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, '[ Close ]')
+                                                                        ),
+                                                                        React.createElement('div', { style: { padding: '12px' } },
+                                                                            React.createElement('div', { style: { marginBottom: '10px' } }, 'How do you want to handle production payments?'),
+                                                                            React.createElement('label', { style: { display: 'block', marginBottom: '8px', cursor: 'pointer' } },
+                                                                                React.createElement('input', { type: 'radio', name: 'milestone-choice-admin', checked: milestoneSetupChoice === 'none', onChange: function() { setMilestoneSetupChoice('none'); }, style: { marginRight: '8px' } }),
+                                                                                'No milestones',
+                                                                                React.createElement('div', { style: { marginLeft: '22px', color: '#aaa' } }, 'Deposit + final payment only')
+                                                                            ),
+                                                                            React.createElement('label', { style: { display: 'block', marginBottom: '12px', cursor: 'pointer' } },
+                                                                                React.createElement('input', { type: 'radio', name: 'milestone-choice-admin', checked: milestoneSetupChoice === 'yes', onChange: function() { setMilestoneSetupChoice('yes'); }, style: { marginRight: '8px' } }),
+                                                                                'Yes — Create Payment Milestones',
+                                                                                React.createElement('div', { style: { marginLeft: '22px', color: '#aaa' } }, 'Tie payments to approved production stages')
+                                                                            ),
+                                                                            React.createElement('div', { style: { display: 'flex', justifyContent: 'flex-end' } },
+                                                                                React.createElement('button', { type: 'button', disabled: milestoneSaving, onClick: function() {
+                                                                                    if (milestoneSetupChoice === 'yes') {
+                                                                                        saveMilestoneSetup(true, []).then(function(ok) { if (ok) setMilestoneSetupPromptOpen(false); });
+                                                                                    } else {
+                                                                                        saveMilestoneSetup(false, []).then(function() { setMilestoneSetupPromptOpen(false); });
+                                                                                    }
+                                                                                }, style: { padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' } }, '[ Continue ]')
+                                                                            )
+                                                                        )
+                                                                    ) : React.createElement('button', { type: 'button', onClick: function() { setMilestoneSetupPromptOpen(true); }, style: { padding: '6px 10px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, 'Set Payment Milestones')
+                                                                ) : React.createElement(React.Fragment, null,
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '10px' } },
+                                                                        React.createElement('span', { style: { color: greenAccent, fontWeight: '600' } }, paidPercent + '% Paid'),
+                                                                        ' · Next: ',
+                                                                        React.createElement('span', { style: { color: '#fff' } }, (summary && summary.next_stage_label) ? summary.next_stage_label : 'Completed')
+                                                                    ),
+                                                                    !isOperatorMs && stages.length > 0 ? React.createElement('div', { style: { marginBottom: '12px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#0f0f0f' } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', color: '#ddd', marginBottom: '8px' } }, 'Edit future milestones (total must be 100%)'),
+                                                                        milestoneSetupDraft.map(function(row, idx) {
+                                                                            return React.createElement('div', { key: row.stage_key || idx, style: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', marginBottom: '6px' } },
+                                                                                React.createElement('input', { type: 'text', value: row.stage_label || '', onChange: function(e) { var v = e.target.value; setMilestoneSetupDraft(function(prev) { return prev.map(function(r, i) { return i === idx ? Object.assign({}, r, { stage_label: v }) : r; }); }); }, style: { background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px' } }),
+                                                                                React.createElement('input', { type: 'number', min: '0', max: '100', step: '0.01', value: row.percent_alloc, readOnly: true, disabled: true, title: 'Percent allocation is locked for this setup.', style: { background: '#0b0b0b', color: '#888', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px', cursor: 'not-allowed' } }),
+                                                                                React.createElement('input', { type: 'number', min: '0', step: '0.01', value: row.amount_alloc, onChange: function(e) { var v = e.target.value; setMilestoneSetupDraft(function(prev) { return prev.map(function(r, i) { return i === idx ? Object.assign({}, r, { amount_alloc: v }) : r; }); }); }, style: { background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px' } }),
+                                                                                React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: '#bbb', fontSize: '11px' } }, React.createElement('input', { type: 'checkbox', checked: !!row.stage_enabled, onChange: function(e) { var v = !!e.target.checked; setMilestoneSetupDraft(function(prev) { return prev.map(function(r, i) { return i === idx ? Object.assign({}, r, { stage_enabled: v }) : r; }); }); } }), 'On')
+                                                                            );
+                                                                        }),
+                                                                        React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' } },
+                                                                            React.createElement('button', { type: 'button', disabled: milestoneSaving, onClick: function() { var total = milestoneSetupDraft.reduce(function(sum, row) { return sum + (row.stage_enabled ? Number(row.percent_alloc || 0) : 0); }, 0); if (Math.abs(total - 100) > 0.01) { alert('Milestone total must equal 100%.'); return; } saveMilestoneSetup(true, milestoneSetupDraft); }, style: { padding: '6px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' } }, 'Save Milestones'),
+                                                                            React.createElement('button', { type: 'button', disabled: milestoneSaving, onClick: function() { saveMilestoneSetup(false, []); }, style: { padding: '6px 10px', fontSize: '11px', background: 'transparent', color: '#bbb', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, 'Disable milestones')
+                                                                        )
+                                                                    ) : null,
+                                                                    stages.map(function(stage) {
+                                                                        var stageKey = stage.stage_key;
+                                                                        var isExpanded = expandedMilestoneStage === stageKey;
+                                                                        var details = (milestoneDetailsByStage && milestoneDetailsByStage[stageKey]) ? milestoneDetailsByStage[stageKey] : stage;
+                                                                        var isBusy = !!(milestoneActionBusyByStage && milestoneActionBusyByStage[stageKey]);
+                                                                        var queueState = !details.stage_submitted_at ? 'Awaiting Approval' : (!details.stage_approved_at ? 'Awaiting Approval' : (!details.payment_confirmed_at ? 'Payment Pending' : 'Payment Received → Proceed'));
+                                                                        return React.createElement('div', { key: stageKey, style: { border: '1px solid ' + darkBorder, borderRadius: '4px', marginBottom: '8px', overflow: 'hidden' } },
+                                                                            React.createElement('button', { type: 'button', onClick: function() { if (isExpanded) { setExpandedMilestoneStage(''); return; } setExpandedMilestoneStage(stageKey); fetchMilestoneStageDetails(stageKey); }, style: { width: '100%', textAlign: 'left', padding: '10px', background: '#111', color: '#ddd', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: '8px' } },
+                                                                                React.createElement('span', null, (stage.stage_label || '') + ' (' + (stage.percent_alloc || 0) + '%)'),
+                                                                                React.createElement('span', { style: { color: greenAccent } }, queueState)
+                                                                            ),
+                                                                            isExpanded ? React.createElement('div', { style: { padding: '10px', background: '#0b0b0b', fontSize: '11px', color: darkText } },
+                                                                                details.stage_proof_attachment_url ? React.createElement('div', { style: { marginBottom: '6px' } }, React.createElement('a', { href: details.stage_proof_attachment_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'View supplier proof')) : null,
+                                                                                details.stage_proof_note ? React.createElement('div', { style: { marginBottom: '6px' } }, 'Supplier note: ' + details.stage_proof_note) : null,
+                                                                                details.stage_meeting_link ? React.createElement('div', { style: { marginBottom: '6px' } }, React.createElement('a', { href: details.stage_meeting_link, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'Open meeting link')) : null,
+                                                                                details.stage_revision_requested_at ? React.createElement('div', { style: { marginBottom: '6px', color: '#ffb347' } }, 'Revision requested ' + new Date(details.stage_revision_requested_at).toLocaleString()) : null,
+                                                                                details.stage_revision_note ? React.createElement('div', { style: { marginBottom: '6px' } }, 'Revision note: ' + details.stage_revision_note) : null,
+                                                                                (details.stage_submitted_at && !details.stage_approved_at && !isOperatorMs) ? React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                                    React.createElement('textarea', { rows: 2, placeholder: 'Add revision note (optional)', value: (revisionNotesByStage && revisionNotesByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setRevisionNotesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
+                                                                                    React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_approve_stage_progress'); }, style: { padding: '6px 10px', fontSize: '11px', background: '#1e3a8a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' } }, 'Approve Stage Progress'),
+                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_request_stage_progress_revision', function(fdAction) { if (revisionNotesByStage && revisionNotesByStage[stageKey]) fdAction.append('note', revisionNotesByStage[stageKey]); }); }, style: { padding: '6px 10px', fontSize: '11px', background: '#3a1f1f', color: '#ffb347', border: '1px solid #ffb347', borderRadius: '4px', cursor: 'pointer' } }, 'Request Revision')
+                                                                                    )
+                                                                                ) : null,
+                                                                                (details.stage_approved_at && !details.payment_confirmed_at) ? React.createElement('div', { style: { borderTop: '1px solid ' + darkBorder, paddingTop: '8px', marginTop: '8px' } },
+                                                                                    React.createElement('div', { style: { marginBottom: '6px', color: '#ddd' } }, 'Payment required for this stage.'),
+                                                                                    details.payment_attachment_url ? React.createElement('div', { style: { marginBottom: '6px' } }, React.createElement('a', { href: details.payment_attachment_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'View payment proof')) : null,
+                                                                                    details.payment_note ? React.createElement('div', { style: { marginBottom: '6px' } }, 'Payment note: ' + details.payment_note) : null,
+                                                                                    !isOperatorMs ? React.createElement(React.Fragment, null,
+                                                                                        React.createElement('input', { type: 'text', placeholder: 'Payment method (optional)', value: (paymentMethodsByStage && paymentMethodsByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setPaymentMethodsByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
+                                                                                        React.createElement('textarea', { rows: 2, placeholder: 'Add payment note', value: (paymentNotesByStage && paymentNotesByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setPaymentNotesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
+                                                                                        React.createElement('input', { type: 'file', onChange: function(e) { var f = (e.target.files && e.target.files[0]) ? e.target.files[0] : null; setPaymentProofFilesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = f; return n; }); }, style: { marginBottom: '6px', fontSize: '11px', color: '#ccc' } }),
+                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_submit_stage_payment_proof', function(fdAction) { if (paymentMethodsByStage && paymentMethodsByStage[stageKey]) fdAction.append('payment_method', paymentMethodsByStage[stageKey]); if (paymentNotesByStage && paymentNotesByStage[stageKey]) fdAction.append('note', paymentNotesByStage[stageKey]); if (paymentProofFilesByStage && paymentProofFilesByStage[stageKey]) fdAction.append('payment_proof', paymentProofFilesByStage[stageKey]); }); }, style: { padding: '6px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' } }, 'Submit Payment Proof')
+                                                                                    ) : React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_approve_stage_payment'); }, style: { padding: '6px 10px', fontSize: '11px', background: '#0f5132', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' } }, 'Confirm Payment')
+                                                                                ) : null
+                                                                            ) : null
+                                                                        );
+                                                                    })
+                                                                )
+                                                            );
+                                                        })() : null,
                                                         // Commit 28 + 3.C.1: Deposit - designer sends proof via modal; operator views proof and marks received
                                                         false && (s.step_number === 4 && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
                                                             React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' } }, 'Sent Deposit to start production'),
@@ -25551,8 +25849,9 @@ class N88_RFQ_Admin {
                                 validationStateOpen.production_started ||
                                 validationCommitmentOpen.production_started_at ||
                                 String(validationCommitmentOpen.production_status || '').toLowerCase() === 'in_production' ||
-                                validationCardTextOpen.indexOf('in production') !== -1
-                            ) && executionPaymentConfirmedOpenCard;
+                                validationCardTextOpen.indexOf('in production') !== -1 ||
+                                validationCardTextOpen.indexOf('ready for production') !== -1
+                            );
                             var sampleSupplierResponseReceivedOpen = !!(
                                 validationSupplierOpen.updated_at ||
                                 validationSupplierOpen.status ||

@@ -140,7 +140,16 @@ class N88_RFQ_Auth {
         // Commit 2.3.9.1C-a: Item Messages - Get and Send messages
         add_action( 'wp_ajax_n88_get_item_messages', array( $this, 'ajax_get_item_messages' ) );
         add_action( 'wp_ajax_n88_compute_batch_message_thread_key', array( $this, 'ajax_compute_batch_message_thread_key' ) );
+        add_action( 'wp_ajax_n88_get_batch_thread_item_ids', array( $this, 'ajax_get_batch_thread_item_ids' ) );
         add_action( 'wp_ajax_n88_send_item_message', array( $this, 'ajax_send_item_message' ) );
+        add_action( 'wp_ajax_n88_get_payment_milestone_summary', array( $this, 'ajax_get_payment_milestone_summary' ) );
+        add_action( 'wp_ajax_n88_get_payment_milestone_stage_details', array( $this, 'ajax_get_payment_milestone_stage_details' ) );
+        add_action( 'wp_ajax_n88_save_payment_milestones', array( $this, 'ajax_save_payment_milestones' ) );
+        add_action( 'wp_ajax_n88_submit_stage_progress_proof', array( $this, 'ajax_submit_stage_progress_proof' ) );
+        add_action( 'wp_ajax_n88_approve_stage_progress', array( $this, 'ajax_approve_stage_progress' ) );
+        add_action( 'wp_ajax_n88_request_stage_progress_revision', array( $this, 'ajax_request_stage_progress_revision' ) );
+        add_action( 'wp_ajax_n88_submit_stage_payment_proof', array( $this, 'ajax_submit_stage_payment_proof' ) );
+        add_action( 'wp_ajax_n88_approve_stage_payment', array( $this, 'ajax_approve_stage_payment' ) );
         
         // Commit 2.3.9.1C-a: Mark payment received
         add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
@@ -366,6 +375,33 @@ class N88_RFQ_Auth {
         }
 
         return (int) $wireframe_user->ID;
+    }
+
+    private function is_wireframe_admin_user( $user = null ) {
+        if ( ! $user ) {
+            $user = wp_get_current_user();
+        }
+        if ( ! ( $user instanceof WP_User ) || empty( $user->ID ) ) {
+            return false;
+        }
+
+        $default_wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
+        if ( $default_wireframe_supplier_id > 0 && (int) $user->ID === (int) $default_wireframe_supplier_id ) {
+            return true;
+        }
+
+        $email = isset( $user->user_email ) ? strtolower( trim( (string) $user->user_email ) ) : '';
+        if ( $email && $email === strtolower( (string) self::N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL ) ) {
+            return true;
+        }
+
+        $login = isset( $user->user_login ) ? strtolower( (string) $user->user_login ) : '';
+        $display_name = isset( $user->display_name ) ? strtolower( (string) $user->display_name ) : '';
+        if ( false !== strpos( $login, 'wireframe' ) || false !== strpos( $display_name, 'wireframe' ) ) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -863,6 +899,141 @@ class N88_RFQ_Auth {
         }
 
         $context_support_ready = true;
+    }
+
+    /**
+     * Commit 3.D.9: Ensure lightweight stage payment milestone table exists.
+     */
+    private function ensure_payment_milestone_support() {
+        static $milestone_support_ready = false;
+        if ( $milestone_support_ready ) {
+            return;
+        }
+
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+
+        dbDelta(
+            "CREATE TABLE {$table} (
+                milestone_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                item_id BIGINT UNSIGNED NOT NULL,
+                proposal_group_id BIGINT UNSIGNED NULL,
+                stage_key VARCHAR(24) NOT NULL,
+                stage_label VARCHAR(120) NOT NULL,
+                sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+                percent_alloc DECIMAL(6,2) NULL,
+                amount_alloc DECIMAL(12,2) NULL,
+                payment_required TINYINT(1) NOT NULL DEFAULT 1,
+                stage_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                stage_proof_note TEXT NULL,
+                stage_meeting_link VARCHAR(500) NULL,
+                stage_proof_attachment_id BIGINT UNSIGNED NULL,
+                stage_submitted_at DATETIME NULL,
+                stage_approved_at DATETIME NULL,
+                stage_revision_requested_at DATETIME NULL,
+                stage_revision_note TEXT NULL,
+                payment_note TEXT NULL,
+                payment_method VARCHAR(20) NULL,
+                payment_attachment_id BIGINT UNSIGNED NULL,
+                payment_submitted_at DATETIME NULL,
+                payment_confirmed_at DATETIME NULL,
+                payment_status VARCHAR(30) NOT NULL DEFAULT 'not_submitted',
+                created_by BIGINT UNSIGNED NULL,
+                updated_by BIGINT UNSIGNED NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY  (milestone_id),
+                KEY idx_item_stage (item_id, stage_key),
+                KEY idx_item_sort (item_id, sort_order),
+                KEY idx_item_payment_status (item_id, payment_status),
+                KEY idx_group_item (proposal_group_id, item_id)
+            ) {$charset_collate};"
+        );
+
+        $milestone_support_ready = true;
+    }
+
+    private function get_default_stage_milestone_blueprint() {
+        return array(
+            array( 'stage_key' => '4_1_cad',       'stage_label' => '4.1 CAD Drawings Review',     'sort_order' => 10, 'percent_alloc' => 30 ),
+            array( 'stage_key' => '4_2_materials', 'stage_label' => '4.2 Materials Prepared',      'sort_order' => 20, 'percent_alloc' => 20 ),
+            array( 'stage_key' => '4_3_build',     'stage_label' => '4.3 Main Build',              'sort_order' => 30, 'percent_alloc' => 20 ),
+            array( 'stage_key' => '4_4_assembly',  'stage_label' => '4.4 Process & Assembly',      'sort_order' => 40, 'percent_alloc' => 15 ),
+            array( 'stage_key' => '4_5_finish',    'stage_label' => '4.5 Finishing Complete',      'sort_order' => 50, 'percent_alloc' => 15 ),
+        );
+    }
+
+    private function get_payment_milestone_rows( $item_id ) {
+        global $wpdb;
+        $this->ensure_payment_milestone_support();
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT *
+                FROM {$table}
+                WHERE item_id = %d
+                ORDER BY sort_order ASC, milestone_id ASC",
+                absint( $item_id )
+            ),
+            ARRAY_A
+        );
+    }
+
+    private function build_payment_milestone_summary( $item_id ) {
+        $rows = $this->get_payment_milestone_rows( $item_id );
+        if ( empty( $rows ) ) {
+            return array(
+                'enabled' => false,
+                'paid_percent' => 0.0,
+                'next_stage_key' => '',
+                'next_stage_label' => '',
+                'stages' => array(),
+            );
+        }
+
+        $stages = array();
+        $paid_percent = 0.0;
+        $next_stage = null;
+        foreach ( (array) $rows as $row ) {
+            $enabled = ! empty( $row['stage_enabled'] );
+            $percent = isset( $row['percent_alloc'] ) && '' !== (string) $row['percent_alloc'] ? floatval( $row['percent_alloc'] ) : 0.0;
+            $payment_confirmed = ! empty( $row['payment_confirmed_at'] ) || 'confirmed' === (string) $row['payment_status'];
+            if ( $enabled && $payment_confirmed ) {
+                $paid_percent += $percent;
+            }
+            if ( ! $next_stage && $enabled && ! $payment_confirmed ) {
+                $next_stage = $row;
+            }
+            $stages[] = array(
+                'milestone_id'         => isset( $row['milestone_id'] ) ? absint( $row['milestone_id'] ) : 0,
+                'stage_key'            => isset( $row['stage_key'] ) ? sanitize_key( $row['stage_key'] ) : '',
+                'stage_label'          => isset( $row['stage_label'] ) ? sanitize_text_field( $row['stage_label'] ) : '',
+                'sort_order'           => isset( $row['sort_order'] ) ? absint( $row['sort_order'] ) : 0,
+                'percent_alloc'        => round( $percent, 2 ),
+                'amount_alloc'         => isset( $row['amount_alloc'] ) && '' !== (string) $row['amount_alloc'] ? round( floatval( $row['amount_alloc'] ), 2 ) : null,
+                'stage_enabled'        => $enabled,
+                'payment_required'     => ! empty( $row['payment_required'] ),
+                'payment_status'       => isset( $row['payment_status'] ) ? sanitize_key( $row['payment_status'] ) : 'not_submitted',
+                'stage_meeting_link'   => isset( $row['stage_meeting_link'] ) ? esc_url_raw( $row['stage_meeting_link'] ) : '',
+                'stage_revision_note'  => isset( $row['stage_revision_note'] ) ? sanitize_textarea_field( $row['stage_revision_note'] ) : '',
+                'stage_submitted_at'   => ! empty( $row['stage_submitted_at'] ) ? $row['stage_submitted_at'] : null,
+                'stage_approved_at'    => ! empty( $row['stage_approved_at'] ) ? $row['stage_approved_at'] : null,
+                'stage_revision_requested_at' => ! empty( $row['stage_revision_requested_at'] ) ? $row['stage_revision_requested_at'] : null,
+                'payment_submitted_at' => ! empty( $row['payment_submitted_at'] ) ? $row['payment_submitted_at'] : null,
+                'payment_confirmed_at' => ! empty( $row['payment_confirmed_at'] ) ? $row['payment_confirmed_at'] : null,
+            );
+        }
+
+        return array(
+            'enabled'          => true,
+            'paid_percent'     => round( $paid_percent, 2 ),
+            'next_stage_key'   => $next_stage && ! empty( $next_stage['stage_key'] ) ? sanitize_key( $next_stage['stage_key'] ) : '',
+            'next_stage_label' => $next_stage && ! empty( $next_stage['stage_label'] ) ? sanitize_text_field( $next_stage['stage_label'] ) : '',
+            'stages'           => $stages,
+        );
     }
 
     /**
@@ -4287,6 +4458,8 @@ class N88_RFQ_Auth {
         $current_user = wp_get_current_user();
         $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
         $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_wireframe_supplier_queue = $is_supplier && $this->is_wireframe_admin_user( $current_user );
+        $can_verify_execution_payment = $is_system_operator || $is_wireframe_supplier_queue;
         $this->ensure_supplier_media_library_support();
         
         if ( ! $is_supplier && ! $is_system_operator ) {
@@ -4457,15 +4630,96 @@ class N88_RFQ_Auth {
                 'item_current_revision' => $item_current_revision,
                 'batch_request_item_ids' => array(),
                 'has_batch_request' => false,
+                'is_pre_rfq_batch_message_only' => false,
             );
             if ( ! empty( $item_meta['rfq_batch_item_ids'] ) && is_array( $item_meta['rfq_batch_item_ids'] ) ) {
                 $batch_request_item_ids = array_values( array_unique( array_filter( array_map( 'absint', $item_meta['rfq_batch_item_ids'] ) ) ) );
                 $item_data['batch_request_item_ids'] = $batch_request_item_ids;
                 $item_data['has_batch_request'] = count( $batch_request_item_ids ) > 1;
             }
+            $messages_table = $wpdb->prefix . 'n88_item_messages';
+            $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+            $item_data['batch_message_thread_key'] = '';
+            if ( $messages_table_exists ) {
+                $latest_batch_scope = $wpdb->get_row(
+                    $wpdb->prepare(
+                        "SELECT proposal_group_id, category
+                        FROM {$messages_table}
+                        WHERE item_id = %d
+                        AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                        AND supplier_id = %d
+                        AND context_type = 'batch_proposal'
+                        ORDER BY created_at DESC, message_id DESC
+                        LIMIT 1",
+                        $item_id,
+                        $current_user->ID
+                    ),
+                    ARRAY_A
+                );
+                if ( $latest_batch_scope ) {
+                    $scope_group_id = ! empty( $latest_batch_scope['proposal_group_id'] ) ? absint( $latest_batch_scope['proposal_group_id'] ) : 0;
+                    $scope_thread_key = $this->sanitize_batch_message_thread_key( isset( $latest_batch_scope['category'] ) ? (string) $latest_batch_scope['category'] : '' );
+
+                    if ( $scope_group_id > 0 ) {
+                        if ( ! in_array( $scope_group_id, (array) $item_data['batch_proposal_group_ids'], true ) ) {
+                            $item_data['batch_proposal_group_ids'][] = $scope_group_id;
+                        }
+                        if ( empty( $item_data['batch_primary_proposal_group_id'] ) ) {
+                            $item_data['batch_primary_proposal_group_id'] = $scope_group_id;
+                        }
+                        $group_items_table = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+                        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$group_items_table}'" ) === $group_items_table ) {
+                            $group_item_ids = $wpdb->get_col(
+                                $wpdb->prepare(
+                                    "SELECT item_id
+                                    FROM {$group_items_table}
+                                    WHERE proposal_group_id = %d
+                                    AND supplier_id = %d
+                                    ORDER BY id ASC",
+                                    $scope_group_id,
+                                    $current_user->ID
+                                )
+                            );
+                            $group_item_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $group_item_ids ) ) ) );
+                            if ( count( $group_item_ids ) > 1 ) {
+                                $item_data['batch_request_item_ids'] = $group_item_ids;
+                                $item_data['has_batch_request'] = true;
+                            }
+                        }
+                    } elseif ( $scope_thread_key ) {
+                        $item_data['batch_message_thread_key'] = $scope_thread_key;
+                        $item_data['is_pre_rfq_batch_message_only'] = true;
+                        $thread_item_ids = $wpdb->get_col(
+                            $wpdb->prepare(
+                                "SELECT DISTINCT item_id
+                                FROM {$messages_table}
+                                WHERE (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                                AND supplier_id = %d
+                                AND context_type = 'batch_proposal'
+                                AND category = %s",
+                                $current_user->ID,
+                                $scope_thread_key
+                            )
+                        );
+                        $thread_item_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $thread_item_ids ) ) ) );
+                        if ( count( $thread_item_ids ) > 1 ) {
+                            $item_data['batch_request_item_ids'] = $thread_item_ids;
+                            $item_data['has_batch_request'] = true;
+                        }
+                    }
+                }
+            }
             
             // Determine action badge (pass has_revision_column flag)
             $action_badge = $this->determine_action_badge( $item_data, $item['route_status'], $item_current_revision, $has_revision_column );
+            if (
+                ! empty( $item_data['is_pre_rfq_batch_message_only'] ) &&
+                in_array( $action_badge, array( 'submit_bid', 'continue_draft', 'specs_changed' ), true )
+            ) {
+                // Pre-RFQ batch conversation (thread_key without proposal_group_id) must stay
+                // conversation-only in supplier queue until designer actually submits RFQ.
+                $action_badge = 'message_thread';
+            }
             $item_data['action_badge'] = $action_badge;
             
             // Calculate time remaining
@@ -4474,14 +4728,11 @@ class N88_RFQ_Auth {
             
             // Check for unread operator messages (supplier_operator thread)
             // Action Required: Show when operator has sent messages that supplier hasn't replied to
-            $messages_table = $wpdb->prefix . 'n88_item_messages';
             $unread_operator_messages = 0;
             $has_unread_operator_messages = false;
             $unread_designer_messages = 0;
             $has_unread_designer_messages = false;
-            
-            // Check if messages table exists
-            $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+
             if ( $messages_table_exists ) {
                 // Count unread operator messages (operator messages with no supplier reply after them)
                 // For supplier_operator thread, we need to check by item_id and supplier_id
@@ -4579,6 +4830,36 @@ class N88_RFQ_Auth {
             }
             $validation_state = $this->build_material_validation_state( $item_id, $validation_meta );
             $item_data['validation_state'] = $validation_state;
+            $item_data['payment_approval_kind'] = '';
+            $item_data['payment_approval_stage_key'] = '';
+            $item_data['payment_approval_stage_label'] = '';
+            if ( isset( $validation_state['payment_milestones'] ) && is_array( $validation_state['payment_milestones'] ) && ! empty( $validation_state['payment_milestones']['enabled'] ) ) {
+                $milestone_stages_for_queue = isset( $validation_state['payment_milestones']['stages'] ) && is_array( $validation_state['payment_milestones']['stages'] )
+                    ? $validation_state['payment_milestones']['stages']
+                    : array();
+                foreach ( $milestone_stages_for_queue as $ms_queue_stage ) {
+                    if ( empty( $ms_queue_stage['stage_enabled'] ) ) {
+                        continue;
+                    }
+                    $is_waiting_approval = ! empty( $ms_queue_stage['payment_submitted_at'] ) && empty( $ms_queue_stage['payment_confirmed_at'] );
+                    if ( $is_waiting_approval ) {
+                        $item_data['payment_approval_kind'] = 'milestone';
+                        $item_data['payment_approval_stage_key'] = isset( $ms_queue_stage['stage_key'] ) ? sanitize_key( $ms_queue_stage['stage_key'] ) : '';
+                        $item_data['payment_approval_stage_label'] = isset( $ms_queue_stage['stage_label'] ) ? sanitize_text_field( $ms_queue_stage['stage_label'] ) : '';
+                        break;
+                    }
+                }
+            }
+            if ( empty( $item_data['payment_approval_kind'] ) && $can_verify_execution_payment ) {
+                $validation_commitment_for_exec = isset( $validation_state['commitment'] ) && is_array( $validation_state['commitment'] ) ? $validation_state['commitment'] : array();
+                $execution_for_queue = isset( $validation_commitment_for_exec['execution_activation'] ) && is_array( $validation_commitment_for_exec['execution_activation'] )
+                    ? $validation_commitment_for_exec['execution_activation']
+                    : array();
+                $execution_for_queue_status = isset( $execution_for_queue['payment_status'] ) ? sanitize_key( (string) $execution_for_queue['payment_status'] ) : '';
+                if ( 'pending_verification' === $execution_for_queue_status ) {
+                    $item_data['payment_approval_kind'] = 'execution';
+                }
+            }
             
             // E) Fix #22, #25: Clear Action Required when CAD approved or prototype approved (supplier has no pending task)
             // F) Fix #28: Never show Action Required when awarded
@@ -4706,6 +4987,10 @@ class N88_RFQ_Auth {
                 $show_action_required = false;
                 $status_note = '';
             }
+            if ( ! empty( $item_data['payment_approval_kind'] ) ) {
+                $item_data['action_badge'] = 'approve_payment';
+                $action_badge = 'approve_payment';
+            }
 
             if ( $has_unread_designer_messages ) {
                 $status_note = sprintf(
@@ -4728,7 +5013,36 @@ class N88_RFQ_Auth {
                 $is_action_required = true;
             } elseif ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Commercial gate states for supplier queue
-                if ( $validation_production_started ) {
+                $milestone_summary = isset( $validation_state['payment_milestones'] ) && is_array( $validation_state['payment_milestones'] )
+                    ? $validation_state['payment_milestones']
+                    : array();
+                $milestone_next = array();
+                if ( ! empty( $milestone_summary['enabled'] ) && ! empty( $milestone_summary['stages'] ) && is_array( $milestone_summary['stages'] ) ) {
+                    foreach ( $milestone_summary['stages'] as $milestone_stage ) {
+                        if ( ! empty( $milestone_stage['stage_enabled'] ) && empty( $milestone_stage['payment_confirmed_at'] ) ) {
+                            $milestone_next = $milestone_stage;
+                            break;
+                        }
+                    }
+                }
+                if ( ! empty( $milestone_next ) ) {
+                    if ( ! empty( $milestone_next['stage_revision_requested_at'] ) || ( isset( $milestone_next['payment_status'] ) && 'revision_requested' === sanitize_key( (string) $milestone_next['payment_status'] ) ) ) {
+                        $status_label = __( 'Revision Requested', 'n88-rfq-platform' );
+                        $status_color = '#ffb347';
+                    } elseif ( empty( $milestone_next['stage_approved_at'] ) ) {
+                        $status_label = __( 'Awaiting Approval', 'n88-rfq-platform' );
+                        $status_color = '#ffb347';
+                    } elseif ( empty( $milestone_next['payment_confirmed_at'] ) ) {
+                        $status_label = __( 'Payment Pending', 'n88-rfq-platform' );
+                        $status_color = '#ffb347';
+                    } else {
+                        $status_label = __( 'Payment Received -> Proceed', 'n88-rfq-platform' );
+                        $status_color = '#00ff00';
+                    }
+                } elseif ( 'pending_verification' === $execution_payment_status ) {
+                    $status_label = __( 'Awaiting Approval', 'n88-rfq-platform' );
+                    $status_color = '#ffb347';
+                } elseif ( $validation_production_started ) {
                     $status_label = __( 'In Production', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $validation_com_completed && $execution_locked ) {
@@ -4899,7 +5213,7 @@ class N88_RFQ_Auth {
                 $passes_status = true;
             } elseif ( $status_filter === 'needs_action' ) {
                 // Show items where supplier must send something: proposal, draft, update bid, video, reply to operator, or submit video after CAD
-                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received', 'message_thread' ), true )
+                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received', 'message_thread', 'approve_payment' ), true )
                     || ! empty( $item_data['show_action_required'] )
                     || ! empty( $item_data['supplier_is_action_required'] );
             } elseif ( $status_filter === 'draft_saved' ) {
@@ -4909,7 +5223,7 @@ class N88_RFQ_Auth {
             } elseif ( $status_filter === 'expired' ) {
                 $passes_status = $item_data['action_badge'] === 'expired';
             } elseif ( $status_filter === 'awarded' ) {
-                $passes_status = $item_data['action_badge'] === 'awarded';
+                $passes_status = in_array( $item_data['action_badge'], array( 'awarded', 'approve_payment' ), true );
             }
             
             if ( ! $passes_status ) {
@@ -5089,6 +5403,9 @@ class N88_RFQ_Auth {
                                 $is_expired = $item_data['action_badge'] === 'expired';
                                 
                                 switch ( $item_data['action_badge'] ) {
+                                    case 'approve_payment':
+                                        $action_button_text = __( 'Approve Payment', 'n88-rfq-platform' ) . ' ->';
+                                        break;
                                     case 'awarded':
                                         $action_button_text = __( 'Project Awarded', 'n88-rfq-platform' ) . ' ->';
                                         break;
@@ -5122,9 +5439,9 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ->';
                                         break;
                                 }
-                                if ( ! empty( $item_data['validation_requires_sample_upload'] ) ) {
+                                if ( ! empty( $item_data['validation_requires_sample_upload'] ) && 'approve_payment' !== $item_data['action_badge'] ) {
                                     $action_button_text = __( 'Material Sample Kit Requested', 'n88-rfq-platform' ) . ' ->';
-                                } elseif ( ! empty( $item_data['supplier_status_label'] ) ) {
+                                } elseif ( ! empty( $item_data['supplier_status_label'] ) && 'approve_payment' !== $item_data['action_badge'] ) {
                                     $supplier_status_label = trim( (string) $item_data['supplier_status_label'] );
 
                                     if ( in_array( $supplier_status_label, array( 'Sample Received', 'Samples Received' ), true ) ) {
@@ -5141,6 +5458,12 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'View Material Sample Shipped', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Sample Submitted' === $supplier_status_label ) {
                                         $action_button_text = __( 'View Sample Submission', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Awaiting Approval' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Approve Payment', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Payment Pending' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Open Payment', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Payment Received -> Proceed' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Proceed', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( in_array( $supplier_status_label, array( 'Sample Material Kit Requested', 'Preparing Sample Material Kit' ), true ) ) {
                                         $action_button_text = __( 'Upload Material Sample', 'n88-rfq-platform' ) . ' ->';
                                     }
@@ -5162,6 +5485,9 @@ class N88_RFQ_Auth {
                                 } elseif ( 'awarded' === $item_data['action_badge'] ) {
                                     $queue_open_tab  = 'workflow';
                                     $queue_open_step = '2';
+                                } elseif ( 'approve_payment' === $item_data['action_badge'] ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '3';
                                 } elseif ( ! empty( $item_data['validation_requires_sample_upload'] ) ) {
                                     $queue_open_tab  = 'workflow';
                                     $queue_open_step = '1';
@@ -5212,6 +5538,10 @@ class N88_RFQ_Auth {
                                                     data-supplier-status-label="<?php echo esc_attr( $queue_row_status_label ); ?>"
                                                     data-batch-group-id="<?php echo esc_attr( isset( $item_data['batch_primary_proposal_group_id'] ) ? intval( $item_data['batch_primary_proposal_group_id'] ) : 0 ); ?>"
                                                     data-batch-item-ids="<?php echo esc_attr( ! empty( $item_data['batch_request_item_ids'] ) ? implode( ',', array_map( 'absint', (array) $item_data['batch_request_item_ids'] ) ) : '' ); ?>"
+                                                    data-batch-thread-key="<?php echo esc_attr( isset( $item_data['batch_message_thread_key'] ) ? (string) $item_data['batch_message_thread_key'] : '' ); ?>"
+                                                    data-payment-approval-kind="<?php echo esc_attr( isset( $item_data['payment_approval_kind'] ) ? (string) $item_data['payment_approval_kind'] : '' ); ?>"
+                                                    data-payment-approval-stage-key="<?php echo esc_attr( isset( $item_data['payment_approval_stage_key'] ) ? (string) $item_data['payment_approval_stage_key'] : '' ); ?>"
+                                                    data-payment-approval-stage-label="<?php echo esc_attr( isset( $item_data['payment_approval_stage_label'] ) ? (string) $item_data['payment_approval_stage_label'] : '' ); ?>"
                                                     data-open-tab="<?php echo esc_attr( $queue_open_tab ); ?>"
                                                     data-open-step="<?php echo esc_attr( $queue_open_step ); ?>">
                                                 [ <?php echo esc_html( preg_replace( '/\s*>\s*$/', '', $action_button_text ) ); ?> ]
@@ -5367,6 +5697,10 @@ class N88_RFQ_Auth {
             <div id="n88-supplier-bid-form-modal-content" class="n88-supplier-modal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 700px; max-width: 95vw; max-height: 95vh; background-color: #3C3C3C !important; box-shadow: 0 4px 20px rgba(255,0,101,0.3); z-index: 10003; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555555; border-radius: 4px;">
                 <!-- Modal content will be populated by JavaScript -->
             </div>
+        </div>
+        <div id="n88-payment-approval-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.78); z-index:10008;">
+            <div style="position:absolute; inset:0;" onclick="if(typeof closePaymentApprovalModal==='function'){closePaymentApprovalModal();}"></div>
+            <div id="n88-payment-approval-modal-content" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:min(680px, 94vw); max-height:92vh; overflow:auto; background:#222; border:1px solid #555; border-radius:10px; box-shadow:0 8px 28px rgba(255,0,101,.24);"></div>
         </div>
 
         <div id="n88-supplier-batch-proposal-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:10006; overflow:hidden;">
@@ -7688,6 +8022,10 @@ class N88_RFQ_Auth {
                 if (!skipAutoLoad) {
                     var state = window.n88SupplierBatchState || {};
                     var stateItem = state.itemData ? (state.itemData[itemId] || state.itemData[String(itemId)] || null) : null;
+                    var isMessageOnlyPreRfqItem = !!(stateItem && (stateItem.is_message_only_route === true || String(stateItem.route_type || '').toLowerCase() === 'designer_message'));
+                    if (isMessageOnlyPreRfqItem) {
+                        return;
+                    }
                     var stateBidStatus = String((stateItem && (stateItem.bid_status || (stateItem.bid_data && stateItem.bid_data.bid_status))) || '').toLowerCase();
                     if (stateItem && (stateBidStatus === 'submitted' || stateBidStatus === 'awarded' || stateItem.is_awarded_supplier === true)) {
                         var submittedStackHtml = '';
@@ -8131,6 +8469,12 @@ class N88_RFQ_Auth {
                 var awardedCount = items.filter(function(item) { return getBatchAwardStateLabel(item) === 'Awarded'; }).length;
                 var batchStatus = getBatchModalStatusLabel(items);
                 var batchHideDraftSubmitRow = batchQuotedSubmissionCompleteForAllItems(items);
+                var batchMessageOnlyPreRfq = items.length > 0 && items.every(function(item) {
+                    return !!item && (item.is_message_only_route === true || String(item.route_type || '').toLowerCase() === 'designer_message');
+                });
+                if (batchMessageOnlyPreRfq) {
+                    batchHideDraftSubmitRow = true;
+                }
                 var panelsHtml = '';
                 items.forEach(function(item) {
                     panelsHtml += renderBatchItemPanel(item);
@@ -8184,7 +8528,7 @@ class N88_RFQ_Auth {
                             '<button type="button" id="n88-batch-submit-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Submit all quoted ]</button>' +
                             '</div>' +
                         '</div>' +
-                        '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;"></div>' +
+                        '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;">' + (batchMessageOnlyPreRfq ? 'Submit Proposal unlocks after designer sends RFQ.' : '') + '</div>' +
                         '<div id="n88-batch-shared-upload-list"></div>' +
                         '<div id="n88-batch-footer-sample-workflow-wrap" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid #222;">' +
                             '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Batch Material Sample Workflow</div>' +
@@ -8930,12 +9274,13 @@ class N88_RFQ_Auth {
                 // Supplier: "Mark as Clarified" when operator replied; after clarified show "Submit Proposal" (hide if already submitted). If operator replied again after clarify, show "Mark as Clarified" again.
                 if (!threadConfig.isWorkflowThread && opts.has_operator_reply) {
                     html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">';
+                    var isMessageOnlyPreRfqContext = !!(window.currentItemData && (window.currentItemData.is_message_only_route === true || window.currentItemData.route_type === 'designer_message'));
                     if (opts.has_operator_reply_after_confirmation) {
                         var bidIdVal = (opts.bid_id || 0);
                         html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
                     } else if (opts.supplier_confirmed_clarification) {
                         html += '<span style="font-size: 11px; color: #FF0065;"> Clarified</span>';
-                        if (!opts.supplier_has_submitted_bid) {
+                        if (!opts.supplier_has_submitted_bid && !isMessageOnlyPreRfqContext) {
                             var clarifiedBatchGroupId = parseInt(
                                 (opts.batch_primary_proposal_group_id || (Array.isArray(opts.batch_proposal_group_ids) && opts.batch_proposal_group_ids.length ? opts.batch_proposal_group_ids[0] : 0)) ||
                                 (window.currentItemData && (window.currentItemData.batch_primary_proposal_group_id || (Array.isArray(window.currentItemData.batch_proposal_group_ids) && window.currentItemData.batch_proposal_group_ids.length ? window.currentItemData.batch_proposal_group_ids[0] : 0))) ||
@@ -8946,6 +9291,8 @@ class N88_RFQ_Auth {
                             var clarifiedBatchItemIdsAttr = clarifiedBatchItemIds.map(function(v){ return parseInt(v, 10) || 0; }).filter(function(v){ return v > 0; }).join(',');
                             var submitProposalLabel = clarifiedBatchItemIdsAttr.indexOf(',') !== -1 ? 'Submit Batch Proposal' : 'Submit Proposal';
                             html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" data-batch-group-id="' + clarifiedBatchGroupId + '" data-batch-item-ids="' + clarifiedBatchItemIdsAttr + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">' + submitProposalLabel + '</button>';
+                        } else if (isMessageOnlyPreRfqContext) {
+                            html += '<span style="font-size: 11px; color: #999;">Proposal button unlocks after designer sends RFQ.</span>';
                         }
                     } else {
                         var bidIdVal = (opts.bid_id || 0);
@@ -9570,6 +9917,9 @@ class N88_RFQ_Auth {
                         item.supplier_workflow_active_step = 2;
                     } else if (itemHasSampleValidationFlow) {
                         item.supplier_workflow_active_step = 1;
+                    }
+                    if (n88SupplierItemDataReadyForProduction(item)) {
+                        item.supplier_workflow_active_step = 3; // Step 4 when ready for production
                     }
                     if (n88SupplierItemDataInProduction(item)) {
                         item.supplier_workflow_active_step = 3;
@@ -10335,7 +10685,9 @@ class N88_RFQ_Auth {
                             (comDeliveryAddress ? ('<div style="margin-bottom: 8px; white-space: pre-wrap;">COM delivery address: ' + escTxt(comDeliveryAddress) + '</div>') : '') +
                             (canBeginProduction
                                 ? '<div style="margin-top:10px;"><button type="button" data-n88-begin-production-btn="' + (itemId || item.item_id || 0) + '" onclick="n88SupplierBeginProduction(' + (itemId || item.item_id || 0) + ')" style="padding:8px 12px; background:#FF0065; color:#000; border:none; border-radius:4px; font-size:11px; font-weight:700; cursor:pointer; font-family:monospace;">[ Begin Production ]</button></div>'
-                                : (productionStarted ? '<div style="margin-top:10px; font-size:11px; color:#8bc34a;">Production has started.</div>' : '')) +
+                                : (productionStarted
+                                    ? '<div style="margin-top:10px;"><button type="button" data-n88-begin-production-btn="' + (itemId || item.item_id || 0) + '" disabled style="padding:8px 12px; background:#333; color:#888; border:none; border-radius:4px; font-size:11px; font-weight:700; cursor:not-allowed; opacity:0.55; font-family:monospace;">[ Begin Production ]</button><div style="margin-top:6px; font-size:11px; color:#8bc34a;">Production has started.</div></div>'
+                                    : '')) +
                             '</div>';
                     }
                     var workflowStep1Content = (bidAndPrototype.bidBox || '') + (step1CtaHTML || '') + (bidAndPrototype.workflowStep1 || '');
@@ -10912,7 +11264,7 @@ class N88_RFQ_Auth {
                             window.currentItemData.validation_state = data.data && data.data.validation_state ? data.data.validation_state : window.currentItemData.validation_state;
                             window.currentItemData.validation_card_status_text = (window.currentItemData.validation_state && window.currentItemData.validation_state.card_status_text) ? window.currentItemData.validation_state.card_status_text : (window.currentItemData.validation_card_status_text || '');
                             window.currentItemData.supplier_status_label = window.currentItemData.validation_card_status_text || 'Ready for Production';
-                            window.currentItemData.supplier_workflow_active_step = 2;
+                            window.currentItemData.supplier_workflow_active_step = 3;
                         }
                         if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData && window.n88SupplierBatchState.itemData[itemId]) {
                             var batchItem = window.n88SupplierBatchState.itemData[itemId];
@@ -10921,12 +11273,12 @@ class N88_RFQ_Auth {
                                 batchItem.validation_card_status_text = data.data.validation_state.card_status_text || '';
                             }
                             batchItem.supplier_status_label = batchItem.validation_card_status_text || (batchItem.validation_state && batchItem.validation_state.card_status_text) || 'Ready for Production';
-                            batchItem.supplier_workflow_active_step = 2;
+                            batchItem.supplier_workflow_active_step = 3;
                         }
                         var queueButtons = document.querySelectorAll('.n88-supplier-queue-action-btn[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
                         for (var qb = 0; qb < queueButtons.length; qb++) {
                             queueButtons[qb].setAttribute('data-open-tab', 'workflow');
-                            queueButtons[qb].setAttribute('data-open-step', '2');
+                            queueButtons[qb].setAttribute('data-open-step', '3');
                             queueButtons[qb].textContent = '[ Ready for Production ]';
                         }
                         var queueStatuses = document.querySelectorAll('.n88-supplier-queue-status-label[data-item-id="' + itemKey.replace(/"/g, '&quot;') + '"]');
@@ -10937,7 +11289,7 @@ class N88_RFQ_Auth {
                         if (typeof n88SupplierRefreshOpenBatchModalAfterItemUpdate === 'function' && n88SupplierRefreshOpenBatchModalAfterItemUpdate(itemId)) {
                             return;
                         }
-                        openBidModal(itemId, 'workflow', 2);
+                        openBidModal(itemId, 'workflow', 3);
                     })
                     .catch(function() {
                         for (var errIdx = 0; errIdx < actionButtons.length; errIdx++) {
@@ -10978,6 +11330,12 @@ class N88_RFQ_Auth {
                             return;
                         }
                         var newValidationState = data.data && data.data.validation_state ? data.data.validation_state : null;
+                        for (var b = 0; b < beginButtons.length; b++) {
+                            beginButtons[b].disabled = true;
+                            beginButtons[b].textContent = '[ Begin Production ]';
+                            beginButtons[b].style.opacity = '0.55';
+                            beginButtons[b].style.cursor = 'not-allowed';
+                        }
                         if (window.currentItemData) {
                             if (newValidationState) {
                                 window.currentItemData.validation_state = newValidationState;
@@ -11444,7 +11802,12 @@ class N88_RFQ_Auth {
                             } else {
                                 html += '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 8px;">Proposal not submitted yet</div>';
                                 html += '<div style="font-size: 12px; color: #ccc; margin-bottom: 10px;">Submit your proposal to move this item into design evaluation.</div>';
-                                html += '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding:8px 12px; background:#111; color:#FF0065; border:1px solid #FF0065; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Submit Proposal ]</button>';
+                                var isMessageOnlyProposalContext = !!(window.currentItemData && (window.currentItemData.is_message_only_route === true || window.currentItemData.route_type === 'designer_message'));
+                                if (isMessageOnlyProposalContext) {
+                                    html += '<div style="font-size: 11px; color: #999;">Submit Proposal unlocks after designer sends RFQ.</div>';
+                                } else {
+                                    html += '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding:8px 12px; background:#111; color:#FF0065; border:1px solid #FF0065; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Submit Proposal ]</button>';
+                                }
                             }
                             html += '</div>';
                             return html;
@@ -11517,7 +11880,7 @@ class N88_RFQ_Auth {
                                 if (canBeginProduction) {
                                     html += '<div style="margin-top: 8px;"><button type="button" data-n88-begin-production-btn="' + itemId + '" onclick="n88SupplierBeginProduction(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: #FF0065; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-weight: 700;">[ Begin Production ]</button></div>';
                                 } else if (productionStarted) {
-                                    html += '<div style="margin-top: 8px; font-size: 11px; color: ' + green + ';">Production started' + (productionStartedAt ? (' at: ' + escHtml(productionStartedAt)) : '') + '</div>';
+                                    html += '<div style="margin-top: 8px;"><button type="button" data-n88-begin-production-btn="' + itemId + '" disabled style="padding: 8px 12px; font-size: 11px; background: #333; color: #888; border: none; border-radius: 4px; cursor: not-allowed; font-family: monospace; font-weight: 700; opacity: 0.55;">[ Begin Production ]</button><div style="margin-top:6px; font-size: 11px; color: ' + green + ';">Production started' + (productionStartedAt ? (' at: ' + escHtml(productionStartedAt)) : '') + '</div></div>';
                                 }
                             }
                             html += '</div>';
@@ -15803,6 +16166,142 @@ class N88_RFQ_Auth {
             
             window.updateSmartAltPreviewModal = updateSmartAltPreviewModal;
             window.removeBidPhotoEmbedded = removeBidPhotoEmbedded;
+
+            function closePaymentApprovalModal() {
+                var modal = document.getElementById('n88-payment-approval-modal');
+                var content = document.getElementById('n88-payment-approval-modal-content');
+                if (content) {
+                    content.innerHTML = '';
+                }
+                if (modal) {
+                    modal.style.display = 'none';
+                }
+            }
+
+            function openPaymentApprovalModal(itemId, approvalKind, stageKey, stageLabel) {
+                var modal = document.getElementById('n88-payment-approval-modal');
+                var content = document.getElementById('n88-payment-approval-modal-content');
+                if (!modal || !content) {
+                    return;
+                }
+                var cleanStage = stageLabel || stageKey || 'Stage';
+                content.innerHTML =
+                    '<div style="padding:14px 16px; border-bottom:1px solid #444; background:#111; display:flex; align-items:center; justify-content:space-between; gap:10px;">' +
+                        '<div style="font-size:14px; color:#fff; font-family:monospace;">Approve Payment - ' + String(cleanStage).replace(/</g, '&lt;') + '</div>' +
+                        '<button type="button" id="n88-close-payment-approval-modal" style="padding:7px 11px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Close ]</button>' +
+                    '</div>' +
+                    '<div style="padding:20px; color:#bbb; font-family:monospace;">Loading payment proof...</div>';
+                modal.style.display = 'block';
+
+                var closeBtn = document.getElementById('n88-close-payment-approval-modal');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', closePaymentApprovalModal);
+                }
+
+                var nonceState = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                var fd = new FormData();
+                if (approvalKind === 'execution') {
+                    fd.append('action', 'n88_get_item_rfq_state');
+                    fd.append('item_id', String(itemId || '0'));
+                    fd.append('section', 'workflow');
+                } else {
+                    fd.append('action', 'n88_get_payment_milestone_stage_details');
+                    fd.append('item_id', String(itemId || '0'));
+                    fd.append('stage_key', String(stageKey || ''));
+                }
+                fd.append('_ajax_nonce', nonceState);
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd, credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        var payload = res && res.success && res.data ? res.data : {};
+                        var proofUrl = '';
+                        var note = '';
+                        var stageHeading = cleanStage;
+                        if (approvalKind === 'execution') {
+                            var workflowState = payload && payload.validation_state && typeof payload.validation_state === 'object' ? payload.validation_state : {};
+                            var commitment = workflowState && workflowState.commitment && typeof workflowState.commitment === 'object' ? workflowState.commitment : {};
+                            var execution = commitment && commitment.execution_activation && typeof commitment.execution_activation === 'object' ? commitment.execution_activation : {};
+                            var receiptFiles = execution && Array.isArray(execution.payment_receipt_files) ? execution.payment_receipt_files : [];
+                            if (receiptFiles.length > 0 && receiptFiles[0] && receiptFiles[0].url) {
+                                proofUrl = String(receiptFiles[0].url);
+                            }
+                            note = execution && execution.reference_id ? ('Reference: ' + String(execution.reference_id)) : '';
+                            stageHeading = 'Execution Activation Payment';
+                        } else {
+                            proofUrl = payload && payload.payment_attachment_url ? String(payload.payment_attachment_url) : '';
+                            note = payload && payload.payment_note ? String(payload.payment_note) : '';
+                            stageHeading = payload && payload.stage_label ? String(payload.stage_label) : cleanStage;
+                        }
+                        content.innerHTML =
+                            '<div style="padding:14px 16px; border-bottom:1px solid #444; background:#111; display:flex; align-items:center; justify-content:space-between; gap:10px;">' +
+                                '<div style="font-size:14px; color:#fff; font-family:monospace;">Approve Payment - ' + stageHeading.replace(/</g, '&lt;') + '</div>' +
+                                '<button type="button" id="n88-close-payment-approval-modal" style="padding:7px 11px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Close ]</button>' +
+                            '</div>' +
+                            '<div style="padding:18px; display:grid; gap:12px; font-family:monospace;">' +
+                                '<div style="font-size:12px; color:#ddd;">Review uploaded receipt and approve payment.</div>' +
+                                (proofUrl ? '<a href="' + proofUrl.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:#7dc3ff; font-size:12px;">[ View Receipt / Screenshot ]</a>' : '<div style="font-size:12px; color:#ffb347;">No receipt attached.</div>') +
+                                (note ? '<div style="font-size:11px; color:#bbb;">Note: ' + note.replace(/</g, '&lt;') + '</div>' : '') +
+                                '<div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">' +
+                                    '<button type="button" id="n88-payment-approval-confirm" style="padding:8px 12px; background:#FF0065; color:#fff; border:1px solid #FF0065; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Approve Payment ]</button>' +
+                                '</div>' +
+                            '</div>';
+                        var closeBtn2 = document.getElementById('n88-close-payment-approval-modal');
+                        if (closeBtn2) {
+                            closeBtn2.addEventListener('click', closePaymentApprovalModal);
+                        }
+                        var approveBtn = document.getElementById('n88-payment-approval-confirm');
+                        if (approveBtn) {
+                            approveBtn.addEventListener('click', function() {
+                                approveBtn.disabled = true;
+                                approveBtn.textContent = '[ Approving... ]';
+                                var fdApprove = new FormData();
+                                if (approvalKind === 'execution') {
+                                    fdApprove.append('action', 'n88_confirm_execution_activation_payment');
+                                } else {
+                                    fdApprove.append('action', 'n88_approve_stage_payment');
+                                }
+                                fdApprove.append('item_id', String(itemId || '0'));
+                                if (approvalKind !== 'execution') {
+                                    fdApprove.append('stage_key', String(stageKey || ''));
+                                }
+                                fdApprove.append('_ajax_nonce', nonceState);
+                                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fdApprove, credentials: 'same-origin' })
+                                    .then(function(r) { return r.json(); })
+                                    .then(function(resp) {
+                                        if (!(resp && resp.success)) {
+                                            var errMsg = (resp && resp.data && resp.data.message) ? resp.data.message : 'Could not approve payment.';
+                                            alert(errMsg);
+                                            approveBtn.disabled = false;
+                                            approveBtn.textContent = '[ Approve Payment ]';
+                                            return;
+                                        }
+                                        closePaymentApprovalModal();
+                                        window.location.reload();
+                                    })
+                                    .catch(function() {
+                                        alert('Could not approve payment. Please try again.');
+                                        approveBtn.disabled = false;
+                                        approveBtn.textContent = '[ Approve Payment ]';
+                                    });
+                            });
+                        }
+                    })
+                    .catch(function() {
+                        content.innerHTML =
+                            '<div style="padding:14px 16px; border-bottom:1px solid #444; background:#111; display:flex; align-items:center; justify-content:space-between; gap:10px;">' +
+                                '<div style="font-size:14px; color:#fff; font-family:monospace;">Approve Payment</div>' +
+                                '<button type="button" id="n88-close-payment-approval-modal" style="padding:7px 11px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Close ]</button>' +
+                            '</div>' +
+                            '<div style="padding:20px; color:#ffb347; font-family:monospace;">Unable to load payment details.</div>';
+                        var closeBtn3 = document.getElementById('n88-close-payment-approval-modal');
+                        if (closeBtn3) {
+                            closeBtn3.addEventListener('click', closePaymentApprovalModal);
+                        }
+                    });
+            }
+
+            window.openPaymentApprovalModal = openPaymentApprovalModal;
+            window.closePaymentApprovalModal = closePaymentApprovalModal;
             
             // Attach event listeners
             document.addEventListener('DOMContentLoaded', function() {
@@ -15822,6 +16321,15 @@ class N88_RFQ_Auth {
                             alert('This RFQ is no longer accepting bids.');
                             return false;
                         }
+                        if (actionBadge === 'approve_payment') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            var approvalKind = this.getAttribute('data-payment-approval-kind') || 'milestone';
+                            var stageKey = this.getAttribute('data-payment-approval-stage-key') || '';
+                            var stageLabel = this.getAttribute('data-payment-approval-stage-label') || stageKey || '';
+                            openPaymentApprovalModal(itemId, approvalKind, stageKey, stageLabel);
+                            return false;
+                        }
                         
                         var openSingle = function() {
                             if (preferredTab) {
@@ -15831,13 +16339,68 @@ class N88_RFQ_Auth {
                             openBidModal(itemId, null, preferredStep);
                         };
                         var batchItemIdsRaw = this.getAttribute('data-batch-item-ids') || '';
+                        var batchThreadKey = this.getAttribute('data-batch-thread-key') || '';
                         var batchItemIds = batchItemIdsRaw
                             ? batchItemIdsRaw.split(',').map(function(v) { return parseInt(v, 10) || 0; }).filter(function(v) { return v > 0; })
                             : [];
+                        if ((!batchItemIds || batchItemIds.length < 2) && batchThreadKey) {
+                            var relatedButtons = document.querySelectorAll('.n88-open-bid-modal[data-batch-thread-key="' + String(batchThreadKey).replace(/"/g, '\\"') + '"]');
+                            var inferredIds = [];
+                            relatedButtons.forEach(function(btn) {
+                                var rid = parseInt(btn.getAttribute('data-item-id') || '0', 10) || 0;
+                                if (rid > 0 && inferredIds.indexOf(rid) === -1) {
+                                    inferredIds.push(rid);
+                                }
+                            });
+                            if (inferredIds.length > 1) {
+                                batchItemIds = inferredIds;
+                            }
+                        }
                         var queueStatusLabel = (this.getAttribute('data-supplier-status-label') || '').trim().toLowerCase();
                         var skipBatchForRfp = queueStatusLabel === 'in production' || n88SupplierShouldOpenSingleItemInsteadOfBatch(itemId);
                         if (skipBatchForRfp) {
                             openBidModal(itemId, 'workflow', null);
+                            return;
+                        }
+                        if (batchThreadKey && batchItemIds.length <= 1) {
+                            var nonceThreadItems = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_messages' ) ); ?>';
+                            var fdThread = new FormData();
+                            fdThread.append('action', 'n88_get_batch_thread_item_ids');
+                            fdThread.append('batch_thread_key', batchThreadKey);
+                            fdThread.append('_ajax_nonce', nonceThreadItems);
+                            fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fdThread, credentials: 'same-origin' })
+                                .then(function(r) { return r.text(); })
+                                .then(function(txt) {
+                                    var parsed = null;
+                                    try { parsed = JSON.parse(txt); } catch (e) { parsed = null; }
+                                    var fetchedIds = parsed && parsed.success && parsed.data && Array.isArray(parsed.data.item_ids)
+                                        ? parsed.data.item_ids.map(function(v) { return parseInt(v, 10) || 0; }).filter(function(v) { return v > 0; })
+                                        : [];
+                                    if (fetchedIds.length > 1 && typeof openBatchProposalModalForSelection === 'function') {
+                                        openBatchProposalModalForSelection(fetchedIds, 0, itemId);
+                                        return;
+                                    }
+                                    if (batchGroupId > 0 && batchItemIds.length > 1 && typeof openBatchProposalModalForGroup === 'function') {
+                                        openBatchProposalModalForGroup(batchGroupId, itemId, batchItemIds);
+                                        return;
+                                    }
+                                    if (batchItemIds.length > 1 && typeof openBatchProposalModalForSelection === 'function') {
+                                        openBatchProposalModalForSelection(batchItemIds, 0, itemId);
+                                        return;
+                                    }
+                                    openSingle();
+                                })
+                                .catch(function() {
+                                    if (batchGroupId > 0 && batchItemIds.length > 1 && typeof openBatchProposalModalForGroup === 'function') {
+                                        openBatchProposalModalForGroup(batchGroupId, itemId, batchItemIds);
+                                        return;
+                                    }
+                                    if (batchItemIds.length > 1 && typeof openBatchProposalModalForSelection === 'function') {
+                                        openBatchProposalModalForSelection(batchItemIds, 0, itemId);
+                                        return;
+                                    }
+                                    openSingle();
+                                });
                             return;
                         }
                         if (batchGroupId > 0 && batchItemIds.length > 1 && typeof openBatchProposalModalForGroup === 'function') {
@@ -19506,7 +20069,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 || ! empty( $summary_validation_card_status_text );
             $summary_supplier_workflow_active_step = null;
             if ( isset( $bid_status ) && $bid_status === 'awarded' ) {
-                $summary_supplier_workflow_active_step = 2; // Step 03 after award
+                $summary_supplier_workflow_active_step = ! empty( $summary_validation_state['can_commit'] ) ? 3 : 2; // Step 04 once ready, else Step 03
             } elseif ( $summary_has_validation_flow_started ) {
                 $summary_supplier_workflow_active_step = 1; // Step 02 during sample/validation flow
             }
@@ -20007,7 +20570,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( ! empty( $validation_state['can_commit'] ) && ! empty( $validation_state['production_started'] ) ) {
             $supplier_workflow_active_step = 4;
         } elseif ( ! empty( $validation_state['can_commit'] ) ) {
-            $supplier_workflow_active_step = 2;
+            $supplier_workflow_active_step = 3; // Step 04 when ready for production
         } elseif ( ! empty( $validation_state['readiness_flags']['awaiting_com'] ) ) {
             $supplier_workflow_active_step = 2;
         }
@@ -20032,7 +20595,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             || ! empty( $validation_sample_status )
             || ! empty( $validation_card_status_text );
         if ( $bid_status === 'awarded' ) {
-            $supplier_workflow_active_step = 2; // Step 03 after award
+            $supplier_workflow_active_step = ! empty( $validation_state['can_commit'] ) ? 3 : 2; // Step 04 once ready, else Step 03
         } elseif ( $has_validation_flow_started ) {
             $supplier_workflow_active_step = 1; // Step 02 before award
         }
@@ -21118,6 +21681,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $supplier_files = $this->sanitize_validation_attachment_entries( $supplier['files'] );
         }
 
+        $payment_milestone_summary = $this->build_payment_milestone_summary( $item_id );
+        $has_payment_milestones = ! empty( $payment_milestone_summary['enabled'] );
+
         return array(
             'enabled'                    => ! empty( $request['requested_at'] ) || ! empty( $review['approved_at'] ) || ! empty( $supplier['updated_at'] ) || ! empty( $commitment['po_uploaded_at'] ),
             'item_id'                    => $item_id,
@@ -21208,6 +21774,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'execution_payment_status'   => $execution_payment_status,
             'execution_awarded_item_count' => $execution_awarded_item_count,
             'execution_fee_total'        => $execution_fee_total,
+            'payment_milestones'         => $payment_milestone_summary,
+            'payment_milestones_enabled' => $has_payment_milestones,
             'approved_material_codes'    => isset( $meta['approved_material_codes'] ) && is_array( $meta['approved_material_codes'] ) ? array_values( $meta['approved_material_codes'] ) : array(),
             'approved_finish_codes'      => isset( $meta['approved_finish_codes'] ) && is_array( $meta['approved_finish_codes'] ) ? array_values( $meta['approved_finish_codes'] ) : array(),
             'approved_sample_images'     => $this->get_validation_attachment_entries( isset( $meta['approved_sample_images'] ) ? $meta['approved_sample_images'] : array() ),
@@ -25166,9 +25734,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( empty( $validation_state['can_commit'] ) ) {
             wp_send_json_error( array( 'message' => 'Production can only begin after PO, deposit, and COM are complete.' ), 400 );
         }
-        if ( isset( $validation_state['execution_payment_status'] ) && 'confirmed' !== sanitize_key( (string) $validation_state['execution_payment_status'] ) ) {
-            wp_send_json_error( array( 'message' => 'Production is locked until execution activation payment is confirmed by admin.' ), 400 );
-        }
+        // Commit 3.D.9 follow-up: allow supplier to begin production first.
+        // Execution activation payment can be submitted/confirmed after production begins.
 
         $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
         $validation['commitment']['production_status']     = 'in_production';
@@ -25272,10 +25839,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         $current_user = wp_get_current_user();
         $is_operator_or_admin = in_array( 'n88_system_operator', (array) $current_user->roles, true ) || current_user_can( 'manage_options' );
-        $is_wireframe_admin_supplier = false;
-        if ( $current_user && isset( $current_user->user_email ) ) {
-            $is_wireframe_admin_supplier = strtolower( (string) $current_user->user_email ) === strtolower( (string) self::N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL );
-        }
+        $is_wireframe_admin_supplier = $this->is_wireframe_admin_user( $current_user );
         if ( ! $is_operator_or_admin && ! $is_wireframe_admin_supplier ) {
             wp_send_json_error( array( 'message' => 'Access denied. WireFrame admin verification required.' ), 403 );
         }
@@ -32275,6 +32839,528 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
+     * Resolve all supplier-visible item IDs participating in a pre-group batch thread key.
+     */
+    public function ajax_get_batch_thread_item_ids() {
+        check_ajax_referer( 'n88_get_item_messages', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier  = in_array( 'n88_supplier_admin', (array) $current_user->roles, true );
+        if ( ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+            return;
+        }
+
+        $thread_key = $this->sanitize_batch_message_thread_key( isset( $_POST['batch_thread_key'] ) ? wp_unslash( $_POST['batch_thread_key'] ) : '' );
+        if ( ! $thread_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid batch thread key.' ), 400 );
+            return;
+        }
+
+        global $wpdb;
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) !== $messages_table ) {
+            wp_send_json_error( array( 'message' => 'Messages table not found.' ), 500 );
+            return;
+        }
+
+        $rows = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT DISTINCT item_id
+                FROM {$messages_table}
+                WHERE (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                AND supplier_id = %d
+                AND context_type = 'batch_proposal'
+                AND proposal_group_id IS NULL
+                AND category = %s
+                ORDER BY item_id ASC",
+                (int) $current_user->ID,
+                $thread_key
+            )
+        );
+
+        $item_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $rows ) ) ) );
+        wp_send_json_success(
+            array(
+                'batch_thread_key' => $thread_key,
+                'item_ids'         => $item_ids,
+            )
+        );
+    }
+
+    public function ajax_get_payment_milestone_summary() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item id.' ), 400 );
+            return;
+        }
+        $summary = $this->build_payment_milestone_summary( $item_id );
+        wp_send_json_success( $summary );
+    }
+
+    public function ajax_get_payment_milestone_stage_details() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $stage_key = isset( $_POST['stage_key'] ) ? sanitize_key( wp_unslash( $_POST['stage_key'] ) ) : '';
+        if ( ! $item_id || ! $stage_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ), 400 );
+            return;
+        }
+        $rows = $this->get_payment_milestone_rows( $item_id );
+        foreach ( (array) $rows as $row ) {
+            if ( isset( $row['stage_key'] ) && sanitize_key( $row['stage_key'] ) === $stage_key ) {
+                $payment_attachment_id = isset( $row['payment_attachment_id'] ) ? absint( $row['payment_attachment_id'] ) : 0;
+                $stage_attachment_id = isset( $row['stage_proof_attachment_id'] ) ? absint( $row['stage_proof_attachment_id'] ) : 0;
+                $row['payment_attachment_url'] = $payment_attachment_id ? esc_url_raw( wp_get_attachment_url( $payment_attachment_id ) ) : '';
+                $row['stage_proof_attachment_url'] = $stage_attachment_id ? esc_url_raw( wp_get_attachment_url( $stage_attachment_id ) ) : '';
+                wp_send_json_success( $row );
+                return;
+            }
+        }
+        wp_send_json_error( array( 'message' => 'Stage milestone not found.' ), 404 );
+    }
+
+    public function ajax_save_payment_milestones() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
+        $is_operator  = in_array( 'n88_system_operator', (array) $current_user->roles, true );
+        if ( ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+            return;
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $enabled = ! empty( $_POST['milestones_enabled'] );
+        $rows_raw = isset( $_POST['milestones'] ) ? json_decode( wp_unslash( $_POST['milestones'] ), true ) : array();
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item id.' ), 400 );
+            return;
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $owner_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1", $item_id ) );
+        if ( $is_designer && $owner_id !== (int) $current_user->ID ) {
+            wp_send_json_error( array( 'message' => 'Access denied for this item.' ), 403 );
+            return;
+        }
+
+        $this->ensure_payment_milestone_support();
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+
+        if ( ! $enabled ) {
+            $wpdb->delete( $table, array( 'item_id' => $item_id ), array( '%d' ) );
+            wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+            return;
+        }
+
+        $rows = is_array( $rows_raw ) && ! empty( $rows_raw ) ? $rows_raw : $this->get_default_stage_milestone_blueprint();
+        $normalized = array();
+        $total_percent = 0.0;
+        $sort = 10;
+        foreach ( (array) $rows as $row ) {
+            $stage_key = isset( $row['stage_key'] ) ? sanitize_key( $row['stage_key'] ) : '';
+            if ( ! $stage_key ) {
+                continue;
+            }
+            $stage_label = isset( $row['stage_label'] ) ? sanitize_text_field( $row['stage_label'] ) : strtoupper( str_replace( '_', ' ', $stage_key ) );
+            $percent = isset( $row['percent_alloc'] ) ? floatval( $row['percent_alloc'] ) : 0.0;
+            $amount = ( isset( $row['amount_alloc'] ) && '' !== (string) $row['amount_alloc'] ) ? floatval( $row['amount_alloc'] ) : null;
+            $stage_enabled = isset( $row['stage_enabled'] ) ? ! empty( $row['stage_enabled'] ) : true;
+            $payment_required = isset( $row['payment_required'] ) ? ! empty( $row['payment_required'] ) : true;
+            if ( $stage_enabled ) {
+                $total_percent += $percent;
+            }
+            $normalized[] = array(
+                'stage_key'        => $stage_key,
+                'stage_label'      => $stage_label,
+                'sort_order'       => $sort,
+                'percent_alloc'    => round( $percent, 2 ),
+                'amount_alloc'     => null === $amount ? null : round( $amount, 2 ),
+                'stage_enabled'    => $stage_enabled ? 1 : 0,
+                'payment_required' => $payment_required ? 1 : 0,
+            );
+            $sort += 10;
+        }
+
+        if ( abs( $total_percent - 100.0 ) > 0.01 ) {
+            wp_send_json_error( array( 'message' => 'Milestone total must equal 100%.' ), 400 );
+            return;
+        }
+
+        $existing = $this->get_payment_milestone_rows( $item_id );
+        $locked_keys = array();
+        foreach ( (array) $existing as $ex ) {
+            if ( ! empty( $ex['payment_confirmed_at'] ) || ! empty( $ex['stage_approved_at'] ) ) {
+                $locked_keys[] = sanitize_key( $ex['stage_key'] );
+            }
+        }
+        foreach ( (array) $normalized as $row ) {
+            if ( in_array( $row['stage_key'], $locked_keys, true ) ) {
+                wp_send_json_error( array( 'message' => 'Completed milestone stages cannot be edited.' ), 409 );
+                return;
+            }
+        }
+
+        $wpdb->delete( $table, array( 'item_id' => $item_id ), array( '%d' ) );
+        foreach ( (array) $normalized as $row ) {
+            $wpdb->insert(
+                $table,
+                array(
+                    'item_id'           => $item_id,
+                    'stage_key'         => $row['stage_key'],
+                    'stage_label'       => $row['stage_label'],
+                    'sort_order'        => $row['sort_order'],
+                    'percent_alloc'     => $row['percent_alloc'],
+                    'amount_alloc'      => $row['amount_alloc'],
+                    'payment_required'  => $row['payment_required'],
+                    'stage_enabled'     => $row['stage_enabled'],
+                    'payment_status'    => 'not_submitted',
+                    'created_by'        => (int) $current_user->ID,
+                    'updated_by'        => (int) $current_user->ID,
+                    'created_at'        => current_time( 'mysql' ),
+                    'updated_at'        => current_time( 'mysql' ),
+                ),
+                array( '%d', '%s', '%s', '%d', '%f', '%f', '%d', '%d', '%s', '%d', '%d', '%s', '%s' )
+            );
+        }
+
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type'  => ! empty( $existing ) ? 'milestone_updated' : 'milestone_created',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'milestone_count' => count( $normalized ) ),
+        ) );
+        N88_Events::insert_event( array(
+            'event_type'  => 'stage_locked',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'locked_stage_count' => max( 0, count( $normalized ) - 1 ) ),
+        ) );
+
+        wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+    }
+
+    public function ajax_submit_stage_payment_proof() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Designer account required.' ), 403 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $stage_key = isset( $_POST['stage_key'] ) ? sanitize_key( wp_unslash( $_POST['stage_key'] ) ) : '';
+        $payment_method = isset( $_POST['payment_method'] ) ? sanitize_key( wp_unslash( $_POST['payment_method'] ) ) : '';
+        $note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+        if ( ! $item_id || ! $stage_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ), 400 );
+            return;
+        }
+        $this->ensure_payment_milestone_support();
+        global $wpdb;
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+        $milestone = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE item_id = %d AND stage_key = %s LIMIT 1", $item_id, $stage_key ), ARRAY_A );
+        if ( ! $milestone ) {
+            wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
+            return;
+        }
+        $attachment_id = 0;
+        if ( ! empty( $_FILES['payment_proof'] ) && ! empty( $_FILES['payment_proof']['tmp_name'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            $attachment_id = (int) media_handle_upload( 'payment_proof', 0 );
+            if ( is_wp_error( $attachment_id ) ) {
+                $attachment_id = 0;
+            }
+        }
+        $wpdb->update(
+            $table,
+            array(
+                'payment_method'        => $payment_method ? $payment_method : null,
+                'payment_note'          => $note ? $note : null,
+                'payment_attachment_id' => $attachment_id ? $attachment_id : null,
+                'payment_submitted_at'  => current_time( 'mysql' ),
+                'payment_status'        => 'submitted',
+                'updated_by'            => (int) $current_user->ID,
+                'updated_at'            => current_time( 'mysql' ),
+            ),
+            array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
+            array( '%s', '%s', '%d', '%s', '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type'  => 'payment_submitted',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key ),
+        ) );
+        wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+    }
+
+    public function ajax_submit_stage_progress_proof() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $current_user = wp_get_current_user();
+        $is_supplier  = in_array( 'n88_supplier_admin', (array) $current_user->roles, true );
+        if ( ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Supplier account required.' ), 403 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $stage_key = isset( $_POST['stage_key'] ) ? sanitize_key( wp_unslash( $_POST['stage_key'] ) ) : '';
+        $note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+        $meeting_link = isset( $_POST['meeting_link'] ) ? esc_url_raw( trim( wp_unslash( $_POST['meeting_link'] ) ) ) : '';
+        if ( ! $item_id || ! $stage_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ), 400 );
+            return;
+        }
+        $this->ensure_payment_milestone_support();
+        global $wpdb;
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+        $milestone = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE item_id = %d AND stage_key = %s LIMIT 1", $item_id, $stage_key ), ARRAY_A );
+        if ( ! $milestone ) {
+            wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
+            return;
+        }
+        $attachment_id = 0;
+        if ( ! empty( $_FILES['stage_proof'] ) && ! empty( $_FILES['stage_proof']['tmp_name'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            $attachment_id = (int) media_handle_upload( 'stage_proof', 0 );
+            if ( is_wp_error( $attachment_id ) ) {
+                $attachment_id = 0;
+            }
+        }
+        $wpdb->update(
+            $table,
+            array(
+                'stage_proof_note'          => $note ? $note : null,
+                'stage_meeting_link'        => $meeting_link ? $meeting_link : null,
+                'stage_proof_attachment_id' => $attachment_id ? $attachment_id : null,
+                'stage_submitted_at'        => current_time( 'mysql' ),
+                'stage_revision_requested_at' => null,
+                'stage_revision_note'       => null,
+                'payment_status'            => 'awaiting_approval',
+                'updated_by'                => (int) $current_user->ID,
+                'updated_at'                => current_time( 'mysql' ),
+            ),
+            array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
+            array( '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type'  => 'stage_locked',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key, 'state' => 'awaiting_approval' ),
+        ) );
+        wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+    }
+
+    public function ajax_approve_stage_progress() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
+        $is_operator  = in_array( 'n88_system_operator', (array) $current_user->roles, true );
+        if ( ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Approval requires designer or operator role.' ), 403 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $stage_key = isset( $_POST['stage_key'] ) ? sanitize_key( wp_unslash( $_POST['stage_key'] ) ) : '';
+        if ( ! $item_id || ! $stage_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ), 400 );
+            return;
+        }
+        $this->ensure_payment_milestone_support();
+        global $wpdb;
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+        $milestone = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE item_id = %d AND stage_key = %s LIMIT 1", $item_id, $stage_key ), ARRAY_A );
+        if ( ! $milestone ) {
+            wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
+            return;
+        }
+        $wpdb->update(
+            $table,
+            array(
+                'stage_approved_at' => current_time( 'mysql' ),
+                'payment_status'    => 'payment_pending',
+                'updated_by'        => (int) $current_user->ID,
+                'updated_at'        => current_time( 'mysql' ),
+            ),
+            array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
+            array( '%s', '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type'  => 'stage_unlocked',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key, 'state' => 'payment_pending' ),
+        ) );
+        wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+    }
+
+    public function ajax_request_stage_progress_revision() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
+        $is_operator  = in_array( 'n88_system_operator', (array) $current_user->roles, true );
+        if ( ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Revision request requires designer or operator role.' ), 403 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $stage_key = isset( $_POST['stage_key'] ) ? sanitize_key( wp_unslash( $_POST['stage_key'] ) ) : '';
+        $note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+        if ( ! $item_id || ! $stage_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ), 400 );
+            return;
+        }
+        $this->ensure_payment_milestone_support();
+        global $wpdb;
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+        $milestone = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE item_id = %d AND stage_key = %s LIMIT 1", $item_id, $stage_key ), ARRAY_A );
+        if ( ! $milestone ) {
+            wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
+            return;
+        }
+        $wpdb->update(
+            $table,
+            array(
+                'stage_revision_requested_at' => current_time( 'mysql' ),
+                'stage_revision_note'         => $note ? $note : null,
+                'payment_status'              => 'revision_requested',
+                'updated_by'                  => (int) $current_user->ID,
+                'updated_at'                  => current_time( 'mysql' ),
+            ),
+            array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
+            array( '%s', '%s', '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type'  => 'milestone_updated',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key, 'state' => 'revision_requested' ),
+        ) );
+        N88_Events::insert_event( array(
+            'event_type'  => 'stage_locked',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key, 'state' => 'revision_requested' ),
+        ) );
+        wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+    }
+
+    public function ajax_approve_stage_payment() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+        $current_user = wp_get_current_user();
+        $is_operator  = in_array( 'n88_system_operator', (array) $current_user->roles, true ) || current_user_can( 'manage_options' );
+        $is_wireframe_supplier = ! $is_operator && in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) && $this->is_wireframe_admin_user( $current_user );
+        if ( ! $is_operator && ! $is_wireframe_supplier ) {
+            wp_send_json_error( array( 'message' => 'Operator approval required.' ), 403 );
+            return;
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $stage_key = isset( $_POST['stage_key'] ) ? sanitize_key( wp_unslash( $_POST['stage_key'] ) ) : '';
+        if ( ! $item_id || ! $stage_key ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ), 400 );
+            return;
+        }
+        $this->ensure_payment_milestone_support();
+        global $wpdb;
+        $table = $wpdb->prefix . 'n88_payment_milestones';
+        $milestone = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE item_id = %d AND stage_key = %s LIMIT 1", $item_id, $stage_key ), ARRAY_A );
+        if ( ! $milestone ) {
+            wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
+            return;
+        }
+        $wpdb->update(
+            $table,
+            array(
+                'payment_confirmed_at'  => current_time( 'mysql' ),
+                'payment_status'        => 'confirmed',
+                'updated_by'            => (int) $current_user->ID,
+                'updated_at'            => current_time( 'mysql' ),
+            ),
+            array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
+            array( '%s', '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type'  => 'payment_confirmed',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key ),
+        ) );
+        N88_Events::insert_event( array(
+            'event_type'  => 'stage_unlocked',
+            'object_type' => 'item',
+            'object_id'   => $item_id,
+            'item_id'     => $item_id,
+            'payload_json'=> array( 'stage_key' => $stage_key ),
+        ) );
+        wp_send_json_success( $this->build_payment_milestone_summary( $item_id ) );
+    }
+
+    /**
      * AJAX handler to get item messages (Commit 2.3.9.1C-a)
      */
     public function ajax_get_item_messages() {
@@ -34634,6 +35720,18 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( ! $item_id || $step_number < 1 || $step_number > 6 ) {
             wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
         }
+        if ( $step_number >= 5 ) {
+            $milestone_gate = $this->get_timeline_milestone_gate_state( $item_id );
+            if ( ! empty( $milestone_gate['blocked'] ) ) {
+                wp_send_json_error(
+                    array(
+                        'message' => isset( $milestone_gate['message'] ) ? $milestone_gate['message'] : 'Payment milestone pending.',
+                        'blocked' => true,
+                    ),
+                    409
+                );
+            }
+        }
         if ( ! class_exists( 'N88_Item_Timeline' ) ) {
             wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
         }
@@ -34661,6 +35759,18 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $evidence_override = isset( $_POST['evidence_override'] ) && $_POST['evidence_override'] === '1';
         if ( ! $item_id || $step_number < 1 || $step_number > 6 ) {
             wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
+        }
+        if ( $step_number >= 4 ) {
+            $milestone_gate = $this->get_timeline_milestone_gate_state( $item_id );
+            if ( ! empty( $milestone_gate['blocked'] ) ) {
+                wp_send_json_error(
+                    array(
+                        'message' => isset( $milestone_gate['message'] ) ? $milestone_gate['message'] : 'Payment milestone pending.',
+                        'blocked' => true,
+                    ),
+                    409
+                );
+            }
         }
         if ( ! class_exists( 'N88_Item_Timeline' ) ) {
             wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
@@ -34700,6 +35810,33 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_success( array( 'message' => $result['message'] ) );
         }
         wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Action failed.' ) );
+    }
+
+    /**
+     * Commit 3.D.9: Lightweight gate for timeline progression when milestones are enabled.
+     *
+     * @param int $item_id Item ID.
+     * @return array{blocked:bool,message:string}
+     */
+    private function get_timeline_milestone_gate_state( $item_id ) {
+        $summary = $this->build_payment_milestone_summary( $item_id );
+        if ( empty( $summary['enabled'] ) ) {
+            return array(
+                'blocked' => false,
+                'message' => '',
+            );
+        }
+        if ( empty( $summary['next_stage_key'] ) ) {
+            return array(
+                'blocked' => false,
+                'message' => '',
+            );
+        }
+        $next_label = ! empty( $summary['next_stage_label'] ) ? sanitize_text_field( $summary['next_stage_label'] ) : 'next milestone stage';
+        return array(
+            'blocked' => true,
+            'message' => sprintf( 'Progression locked. Complete payment milestone for %s first.', $next_label ),
+        );
     }
 
     /**
