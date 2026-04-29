@@ -132,7 +132,7 @@ const WelcomeModal = ({ userId, onClose }) => {
                         color: '#333',
                     }}
                 >
-                    Welcome to Your Board
+                    Welcome to Wireframe OS
                 </h2>
 
                 {/* Text */}
@@ -144,42 +144,13 @@ const WelcomeModal = ({ userId, onClose }) => {
                         lineHeight: 1.6,
                     }}
                 >
-                    Get started by exploring your board. Drag items to organize them, change sizes, and customize your layout.
+                    How would you like to get started?
                 </p>
-
-                {/* Video embed placeholder */}
-                <div
-                    style={{
-                        width: '100%',
-                        paddingBottom: '56.25%', // 16:9 aspect ratio
-                        position: 'relative',
-                        backgroundColor: '#f0f0f0',
-                        borderRadius: '4px',
-                        marginBottom: '20px',
-                        overflow: 'hidden',
-                    }}
-                >
-                    <div
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#999',
-                            fontSize: '14px',
-                        }}
-                    >
-                        Video placeholder (embed video here)
-                    </div>
-                </div>
-
-                {/* Close button at bottom */}
                 <button
-                    onClick={handleClose}
+                    onClick={() => {
+                        localStorage.setItem('n88_workflow_preferred_entry_mode', 'full_process');
+                        handleClose();
+                    }}
                     style={{
                         width: '100%',
                         padding: '12px 24px',
@@ -199,7 +170,27 @@ const WelcomeModal = ({ userId, onClose }) => {
                         e.target.style.backgroundColor = '#0073aa';
                     }}
                 >
-                    Get Started
+                    Continue with Full Workflow →
+                </button>
+                <button
+                    onClick={() => {
+                        localStorage.setItem('n88_workflow_preferred_entry_mode', 'production_only');
+                        handleClose();
+                    }}
+                    style={{
+                        width: '100%',
+                        padding: '10px 24px',
+                        backgroundColor: '#f5f5f5',
+                        color: '#333',
+                        border: '1px solid #d0d0d0',
+                        borderRadius: '4px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        marginTop: '8px',
+                    }}
+                >
+                    Production Tracking Only
                 </button>
             </div>
         </div>

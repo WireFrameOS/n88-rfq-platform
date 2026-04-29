@@ -264,9 +264,20 @@ class N88_Items {
                     }
                 }
 
+            $entry_mode = isset( $item_data['entry_mode'] ) ? sanitize_key( (string) $item_data['entry_mode'] ) : 'full_process';
+            if ( ! in_array( $entry_mode, array( 'full_process', 'production_only' ), true ) ) {
+                $entry_mode = 'full_process';
+            }
             $meta_json = array(
                 'default_size' => $size,
+                'entry_mode'   => $entry_mode,
             );
+            if ( 'production_only' === $entry_mode ) {
+                $meta_json['entry_current_step'] = '4_locked';
+                $meta_json['step_1_status'] = 'external_complete';
+                $meta_json['step_2_status'] = 'external_complete';
+                $meta_json['execution_payment_status'] = 'not_started';
+            }
             if ( isset( $item_data['delivery_country'] ) ) {
                 $meta_json['delivery_country'] = sanitize_text_field( $item_data['delivery_country'] );
             }
@@ -418,6 +429,9 @@ class N88_Items {
             );
             if ( class_exists( 'N88_Item_Timeline' ) ) {
                 N88_Item_Timeline::ensure_timeline_for_item( $item_id );
+                if ( method_exists( 'N88_Item_Timeline', 'bootstrap_production_only_timeline' ) && 'production_only' === $entry_mode ) {
+                    N88_Item_Timeline::bootstrap_production_only_timeline( $item_id );
+                }
             }
 
             if ( $board_id > 0 ) {
@@ -686,9 +700,20 @@ class N88_Items {
         $custom_specification = isset( $_POST['custom_specification'] ) ? sanitize_textarea_field( wp_unslash( $_POST['custom_specification'] ) ) : '';
         
         // Prepare meta_json with default size (only if column exists)
+        $entry_mode = isset( $_POST['entry_mode'] ) ? sanitize_key( (string) wp_unslash( $_POST['entry_mode'] ) ) : 'full_process';
+        if ( ! in_array( $entry_mode, array( 'full_process', 'production_only' ), true ) ) {
+            $entry_mode = 'full_process';
+        }
         $meta_json = array(
             'default_size' => $default_size,
+            'entry_mode'   => $entry_mode,
         );
+        if ( 'production_only' === $entry_mode ) {
+            $meta_json['entry_current_step'] = '4_locked';
+            $meta_json['step_1_status'] = 'external_complete';
+            $meta_json['step_2_status'] = 'external_complete';
+            $meta_json['execution_payment_status'] = 'not_started';
+        }
         if ( ! empty( $image_url ) && ! $primary_image_id ) {
             // Store image URL in meta if we couldn't find attachment ID
             $meta_json['image_url'] = $image_url;
@@ -936,6 +961,9 @@ class N88_Items {
         // Commit 3.A.1: Ensure immutable 6-step timeline exists for item
         if ( class_exists( 'N88_Item_Timeline' ) ) {
             N88_Item_Timeline::ensure_timeline_for_item( $item_id );
+            if ( method_exists( 'N88_Item_Timeline', 'bootstrap_production_only_timeline' ) && 'production_only' === $entry_mode ) {
+                N88_Item_Timeline::bootstrap_production_only_timeline( $item_id );
+            }
         }
 
         // Ensure designer profile exists (lazy creation)

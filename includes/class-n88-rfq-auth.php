@@ -931,6 +931,7 @@ class N88_RFQ_Auth {
                 stage_proof_note TEXT NULL,
                 stage_meeting_link VARCHAR(500) NULL,
                 stage_proof_attachment_id BIGINT UNSIGNED NULL,
+                stage_submission_history LONGTEXT NULL,
                 stage_submitted_at DATETIME NULL,
                 stage_approved_at DATETIME NULL,
                 stage_revision_requested_at DATETIME NULL,
@@ -1019,11 +1020,15 @@ class N88_RFQ_Auth {
                 'payment_status'       => isset( $row['payment_status'] ) ? sanitize_key( $row['payment_status'] ) : 'not_submitted',
                 'stage_meeting_link'   => isset( $row['stage_meeting_link'] ) ? esc_url_raw( $row['stage_meeting_link'] ) : '',
                 'stage_revision_note'  => isset( $row['stage_revision_note'] ) ? sanitize_textarea_field( $row['stage_revision_note'] ) : '',
+                'stage_submission_history' => $this->normalize_milestone_submission_history( isset( $row['stage_submission_history'] ) ? $row['stage_submission_history'] : '' ),
                 'stage_submitted_at'   => ! empty( $row['stage_submitted_at'] ) ? $row['stage_submitted_at'] : null,
                 'stage_approved_at'    => ! empty( $row['stage_approved_at'] ) ? $row['stage_approved_at'] : null,
                 'stage_revision_requested_at' => ! empty( $row['stage_revision_requested_at'] ) ? $row['stage_revision_requested_at'] : null,
                 'payment_submitted_at' => ! empty( $row['payment_submitted_at'] ) ? $row['payment_submitted_at'] : null,
                 'payment_confirmed_at' => ! empty( $row['payment_confirmed_at'] ) ? $row['payment_confirmed_at'] : null,
+                'payment_note'         => isset( $row['payment_note'] ) ? sanitize_textarea_field( $row['payment_note'] ) : '',
+                'payment_method'       => isset( $row['payment_method'] ) ? sanitize_key( $row['payment_method'] ) : '',
+                'payment_attachment_url' => ! empty( $row['payment_attachment_id'] ) ? esc_url_raw( wp_get_attachment_url( absint( $row['payment_attachment_id'] ) ) ) : '',
             );
         }
 
@@ -1034,6 +1039,35 @@ class N88_RFQ_Auth {
             'next_stage_label' => $next_stage && ! empty( $next_stage['stage_label'] ) ? sanitize_text_field( $next_stage['stage_label'] ) : '',
             'stages'           => $stages,
         );
+    }
+
+    private function normalize_milestone_submission_history( $raw_history ) {
+        $decoded = json_decode( (string) $raw_history, true );
+        if ( ! is_array( $decoded ) ) {
+            return array();
+        }
+        $normalized = array();
+        foreach ( $decoded as $entry ) {
+            if ( ! is_array( $entry ) ) {
+                continue;
+            }
+            $normalized[] = array(
+                'submission_no'     => isset( $entry['submission_no'] ) ? absint( $entry['submission_no'] ) : 0,
+                'submitted_at'      => isset( $entry['submitted_at'] ) ? sanitize_text_field( $entry['submitted_at'] ) : '',
+                'supplier_note'     => isset( $entry['supplier_note'] ) ? sanitize_textarea_field( $entry['supplier_note'] ) : '',
+                'meeting_link'      => isset( $entry['meeting_link'] ) ? esc_url_raw( $entry['meeting_link'] ) : '',
+                'attachment_id'     => isset( $entry['attachment_id'] ) ? absint( $entry['attachment_id'] ) : 0,
+                'attachment_url'    => isset( $entry['attachment_url'] ) ? esc_url_raw( $entry['attachment_url'] ) : '',
+                'review_status'     => isset( $entry['review_status'] ) ? sanitize_key( $entry['review_status'] ) : 'pending',
+                'reviewed_at'       => isset( $entry['reviewed_at'] ) ? sanitize_text_field( $entry['reviewed_at'] ) : '',
+                'reviewer_note'     => isset( $entry['reviewer_note'] ) ? sanitize_textarea_field( $entry['reviewer_note'] ) : '',
+            );
+        }
+        return $normalized;
+    }
+
+    private function encode_milestone_submission_history( array $history ) {
+        return wp_json_encode( array_values( $history ) );
     }
 
     /**
@@ -4833,23 +4867,6 @@ class N88_RFQ_Auth {
             $item_data['payment_approval_kind'] = '';
             $item_data['payment_approval_stage_key'] = '';
             $item_data['payment_approval_stage_label'] = '';
-            if ( isset( $validation_state['payment_milestones'] ) && is_array( $validation_state['payment_milestones'] ) && ! empty( $validation_state['payment_milestones']['enabled'] ) ) {
-                $milestone_stages_for_queue = isset( $validation_state['payment_milestones']['stages'] ) && is_array( $validation_state['payment_milestones']['stages'] )
-                    ? $validation_state['payment_milestones']['stages']
-                    : array();
-                foreach ( $milestone_stages_for_queue as $ms_queue_stage ) {
-                    if ( empty( $ms_queue_stage['stage_enabled'] ) ) {
-                        continue;
-                    }
-                    $is_waiting_approval = ! empty( $ms_queue_stage['payment_submitted_at'] ) && empty( $ms_queue_stage['payment_confirmed_at'] );
-                    if ( $is_waiting_approval ) {
-                        $item_data['payment_approval_kind'] = 'milestone';
-                        $item_data['payment_approval_stage_key'] = isset( $ms_queue_stage['stage_key'] ) ? sanitize_key( $ms_queue_stage['stage_key'] ) : '';
-                        $item_data['payment_approval_stage_label'] = isset( $ms_queue_stage['stage_label'] ) ? sanitize_text_field( $ms_queue_stage['stage_label'] ) : '';
-                        break;
-                    }
-                }
-            }
             if ( empty( $item_data['payment_approval_kind'] ) && $can_verify_execution_payment ) {
                 $validation_commitment_for_exec = isset( $validation_state['commitment'] ) && is_array( $validation_state['commitment'] ) ? $validation_state['commitment'] : array();
                 $execution_for_queue = isset( $validation_commitment_for_exec['execution_activation'] ) && is_array( $validation_commitment_for_exec['execution_activation'] )
@@ -5026,17 +5043,26 @@ class N88_RFQ_Auth {
                     }
                 }
                 if ( ! empty( $milestone_next ) ) {
+                    $milestone_stage_label = ! empty( $milestone_next['stage_label'] ) ? sanitize_text_field( (string) $milestone_next['stage_label'] ) : __( 'Current Stage', 'n88-rfq-platform' );
                     if ( ! empty( $milestone_next['stage_revision_requested_at'] ) || ( isset( $milestone_next['payment_status'] ) && 'revision_requested' === sanitize_key( (string) $milestone_next['payment_status'] ) ) ) {
-                        $status_label = __( 'Revision Requested', 'n88-rfq-platform' );
+                        /* translators: %s: stage label */
+                        $status_label = sprintf( __( 'Revision Requested: %s', 'n88-rfq-platform' ), $milestone_stage_label );
+                        $status_color = '#ffb347';
+                    } elseif ( empty( $milestone_next['stage_submitted_at'] ) ) {
+                        /* translators: %s: stage label */
+                        $status_label = sprintf( __( 'Submit: %s', 'n88-rfq-platform' ), $milestone_stage_label );
                         $status_color = '#ffb347';
                     } elseif ( empty( $milestone_next['stage_approved_at'] ) ) {
-                        $status_label = __( 'Awaiting Approval', 'n88-rfq-platform' );
+                        /* translators: %s: stage label */
+                        $status_label = sprintf( __( 'Awaiting Approval: %s', 'n88-rfq-platform' ), $milestone_stage_label );
                         $status_color = '#ffb347';
                     } elseif ( empty( $milestone_next['payment_confirmed_at'] ) ) {
-                        $status_label = __( 'Payment Pending', 'n88-rfq-platform' );
+                        /* translators: %s: stage label */
+                        $status_label = sprintf( __( 'Payment Pending: %s', 'n88-rfq-platform' ), $milestone_stage_label );
                         $status_color = '#ffb347';
                     } else {
-                        $status_label = __( 'Payment Received -> Proceed', 'n88-rfq-platform' );
+                        /* translators: %s: stage label */
+                        $status_label = sprintf( __( 'Payment Received -> Proceed: %s', 'n88-rfq-platform' ), $milestone_stage_label );
                         $status_color = '#00ff00';
                     }
                 } elseif ( 'pending_verification' === $execution_payment_status ) {
@@ -5458,6 +5484,16 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'View Material Sample Shipped', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Sample Submitted' === $supplier_status_label ) {
                                         $action_button_text = __( 'View Sample Submission', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 0 === strpos( $supplier_status_label, 'Submit:' ) ) {
+                                        $action_button_text = __( 'Open Milestone Stage', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 0 === strpos( $supplier_status_label, 'Revision Requested:' ) ) {
+                                        $action_button_text = __( 'Review Revision Request', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 0 === strpos( $supplier_status_label, 'Awaiting Approval:' ) ) {
+                                        $action_button_text = __( 'Approve Stage Progress', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 0 === strpos( $supplier_status_label, 'Payment Pending:' ) ) {
+                                        $action_button_text = __( 'Open Stage Payment', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 0 === strpos( $supplier_status_label, 'Payment Received -> Proceed:' ) ) {
+                                        $action_button_text = __( 'Proceed to Next Stage', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Awaiting Approval' === $supplier_status_label ) {
                                         $action_button_text = __( 'Approve Payment', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Payment Pending' === $supplier_status_label ) {
@@ -10743,6 +10779,67 @@ class N88_RFQ_Auth {
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 3 Award Decision</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + step3Body + '</div>' : '');
                     // Step 4: Official Quote PDF  sirf award pe depend kare, payment se taaluq nahi. Award hote hi supplier ko Step 04 mein PDF upload option mile.
+                    var renderSupplierMilestonesStep4 = function(summary, currentItemId) {
+                        if (!summary || !summary.enabled || !Array.isArray(summary.stages) || !summary.stages.length) return '';
+                        var esc = function(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); };
+                        var nextKey = summary.next_stage_key || '';
+                    var tabs = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">';
+                        for (var ti = 0; ti < summary.stages.length; ti++) {
+                            var ts = summary.stages[ti] || {};
+                            var active = (nextKey && ts.stage_key === nextKey) || (!nextKey && ti === 0);
+                            tabs += '<button class="n88-supplier-stage-tab" data-item-id="' + Number(currentItemId || 0) + '" data-stage-key="' + esc(ts.stage_key || '') + '" type="button" onclick="n88SupplierOpenMilestoneStage(' + Number(currentItemId || 0) + ',\'' + esc(ts.stage_key || '') + '\')" style="padding:6px 10px; border-radius:4px; border:1px solid ' + (active ? '#FF0065' : '#444') + '; background:' + (active ? 'rgba(255,0,101,0.12)' : '#111') + '; color:' + (active ? '#FF0065' : '#bbb') + '; font-size:11px; cursor:pointer;">' + esc(ts.stage_label || ('Stage ' + (ti + 1))) + '</button>';
+                        }
+                        tabs += '</div>';
+                        var cards = '';
+                        for (var si = 0; si < summary.stages.length; si++) {
+                            var stage = summary.stages[si] || {};
+                            var stageKey = stage.stage_key || '';
+                            var isActiveStage = (nextKey && stageKey === nextKey) || (!nextKey && si === 0);
+                            var canSubmit = !!stage.stage_enabled && (isActiveStage || stage.payment_status === 'revision_requested');
+                            var statusTxt = stage.stage_approved_at ? 'Approved' : (stage.stage_submitted_at ? 'Awaiting Approval' : (stage.payment_status === 'revision_requested' ? 'Revision Requested' : 'Pending submission'));
+                            cards += '<div class="n88-supplier-stage-card" data-item-id="' + Number(currentItemId || 0) + '" data-stage-key="' + esc(stageKey) + '" style="display:' + (isActiveStage ? 'block' : 'none') + '; margin-bottom:10px; padding:10px; border:1px solid #444; border-radius:6px; background:#0f0f0f;">';
+                            cards += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><div style="font-size:12px; color:#fff; font-weight:600;">' + esc(stage.stage_label || '') + ' (' + Number(stage.percent_alloc || 0) + '%)</div><div style="font-size:11px; color:#bbb;">' + esc(statusTxt) + '</div></div>';
+                            if (stage.stage_revision_note) cards += '<div style="margin-bottom:8px; font-size:11px; color:#ffb347;">Revision note: ' + esc(stage.stage_revision_note) + '</div>';
+                            if (Array.isArray(stage.stage_submission_history) && stage.stage_submission_history.length) {
+                                cards += '<div style="margin:8px 0; padding:8px; border:1px solid #333; border-radius:4px; background:#101010;">';
+                                cards += '<div style="font-size:11px; color:#ddd; margin-bottom:6px;">Submission history</div>';
+                                for (var hi = 0; hi < stage.stage_submission_history.length; hi++) {
+                                    var h = stage.stage_submission_history[hi] || {};
+                                    cards += '<div style="font-size:11px; color:#bbb; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed #2a2a2a;">';
+                                    cards += '<div style="color:#fff;">#' + Number(h.submission_no || (hi + 1)) + ' - ' + esc(h.submitted_at || '') + '</div>';
+                                    if (h.attachment_url) cards += '<div><a href="' + esc(h.attachment_url) + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065;">View submitted file</a></div>';
+                                    if (h.meeting_link) cards += '<div><a href="' + esc(h.meeting_link) + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065;">Meeting link</a></div>';
+                                    if (h.supplier_note) cards += '<div>Supplier note: ' + esc(h.supplier_note) + '</div>';
+                                    if (h.review_status === 'approved') cards += '<div style="color:#4caf50; font-weight:600;">Approved ' + esc(h.reviewed_at || '') + '</div>';
+                                    if (h.review_status === 'revision_requested') cards += '<div style="color:#ffb347; font-weight:600;">Revision requested ' + esc(h.reviewed_at || '') + (h.reviewer_note ? (' - ' + esc(h.reviewer_note)) : '') + '</div>';
+                                    cards += '</div>';
+                                }
+                                cards += '</div>';
+                            }
+                            if (canSubmit && !stage.stage_approved_at) {
+                                cards += '<form onsubmit="return n88SupplierSubmitMilestoneProof(this,' + Number(currentItemId || 0) + ',\'' + esc(stageKey) + '\');" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px;">';
+                                cards += '<input type="file" name="stage_proof_file" required style="font-size:11px; color:#ddd;" />';
+                                cards += '<input type="url" name="stage_meeting_link" placeholder="Meeting link (optional)" style="background:#111; color:#ddd; border:1px solid #444; border-radius:4px; padding:6px; font-size:11px;" />';
+                                cards += '<textarea name="stage_note" rows="2" placeholder="Notes for designer (optional)" style="background:#111; color:#ddd; border:1px solid #444; border-radius:4px; padding:6px; font-size:11px;"></textarea>';
+                                cards += '<button type="submit" style="align-self:flex-start; padding:7px 12px; background:#FF0065; color:#000; border:none; border-radius:4px; font-weight:600; font-size:11px; cursor:pointer;">Submit ' + esc(stage.stage_label || 'Stage') + '</button>';
+                                cards += '</form>';
+                            } else if (stage.stage_approved_at && !stage.payment_confirmed_at) {
+                                if (stage.payment_attachment_url) cards += '<div style="margin-bottom:6px;"><a href="' + esc(stage.payment_attachment_url) + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065;">View payment proof</a></div>';
+                                if (stage.payment_method) cards += '<div style="font-size:11px; color:#bbb; margin-bottom:4px;">Payment method: ' + esc(stage.payment_method) + '</div>';
+                                if (stage.payment_note) cards += '<div style="font-size:11px; color:#bbb; margin-bottom:4px;">Payment note: ' + esc(stage.payment_note) + '</div>';
+                                if (stage.payment_submitted_at) cards += '<div style="font-size:11px; color:#ffb347; margin-bottom:8px;">Payment submitted: ' + esc(stage.payment_submitted_at) + '</div>';
+                                cards += '<button type="button" onclick="n88SupplierApproveMilestonePayment(' + Number(currentItemId || 0) + ',\'' + esc(stageKey) + '\',this)" style="padding:7px 12px; background:#0f5132; color:#fff; border:none; border-radius:4px; font-weight:600; font-size:11px; cursor:pointer;">Confirm Payment</button>';
+                            } else if (stage.stage_approved_at) {
+                                cards += '<div style="font-size:11px; color:#4caf50;">Designer approved this stage.</div>';
+                            } else {
+                                cards += '<div style="font-size:11px; color:#888;">This stage unlocks after previous stage approval.</div>';
+                            }
+                            cards += '</div>';
+                        }
+                        return '<div style="padding:12px; border:1px solid #555; border-radius:6px; background:#0b0b0b;">' +
+                            '<div style="font-size:12px; color:#ddd; margin-bottom:8px;">Submit stage progress with file + notes.</div>' +
+                            tabs + cards + '</div>';
+                    };
                     var step4OfficialQuoteHTML = '';
                     var isAwardedForStep4 = effectiveBidStatus === 'awarded' || item.is_awarded_supplier === true || (item.bid_data && (item.bid_data.bid_status === 'awarded' || item.bid_data.is_awarded === true)) || (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id));
                     if (isAwardedForStep4) {
@@ -10768,8 +10865,10 @@ class N88_RFQ_Auth {
                     } else if (bidAndPrototype.workflowStep4OfficialQuote && bidAndPrototype.workflowStep4OfficialQuote.length) {
                         step4OfficialQuoteHTML = bidAndPrototype.workflowStep4OfficialQuote;
                     }
+                    var supplierMilestoneSummary = item.validation_state && item.validation_state.payment_milestones ? item.validation_state.payment_milestones : null;
+                    var supplierMilestoneStep4HTML = renderSupplierMilestonesStep4(supplierMilestoneSummary, (item.item_id || itemId));
                     if (validationCanCommit && validationProductionStarted) {
-                        step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production begins.</div>';
+                        step4OfficialQuoteHTML = supplierMilestoneStep4HTML || '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production begins.</div>';
                     } else if (validationCanCommit) {
                         step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #ddd; background: #101010;">Ready for production. Click <strong style="color:#FF0065;">Begin Production</strong> in Step 3 to start.</div>';
                     }
@@ -11605,6 +11704,70 @@ class N88_RFQ_Auth {
                             block += '<div id="n88-supplier-step-evidence-form-wrap" style="display: none; margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: #0a0a0a;"></div></div>';
                             return block;
                         }
+                        function buildSupplierMilestoneStageStep4Block(itemId) {
+                            var summary = validationState && validationState.payment_milestones ? validationState.payment_milestones : null;
+                            if (!summary || !summary.enabled || !Array.isArray(summary.stages) || !summary.stages.length) return '';
+                            var nextKey = summary.next_stage_key || '';
+                            var html = '<div style="padding:12px; border:1px solid ' + darkBorder + '; border-radius:6px; background:#0f0f0f;">';
+                            html += '<div style="font-size:12px; color:#ddd; margin-bottom:8px;">Submit stage progress with file, meeting link and notes.</div>';
+                            html += '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">';
+                            for (var ti = 0; ti < summary.stages.length; ti++) {
+                                var ts = summary.stages[ti] || {};
+                                var tActive = (nextKey && ts.stage_key === nextKey) || (!nextKey && ti === 0);
+                                html += '<button class="n88-supplier-stage-tab" data-item-id="' + String(itemId) + '" data-stage-key="' + escHtml(ts.stage_key || '') + '" type="button" onclick="n88SupplierOpenMilestoneStage(' + String(itemId) + ',\'' + escHtml(ts.stage_key || '') + '\')" style="padding:6px 10px; border-radius:4px; border:1px solid ' + (tActive ? green : '#444') + '; background:' + (tActive ? 'rgba(255,0,101,0.12)' : '#111') + '; color:' + (tActive ? green : '#bbb') + '; font-size:11px; cursor:pointer;">' + escHtml(ts.stage_label || ('Stage ' + (ti + 1))) + '</button>';
+                            }
+                            html += '</div>';
+                            for (var si = 0; si < summary.stages.length; si++) {
+                                var st = summary.stages[si] || {};
+                                var stKey = st.stage_key || '';
+                                var isActiveStage = (nextKey && stKey === nextKey) || (!nextKey && si === 0);
+                                var waitingDesigner = !!st.stage_submitted_at && !st.stage_approved_at && st.payment_status !== 'revision_requested';
+                                var canSubmit = !!st.stage_enabled && (isActiveStage || st.payment_status === 'revision_requested') && !waitingDesigner;
+                                var statusTxt = st.stage_approved_at ? 'Approved' : (st.stage_submitted_at ? 'Awaiting Approval' : (st.payment_status === 'revision_requested' ? 'Revision Requested' : 'Pending submission'));
+                                html += '<div class="n88-supplier-stage-card" data-item-id="' + String(itemId) + '" data-stage-key="' + escHtml(stKey) + '" style="display:' + (isActiveStage ? 'block' : 'none') + '; margin-bottom:10px; padding:10px; border:1px solid #444; border-radius:6px; background:#0b0b0b;">';
+                                html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><div style="font-size:12px; color:#fff; font-weight:600;">' + escHtml(st.stage_label || '') + ' (' + Number(st.percent_alloc || 0) + '%)</div><div style="font-size:11px; color:#bbb;">' + escHtml(statusTxt) + '</div></div>';
+                                if (st.stage_revision_note) html += '<div style="margin-bottom:8px; font-size:11px; color:#ffb347;">Revision note: ' + escHtml(st.stage_revision_note) + '</div>';
+                                if (Array.isArray(st.stage_submission_history) && st.stage_submission_history.length) {
+                                    html += '<div style="margin:8px 0; padding:8px; border:1px solid #333; border-radius:4px; background:#101010;">';
+                                    html += '<div style="font-size:11px; color:#ddd; margin-bottom:6px;">Submission history</div>';
+                                    for (var hix = 0; hix < st.stage_submission_history.length; hix++) {
+                                        var hx = st.stage_submission_history[hix] || {};
+                                        html += '<div style="font-size:11px; color:#bbb; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed #2a2a2a;">';
+                                        html += '<div style="color:#fff;">#' + Number(hx.submission_no || (hix + 1)) + ' - ' + escHtml(hx.submitted_at || '') + '</div>';
+                                        if (hx.attachment_url) html += '<div><a href="' + escHtml(hx.attachment_url) + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065;">View submitted file</a></div>';
+                                        if (hx.meeting_link) html += '<div><a href="' + escHtml(hx.meeting_link) + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065;">Meeting link</a></div>';
+                                        if (hx.supplier_note) html += '<div>Supplier note: ' + escHtml(hx.supplier_note) + '</div>';
+                                        if (hx.review_status === 'approved') html += '<div style="color:#4caf50; font-weight:600;">Approved ' + escHtml(hx.reviewed_at || '') + '</div>';
+                                        if (hx.review_status === 'revision_requested') html += '<div style="color:#ffb347; font-weight:600;">Revision requested ' + escHtml(hx.reviewed_at || '') + (hx.reviewer_note ? (' - ' + escHtml(hx.reviewer_note)) : '') + '</div>';
+                                        html += '</div>';
+                                    }
+                                    html += '</div>';
+                                }
+                                if (canSubmit && !st.stage_approved_at) {
+                                    html += '<form onsubmit="return n88SupplierSubmitMilestoneProof(this,' + String(itemId) + ',\'' + escHtml(stKey) + '\');" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px;">';
+                                    html += '<input type="file" name="stage_proof_file" required style="font-size:11px; color:#ddd;" />';
+                                    html += '<input type="url" name="stage_meeting_link" placeholder="Meeting link (optional)" style="background:#111; color:#ddd; border:1px solid #444; border-radius:4px; padding:6px; font-size:11px;" />';
+                                    html += '<textarea name="stage_note" rows="2" placeholder="Notes for designer (optional)" style="background:#111; color:#ddd; border:1px solid #444; border-radius:4px; padding:6px; font-size:11px;"></textarea>';
+                                    html += '<button type="submit" style="align-self:flex-start; padding:7px 12px; background:' + green + '; color:#000; border:none; border-radius:4px; font-weight:600; font-size:11px; cursor:pointer;">Submit ' + escHtml(st.stage_label || 'Stage') + '</button>';
+                                    html += '</form>';
+                                } else if (st.stage_approved_at && !st.payment_confirmed_at) {
+                                    if (st.payment_attachment_url) html += '<div style="margin-bottom:6px;"><a href="' + escHtml(st.payment_attachment_url) + '" target="_blank" rel="noopener noreferrer" style="color:#FF0065;">View payment proof</a></div>';
+                                    if (st.payment_method) html += '<div style="font-size:11px; color:#bbb; margin-bottom:4px;">Payment method: ' + escHtml(st.payment_method) + '</div>';
+                                    if (st.payment_note) html += '<div style="font-size:11px; color:#bbb; margin-bottom:4px;">Payment note: ' + escHtml(st.payment_note) + '</div>';
+                                    if (st.payment_submitted_at) html += '<div style="font-size:11px; color:#ffb347; margin-bottom:8px;">Payment submitted: ' + escHtml(st.payment_submitted_at) + '</div>';
+                                    html += '<button type="button" onclick="n88SupplierApproveMilestonePayment(' + String(itemId) + ',\'' + escHtml(stKey) + '\',this)" style="padding:7px 12px; background:#0f5132; color:#fff; border:none; border-radius:4px; font-weight:600; font-size:11px; cursor:pointer;">Confirm Payment</button>';
+                                } else if (waitingDesigner) {
+                                    html += '<div style="font-size:11px; color:#ffb347;">Waiting for designer response (Approval or Revision). Resubmission is locked.</div>';
+                                } else if (st.stage_approved_at) {
+                                    html += '<div style="font-size:11px; color:#4caf50;">Designer approved this stage.</div>';
+                                } else {
+                                    html += '<div style="font-size:11px; color:#888;">This stage unlocks after previous stage approval.</div>';
+                                }
+                                html += '</div>';
+                            }
+                            html += '</div>';
+                            return html;
+                        }
                         function buildSupplierProposalStepBlock(itemId, sel, statusLabel) {
                             var currentItemData = window.currentItemData || {};
                             var bidData = currentItemData.bid_data || currentItemData.latest_stale_bid_data || {};
@@ -11906,6 +12069,18 @@ class N88_RFQ_Auth {
                                     detEl.innerHTML = buildSupplierProposalStepBlock(itemId, sel, sl);
                                 } else if (stepNum === 3) {
                                     detEl.innerHTML = buildSupplierCommitmentStepBlock(itemId, sel, sl);
+                                } else if (stepNum === 4) {
+                                    var milestoneStep4 = buildSupplierMilestoneStageStep4Block(itemId);
+                                    if (milestoneStep4) {
+                                        detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepNum + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                            (desc ? '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : '') +
+                                            milestoneStep4;
+                                    } else {
+                                        detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepNum + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                            (desc ? '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : '') +
+                                            buildSupplierValidationBlock(stepNum, itemId) +
+                                            buildSupplierStepEvidenceBlock(sel, itemId);
+                                    }
                                 } else {
                                 detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepNum + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                     (desc ? '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : '') +
@@ -12018,7 +12193,12 @@ class N88_RFQ_Auth {
                                 if (s.completed_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + s.completed_at + '</div>';
                                 if (s.expected_by) content += '<div style="font-size: 11px; color: #ccc;">Expected by: ' + s.expected_by + '</div>';
                                 if (desc456) content += '<div style="font-size: 12px; color: #ccc; margin-top: 8px; line-height: 1.4;">' + desc456.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                                content += buildSupplierStepEvidenceBlock(s, itemId);
+                                if (stepN === 4) {
+                                    var milestoneStep4Panel = buildSupplierMilestoneStageStep4Block(itemId);
+                                    content += milestoneStep4Panel ? milestoneStep4Panel : buildSupplierStepEvidenceBlock(s, itemId);
+                                } else {
+                                    content += buildSupplierStepEvidenceBlock(s, itemId);
+                                }
                                 el.innerHTML = content;
                             }
                         } else {
@@ -12051,6 +12231,20 @@ class N88_RFQ_Auth {
                                 detail += buildSupplierProposalStepBlock(itemId, sel, statusLabel);
                             } else if (stepNum0 === 3) {
                                 detail += buildSupplierCommitmentStepBlock(itemId, sel, statusLabel);
+                            } else if (stepNum0 === 4) {
+                            var milestoneStep4Fallback = buildSupplierMilestoneStageStep4Block(itemId);
+                            if (milestoneStep4Fallback) {
+                                detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 4px;">' + stepNum0 + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                if (desc0) detail += '<div style="font-size: 12px; color: ' + darkText + '; margin-top: 8px; line-height: 1.4;">' + desc0.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                detail += milestoneStep4Fallback;
+                            } else {
+                                detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 4px;">' + stepNum0 + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
+                                if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
+                                if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
+                                detail += buildSupplierValidationBlock(stepNum0, itemId);
+                                detail += buildSupplierStepEvidenceBlock(sel, itemId);
+                            }
                             } else {
                             detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 4px;">' + stepNum0 + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                             if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
@@ -16737,6 +16931,126 @@ class N88_RFQ_Auth {
                 } catch (e) {
                     console.error('Error in submitOfficialQuotePDF:', e);
                     alert('Error submitting Official Quote PDF. Please try again.');
+                }
+                return false;
+            };
+            window.n88SupplierOpenMilestoneStage = function(itemId, stageKey) {
+                try {
+                    var cards = document.querySelectorAll('.n88-supplier-stage-card[data-item-id="' + String(itemId) + '"]');
+                    if (!cards || !cards.length) return false;
+                    for (var i = 0; i < cards.length; i++) {
+                        var card = cards[i];
+                        card.style.display = (card.getAttribute('data-stage-key') === String(stageKey)) ? 'block' : 'none';
+                    }
+                    var tabs = document.querySelectorAll('.n88-supplier-stage-tab[data-item-id="' + String(itemId) + '"]');
+                    for (var t = 0; t < tabs.length; t++) {
+                        var tab = tabs[t];
+                        var isActive = tab.getAttribute('data-stage-key') === String(stageKey);
+                        tab.style.borderColor = isActive ? '#FF0065' : '#444';
+                        tab.style.background = isActive ? 'rgba(255,0,101,0.12)' : '#111';
+                        tab.style.color = isActive ? '#FF0065' : '#bbb';
+                    }
+                } catch (e) {
+                    console.error('n88SupplierOpenMilestoneStage error:', e);
+                }
+                return false;
+            };
+            window.n88SupplierSubmitMilestoneProof = function(form, itemId, stageKey) {
+                try {
+                    var fileInput = form.querySelector('input[type="file"][name="stage_proof_file"]');
+                    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+                        alert('Please upload a file before submitting this stage.');
+                        return false;
+                    }
+                    var submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Submitting...';
+                    }
+                    var fd = new FormData();
+                    fd.append('action', 'n88_submit_stage_progress_proof');
+                    fd.append('item_id', String(itemId));
+                    fd.append('stage_key', String(stageKey || ''));
+                    fd.append('stage_proof', fileInput.files[0]);
+                    var noteEl = form.querySelector('textarea[name="stage_note"]');
+                    var meetingEl = form.querySelector('input[name="stage_meeting_link"]');
+                    if (noteEl && noteEl.value) fd.append('note', noteEl.value);
+                    if (meetingEl && meetingEl.value) fd.append('meeting_link', meetingEl.value);
+                    fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = 'Submitted';
+                            }
+                            if (data && data.success) {
+                                alert((data.data && data.data.message) ? data.data.message : 'Stage progress submitted.');
+                                if (typeof openBidModal === 'function') openBidModal(itemId, 'workflow');
+                                else window.location.reload();
+                            } else {
+                                if (submitBtn) {
+                                    submitBtn.disabled = false;
+                                    submitBtn.textContent = 'Submit Stage';
+                                }
+                                alert((data && data.data && data.data.message) ? data.data.message : 'Failed to submit stage progress.');
+                            }
+                        })
+                        .catch(function(err) {
+                            console.error('n88SupplierSubmitMilestoneProof error:', err);
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = 'Submit Stage';
+                            }
+                            alert('Error submitting stage progress. Please try again.');
+                        });
+                } catch (e) {
+                    console.error('n88SupplierSubmitMilestoneProof fatal error:', e);
+                    alert('Error submitting stage progress.');
+                }
+                return false;
+            };
+            window.n88SupplierApproveMilestonePayment = function(itemId, stageKey, btn) {
+                try {
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.textContent = 'Confirming...';
+                    }
+                    var fd = new FormData();
+                    fd.append('action', 'n88_approve_stage_payment');
+                    fd.append('item_id', String(itemId));
+                    fd.append('stage_key', String(stageKey || ''));
+                    fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data && data.success) {
+                                alert((data.data && data.data.message) ? data.data.message : 'Payment confirmed.');
+                                if (typeof openBidModal === 'function') openBidModal(itemId, 'workflow');
+                                else window.location.reload();
+                            } else {
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = 'Confirm Payment';
+                                }
+                                alert((data && data.data && data.data.message) ? data.data.message : 'Could not confirm payment.');
+                            }
+                        })
+                        .catch(function(err) {
+                            console.error('n88SupplierApproveMilestonePayment error:', err);
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.textContent = 'Confirm Payment';
+                            }
+                            alert('Could not confirm payment.');
+                        });
+                } catch (e) {
+                    console.error('n88SupplierApproveMilestonePayment fatal error:', e);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = 'Confirm Payment';
+                    }
+                    alert('Could not confirm payment.');
                 }
                 return false;
             };
@@ -21683,6 +21997,39 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $payment_milestone_summary = $this->build_payment_milestone_summary( $item_id );
         $has_payment_milestones = ! empty( $payment_milestone_summary['enabled'] );
+        if ( $can_commit && $has_payment_milestones ) {
+            $next_stage = array();
+            if ( ! empty( $payment_milestone_summary['stages'] ) && is_array( $payment_milestone_summary['stages'] ) ) {
+                foreach ( $payment_milestone_summary['stages'] as $ms_stage ) {
+                    if ( ! empty( $ms_stage['stage_enabled'] ) && empty( $ms_stage['payment_confirmed_at'] ) ) {
+                        $next_stage = $ms_stage;
+                        break;
+                    }
+                }
+            }
+            if ( ! empty( $next_stage ) ) {
+                $ms_label = ! empty( $next_stage['stage_label'] ) ? sanitize_text_field( (string) $next_stage['stage_label'] ) : 'Current Stage';
+                if ( ! empty( $next_stage['stage_revision_requested_at'] ) || ( isset( $next_stage['payment_status'] ) && 'revision_requested' === sanitize_key( (string) $next_stage['payment_status'] ) ) ) {
+                    $card_status_text  = sprintf( 'Revision Requested: %s', $ms_label );
+                    $card_status_color = '#ff9800';
+                } elseif ( empty( $next_stage['stage_submitted_at'] ) ) {
+                    $card_status_text  = sprintf( 'Awaiting Supplier Submission: %s', $ms_label );
+                    $card_status_color = '#ff9800';
+                } elseif ( empty( $next_stage['stage_approved_at'] ) ) {
+                    $card_status_text  = sprintf( 'Awaiting Designer Approval: %s', $ms_label );
+                    $card_status_color = '#ff9800';
+                } elseif ( empty( $next_stage['payment_confirmed_at'] ) ) {
+                    $card_status_text  = sprintf( 'Payment Pending: %s', $ms_label );
+                    $card_status_color = '#ff9800';
+                } else {
+                    $card_status_text  = sprintf( 'Ready for Next Stage: %s', $ms_label );
+                    $card_status_color = '#4caf50';
+                }
+            } else {
+                $card_status_text  = 'Milestones Completed';
+                $card_status_color = '#4caf50';
+            }
+        }
 
         return array(
             'enabled'                    => ! empty( $request['requested_at'] ) || ! empty( $review['approved_at'] ) || ! empty( $supplier['updated_at'] ) || ! empty( $commitment['po_uploaded_at'] ),
@@ -21894,6 +22241,42 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $item_quantity = (int) $meta['quantity'];
                 }
             }
+        }
+        $entry_mode = ( isset( $meta ) && is_array( $meta ) && ! empty( $meta['entry_mode'] ) ) ? sanitize_key( (string) $meta['entry_mode'] ) : 'full_process';
+        if ( ! in_array( $entry_mode, array( 'full_process', 'production_only' ), true ) ) {
+            $entry_mode = 'full_process';
+        }
+        if ( 'production_only' === $entry_mode ) {
+            $flush_json_success( array(
+                'entry_mode'                     => 'production_only',
+                'requested_section'              => $requested_section,
+                'loaded_sections'                => array(
+                    'summary'  => true,
+                    'workflow' => true,
+                    'bids'     => false,
+                ),
+                'has_rfq'                        => false,
+                'has_bids'                       => false,
+                'has_awarded_bid'                => false,
+                'bids'                           => array(),
+                'smart_alternatives_enabled'     => false,
+                'smart_alternatives_note'        => '',
+                'rfq_revision_current'           => null,
+                'revision_changed'               => false,
+                'has_unread_operator_messages'   => false,
+                'unread_operator_messages'       => 0,
+                'has_prototype_payment'          => false,
+                'prototype_payment_status'       => null,
+                'prototype_submission'           => null,
+                'validation_state'               => null,
+                'deposit_status'                 => '',
+                'deposit_amount'                 => null,
+                'deposit_calculated_at'          => null,
+                'deposit_received_at'            => null,
+                'deposit_receipt_url'            => '',
+                'deposit_sent_note'              => '',
+                'deposit_sent_at'                => null,
+            ) );
         }
         
         // Fallback: Get quantity from delivery_context if not in item meta
@@ -22804,6 +23187,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $response_payload = array(
+            'entry_mode' => $entry_mode,
             'requested_section' => $requested_section,
             'loaded_sections' => array(
                 'summary'  => $load_summary,
@@ -32927,6 +33311,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $stage_attachment_id = isset( $row['stage_proof_attachment_id'] ) ? absint( $row['stage_proof_attachment_id'] ) : 0;
                 $row['payment_attachment_url'] = $payment_attachment_id ? esc_url_raw( wp_get_attachment_url( $payment_attachment_id ) ) : '';
                 $row['stage_proof_attachment_url'] = $stage_attachment_id ? esc_url_raw( wp_get_attachment_url( $stage_attachment_id ) ) : '';
+                $row['stage_submission_history'] = $this->normalize_milestone_submission_history( isset( $row['stage_submission_history'] ) ? $row['stage_submission_history'] : '' );
                 wp_send_json_success( $row );
                 return;
             }
@@ -33166,13 +33551,29 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $attachment_id = 0;
             }
         }
+        $history = $this->normalize_milestone_submission_history( isset( $milestone['stage_submission_history'] ) ? $milestone['stage_submission_history'] : '' );
+        $submission_no = count( $history ) + 1;
+        $submitted_at = current_time( 'mysql' );
+        $history[] = array(
+            'submission_no'  => $submission_no,
+            'submitted_at'   => $submitted_at,
+            'supplier_note'  => $note ? $note : '',
+            'meeting_link'   => $meeting_link ? $meeting_link : '',
+            'attachment_id'  => $attachment_id ? $attachment_id : 0,
+            'attachment_url' => $attachment_id ? esc_url_raw( wp_get_attachment_url( $attachment_id ) ) : '',
+            'review_status'  => 'pending',
+            'reviewed_at'    => '',
+            'reviewer_note'  => '',
+        );
+        $history_json = $this->encode_milestone_submission_history( $history );
         $wpdb->update(
             $table,
             array(
                 'stage_proof_note'          => $note ? $note : null,
                 'stage_meeting_link'        => $meeting_link ? $meeting_link : null,
                 'stage_proof_attachment_id' => $attachment_id ? $attachment_id : null,
-                'stage_submitted_at'        => current_time( 'mysql' ),
+                'stage_submission_history'  => $history_json,
+                'stage_submitted_at'        => $submitted_at,
                 'stage_revision_requested_at' => null,
                 'stage_revision_note'       => null,
                 'payment_status'            => 'awaiting_approval',
@@ -33180,7 +33581,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'updated_at'                => current_time( 'mysql' ),
             ),
             array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
-            array( '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s' ),
+            array( '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%d', '%s' ),
             array( '%d' )
         );
         require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
@@ -33221,16 +33622,25 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
             return;
         }
+        $history = $this->normalize_milestone_submission_history( isset( $milestone['stage_submission_history'] ) ? $milestone['stage_submission_history'] : '' );
+        for ( $i = count( $history ) - 1; $i >= 0; $i-- ) {
+            if ( empty( $history[ $i ]['review_status'] ) || in_array( $history[ $i ]['review_status'], array( 'pending', 'revision_requested' ), true ) ) {
+                $history[ $i ]['review_status'] = 'approved';
+                $history[ $i ]['reviewed_at'] = current_time( 'mysql' );
+                break;
+            }
+        }
         $wpdb->update(
             $table,
             array(
                 'stage_approved_at' => current_time( 'mysql' ),
+                'stage_submission_history' => $this->encode_milestone_submission_history( $history ),
                 'payment_status'    => 'payment_pending',
                 'updated_by'        => (int) $current_user->ID,
                 'updated_at'        => current_time( 'mysql' ),
             ),
             array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
-            array( '%s', '%s', '%d', '%s' ),
+            array( '%s', '%s', '%s', '%d', '%s' ),
             array( '%d' )
         );
         require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
@@ -33272,17 +33682,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'Milestone stage not found.' ), 404 );
             return;
         }
+        $history = $this->normalize_milestone_submission_history( isset( $milestone['stage_submission_history'] ) ? $milestone['stage_submission_history'] : '' );
+        for ( $i = count( $history ) - 1; $i >= 0; $i-- ) {
+            if ( empty( $history[ $i ]['review_status'] ) || 'pending' === $history[ $i ]['review_status'] ) {
+                $history[ $i ]['review_status'] = 'revision_requested';
+                $history[ $i ]['reviewed_at'] = current_time( 'mysql' );
+                $history[ $i ]['reviewer_note'] = $note ? $note : '';
+                break;
+            }
+        }
         $wpdb->update(
             $table,
             array(
                 'stage_revision_requested_at' => current_time( 'mysql' ),
                 'stage_revision_note'         => $note ? $note : null,
+                'stage_submission_history'    => $this->encode_milestone_submission_history( $history ),
                 'payment_status'              => 'revision_requested',
                 'updated_by'                  => (int) $current_user->ID,
                 'updated_at'                  => current_time( 'mysql' ),
             ),
             array( 'milestone_id' => absint( $milestone['milestone_id'] ) ),
-            array( '%s', '%s', '%s', '%d', '%s' ),
+            array( '%s', '%s', '%s', '%s', '%d', '%s' ),
             array( '%d' )
         );
         require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
@@ -33311,9 +33731,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         $current_user = wp_get_current_user();
         $is_operator  = in_array( 'n88_system_operator', (array) $current_user->roles, true ) || current_user_can( 'manage_options' );
-        $is_wireframe_supplier = ! $is_operator && in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) && $this->is_wireframe_admin_user( $current_user );
-        if ( ! $is_operator && ! $is_wireframe_supplier ) {
-            wp_send_json_error( array( 'message' => 'Operator approval required.' ), 403 );
+        $is_supplier  = in_array( 'n88_supplier_admin', (array) $current_user->roles, true );
+        if ( ! $is_operator && ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Supplier or operator approval required.' ), 403 );
             return;
         }
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;

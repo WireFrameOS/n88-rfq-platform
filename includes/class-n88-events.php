@@ -86,6 +86,13 @@ class N88_Events {
         // Commit 3.C.3: RFQ field and file caption events
         'rfq_field_updated',
         'file_caption_updated',
+        // Commit 3.D.9: stage-based payment milestone events
+        'milestone_created',
+        'milestone_updated',
+        'payment_submitted',
+        'payment_confirmed',
+        'stage_locked',
+        'stage_unlocked',
     );
 
     /**

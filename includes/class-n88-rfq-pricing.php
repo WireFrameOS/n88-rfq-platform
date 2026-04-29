@@ -320,7 +320,7 @@ class N88_RFQ_Pricing {
      * @param float $total_cbm Total CBM volume
      * @return array Array with delivery_cost_usd and shipping_mode
      */
-    public static function calculate_north_america_delivery_cost( $total_cbm ) {
+    public static function calculate_usa_delivery_cost( $total_cbm ) {
         $total_cbm = (float) $total_cbm;
         
         $delivery_cost_usd = 0.00;
@@ -565,21 +565,21 @@ class N88_RFQ_Pricing {
             );
         }
 
-        // Step 8: Calculate delivery cost (only for US/CA)
+        // Step 8: Calculate delivery cost (only for US)
         $delivery_cost_usd = null;
         $shipping_mode = null;
         
-        if ( in_array( $delivery_country, array( 'US', 'CA' ), true ) ) {
-            $delivery_result = self::calculate_north_america_delivery_cost( $cbm );
+        if ( $delivery_country === 'US' ) {
+            $delivery_result = self::calculate_usa_delivery_cost( $cbm );
             $delivery_cost_usd = $delivery_result['delivery_cost_usd'];
             $shipping_mode = $delivery_result['shipping_mode'];
             error_log( sprintf( 
-                'N88 Delivery Cost Calc - Item %d: %s delivery calculated - cbm=%.6f, cost=$%.2f, mode=%s',
-                $item_id, $delivery_country, $cbm, $delivery_cost_usd, $shipping_mode
+                'N88 Delivery Cost Calc - Item %d: US delivery calculated - cbm=%.6f, cost=$%.2f, mode=%s',
+                $item_id, $cbm, $delivery_cost_usd, $shipping_mode
             ) );
         } else {
             error_log( sprintf( 
-                'N88 Delivery Cost Calc - Item %d: Country is not US/CA (country=%s), skipping delivery cost calculation',
+                'N88 Delivery Cost Calc - Item %d: Country is not US (country=%s), skipping delivery cost calculation',
                 $item_id, $delivery_country ? $delivery_country : 'NULL'
             ) );
         }

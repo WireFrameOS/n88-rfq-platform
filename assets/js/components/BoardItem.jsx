@@ -102,6 +102,19 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
     // Order: Action Required first, then prototype workflow (so status progresses correctly after Proposals Received),
     // then Bid Awarded, then Proposals Received, then RFQ Sent / Draft.
     const getItemStatus = () => {
+        const itemEntryMode = ((item.entry_mode || item.meta?.entry_mode || '') + '').toLowerCase();
+        if (itemEntryMode === 'production_only') {
+            const step4 = Array.isArray(item.timeline?.steps)
+                ? item.timeline.steps.find((step) => Number(step.step_number) === 4)
+                : null;
+            if ((step4?.status || '').toLowerCase() === 'in_progress') {
+                return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+            }
+            if ((step4?.status || '').toLowerCase() === 'completed') {
+                return { text: 'CAD Pending', color: '#ff9800', dot: '#ff9800' };
+            }
+            return { text: 'Production Tracking', color: '#2196f3', dot: '#2196f3' };
+        }
         const hasUnreadOperatorMessages = truthy(item.has_unread_operator_messages);
         const ps = (item.prototype_status || '').toLowerCase() || null;
         const hasPrototypeVideoSubmitted = truthy(item.has_prototype_video_submitted);
@@ -259,6 +272,7 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
     };
 
     const itemStatus = getItemStatus();
+    const itemEntryMode = ((item.entry_mode || item.meta?.entry_mode || '') + '').toLowerCase();
 
     const openPrimaryModal = () => {
         if (_modalHandlers && typeof _modalHandlers.open === 'function') {
@@ -820,6 +834,11 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
                         <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {itemTitle}
                         </div>
+                        {itemEntryMode === 'production_only' && (
+                            <div style={{ fontSize: '9px', color: '#2196f3', fontWeight: 700 }}>
+                                [ Production Tracking ]
+                            </div>
+                        )}
                         {/* Status row: for S/D show status and Support on separate lines; for L/XL show side by side */}
                         {(currentSize === 'S' || currentSize === 'D') ? (
                             <>

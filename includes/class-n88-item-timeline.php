@@ -90,6 +90,35 @@ class N88_Item_Timeline {
     }
 
     /**
+     * Production-only entry bootstrap:
+     * - mark steps 1 and 2 as externally completed
+     * - move step 3 out of the way (completed) so item opens directly around step 4 flow
+     *
+     * @param int $item_id
+     * @return void
+     */
+    public static function bootstrap_production_only_timeline( $item_id ) {
+        global $wpdb;
+        $timeline_id = self::ensure_timeline_for_item( $item_id );
+        if ( ! $timeline_id ) {
+            return;
+        }
+        $steps_table = $wpdb->prefix . 'n88_item_timeline_steps';
+        $now = current_time( 'mysql' );
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$steps_table}
+                 SET status = %s, started_at = %s, completed_at = %s
+                 WHERE timeline_id = %d AND step_number IN (1,2,3)",
+                self::STATUS_COMPLETED,
+                $now,
+                $now,
+                $timeline_id
+            )
+        );
+    }
+
+    /**
      * Get timeline and steps for an item (read-only view; delayed computed).
      *
      * @param int $item_id n88_items.id

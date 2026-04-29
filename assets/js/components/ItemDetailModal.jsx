@@ -2444,12 +2444,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [milestoneSaving, setMilestoneSaving] = React.useState(false);
     const [milestoneSetupPromptOpen, setMilestoneSetupPromptOpen] = React.useState(true);
     const [milestoneSetupChoice, setMilestoneSetupChoice] = React.useState('none');
+    const [milestoneEditOpen, setMilestoneEditOpen] = React.useState(true);
     const [milestoneUiNotice, setMilestoneUiNotice] = React.useState('');
     const [paymentProofFilesByStage, setPaymentProofFilesByStage] = React.useState({});
     const [paymentNotesByStage, setPaymentNotesByStage] = React.useState({});
     const [paymentMethodsByStage, setPaymentMethodsByStage] = React.useState({});
     const [revisionNotesByStage, setRevisionNotesByStage] = React.useState({});
     const [milestoneActionBusyByStage, setMilestoneActionBusyByStage] = React.useState({});
+    const [milestoneActionTypeByStage, setMilestoneActionTypeByStage] = React.useState({});
     // Commit 3.A.2S: Designer view of supplier step evidence (View Step Evidence)
     const [supplierStepEvidenceView, setSupplierStepEvidenceView] = React.useState(null);
     const [supplierStepEvidenceLoading, setSupplierStepEvidenceLoading] = React.useState(false);
@@ -2470,6 +2472,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     
     // Auto-expand bids and set tab: CAD/messages → Step 2; CAD released or video submitted → Step 3; payment approved → Step 1 (synced with admin.php)
     React.useEffect(() => {
+        if (isProductionOnly) {
+            setActiveTab('workflow');
+            setSelectedStepIndex(3);
+            return;
+        }
         if (itemState.loading) return;
         if (skipNextTabSwitchFromCadActionRef.current) {
             skipNextTabSwitchFromCadActionRef.current = false;
@@ -2522,7 +2529,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             setActiveTab('details');
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDesignerMessages is defined later; effect correctly runs when action_required/unread/CAD-pending or itemState change
-    }, [itemState.loading, currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, item?.action_required, item?.has_unread_operator_messages]);
+    }, [isProductionOnly, itemState.loading, currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, item?.action_required, item?.has_unread_operator_messages]);
 
     // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
     React.useEffect(() => {
@@ -2554,6 +2561,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         return null;
     };
     const itemId = getItemId();
+    const entryModeRaw = (
+        itemState?.entry_mode ||
+        item?.entry_mode ||
+        itemState?.meta?.entry_mode ||
+        item?.meta?.entry_mode ||
+        ''
+    );
+    const isProductionOnly = String(entryModeRaw).toLowerCase() === 'production_only';
 
     React.useEffect(() => {
         if (!isOpen) return;
@@ -2594,7 +2609,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     
     // Fetch item state from server
     const fetchItemState = React.useCallback(async (requestedSection) => {
-        const section = requestedSection || (activeTab === 'workflow' ? 'workflow' : (activeTab === 'bids' ? 'bids' : 'summary'));
+        const section = isProductionOnly
+            ? 'workflow'
+            : (requestedSection || (activeTab === 'workflow' ? 'workflow' : (activeTab === 'bids' ? 'bids' : 'summary')));
         if (itemStateRequestRef.current[section]) {
             return;
         }
@@ -2653,10 +2670,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setItemState((prev) => {
                     nextItemState = {
                         ...prev,
-                        has_rfq: data.data.has_rfq || false,
-                        has_bids: data.data.has_bids || false,
+                        entry_mode: data.data.entry_mode || prev.entry_mode || (item?.meta?.entry_mode || item?.entry_mode || ''),
+                        has_rfq: isProductionOnly ? false : (data.data.has_rfq || false),
+                        has_bids: isProductionOnly ? false : (data.data.has_bids || false),
                         has_awarded_bid: !!data.data.has_awarded_bid,
-                        bids: bidsLoaded ? (data.data.bids || []) : prev.bids,
+                        bids: isProductionOnly ? [] : (bidsLoaded ? (data.data.bids || []) : prev.bids),
                         rfq_revision_current: workflowLoaded ? (data.data.rfq_revision_current || null) : prev.rfq_revision_current,
                         revision_changed: workflowLoaded ? (data.data.revision_changed || false) : prev.revision_changed,
                         has_unread_operator_messages: data.data.has_unread_operator_messages || false,
@@ -2715,7 +2733,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 if (data.data.action_required !== undefined) cardUpdates.action_required = !!data.data.action_required;
                 if (Object.keys(cardUpdates).length > 0 && typeof updateLayout === 'function') updateLayout(item.id, cardUpdates);
                 // When all bids withdrawn: item is State A; reset Launch Brief to show "Request Quote" (fresh form)
-                if ((data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids)) {
+                if (!isProductionOnly && (data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids)) {
                     setShowRfqForm(false);
                 }
             } else {
@@ -2732,7 +2750,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         } finally {
             delete itemStateRequestRef.current[section];
         }
-    }, [activeTab, itemId, item?.id, updateLayout]);
+    }, [activeTab, isProductionOnly, itemId, item?.id, updateLayout]);
 
     React.useEffect(() => {
         if (!isOpen || !itemId || itemId <= 0) return;
@@ -2858,9 +2876,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setMilestoneUiNotice('Milestones saved. Stage 4.1 is ready to start.');
                 const firstStage = Array.isArray(nextSummary?.stages) && nextSummary.stages.length ? nextSummary.stages[0] : null;
                 if (firstStage?.stage_key) setExpandedMilestoneStage(firstStage.stage_key);
+                setMilestoneEditOpen(false);
             } else {
                 setMilestoneUiNotice('Milestones disabled. Normal flow continues.');
                 setExpandedMilestoneStage('');
+                setMilestoneEditOpen(true);
             }
             return true;
         } catch (err) {
@@ -2898,6 +2918,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
         if (!nonce) return false;
         setMilestoneActionBusyByStage((prev) => ({ ...prev, [stageKey]: true }));
+        setMilestoneActionTypeByStage((prev) => ({ ...prev, [stageKey]: actionName }));
         try {
             const fd = new FormData();
             fd.append('action', actionName);
@@ -2918,6 +2939,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 return next;
             });
             await fetchMilestoneSummary();
+            if (typeof fetchItemState === 'function') await fetchItemState();
+            if (typeof onSave === 'function') await onSave(itemId, {});
+            try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
             return true;
         } catch (err) {
             console.error(err);
@@ -2925,6 +2949,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             return false;
         } finally {
             setMilestoneActionBusyByStage((prev) => ({ ...prev, [stageKey]: false }));
+            setMilestoneActionTypeByStage((prev) => ({ ...prev, [stageKey]: '' }));
         }
     }, [itemId, fetchMilestoneSummary]);
     React.useEffect(() => {
@@ -2950,8 +2975,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         const stages = itemState?.payment_milestones_summary?.stages;
         if (!Array.isArray(stages) || !stages.length) {
             setMilestoneSetupDraft([]);
+            setMilestoneEditOpen(true);
             return;
         }
+        setMilestoneEditOpen(!(itemState?.payment_milestones_summary?.enabled));
         setMilestoneSetupDraft(stages.map((s) => ({
             stage_key: s.stage_key,
             stage_label: s.stage_label,
@@ -2961,6 +2988,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             payment_required: !!s.payment_required,
         })));
     }, [itemState?.payment_milestones_summary?.stages]);
+    React.useEffect(() => {
+        const summary = itemState?.payment_milestones_summary;
+        if (!summary?.enabled) return;
+        const nextKey = summary?.next_stage_key || '';
+        if (nextKey) setExpandedMilestoneStage(nextKey);
+    }, [itemState?.payment_milestones_summary?.next_stage_key, itemState?.payment_milestones_summary?.enabled]);
     React.useEffect(() => {
         if (!milestoneUiNotice) return;
         const t = setTimeout(() => setMilestoneUiNotice(''), 3000);
@@ -5059,7 +5092,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     borderBottom: `1px solid ${darkBorder}`,
                                     flexShrink: 0,
                                 }}>
-                                    <button
+                                    {!isProductionOnly && <button
                                         onClick={() => setActiveTab('details')}
                                         style={{
                                             flex: 1,
@@ -5075,7 +5108,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         }}
                                     >
                                         The Mission Spec
-                                    </button>
+                                    </button>}
                                     <button
                                         onClick={() => setActiveTab('workflow')}
                                         style={{
@@ -5091,9 +5124,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             fontFamily: 'monospace',
                                         }}
                                     >
-                                        Project Workflow
+                                        {isProductionOnly ? 'Production Tracking Mode' : 'Project Workflow'}
                                     </button>
-                                    {itemState.has_bids && (
+                                    {!isProductionOnly && itemState.has_bids && (
                                         <button
                                             onClick={() => setActiveTab('bids')}
                                             style={{
@@ -5113,6 +5146,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         </button>
                                     )}
                                 </div>
+                                {isProductionOnly && (
+                                    <div style={{ margin: '12px 20px 0', padding: '10px 12px', border: `1px solid ${darkBorder}`, borderRadius: '4px', background: '#111' }}>
+                                        <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>Production Tracking Mode</div>
+                                        <div style={{ fontSize: '12px', color: darkText }}>Full visibility and structured oversight into every stage of production with your supplier.</div>
+                                    </div>
+                                )}
                                 
                                 {/* Tab Content */}
                                 <div style={{
@@ -8515,7 +8554,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                         <span style={{ color: greenAccent, fontWeight: '600' }}>{paidPercent}% Paid</span>
                                                                                         {' '}· Next: <span style={{ color: '#fff' }}>{summary?.next_stage_label || 'Completed'}</span>
                                                                                     </div>
-                                                                                    {!isOperator && stages.length > 0 && (
+                                                                                    {!isOperator && stages.length > 0 && milestoneEditOpen && (
                                                                                         <div style={{ marginBottom: '12px', padding: '10px', border: `1px solid ${darkBorder}`, borderRadius: '4px', background: '#0f0f0f' }}>
                                                                                             <div style={{ fontSize: '11px', color: '#ddd', marginBottom: '8px' }}>Edit future milestones (total must be 100%)</div>
                                                                                             {milestoneSetupDraft.map((row, idx) => (
@@ -8523,8 +8562,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                     <input
                                                                                                         type="text"
                                                                                                         value={row.stage_label}
-                                                                                                        onChange={(e) => setMilestoneSetupDraft((prev) => prev.map((r, i) => i === idx ? { ...r, stage_label: e.target.value } : r))}
-                                                                                                        style={{ background: '#111', color: '#ddd', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', fontSize: '11px' }}
+                                                                                                        readOnly
+                                                                                                        disabled
+                                                                                                        style={{ background: '#0b0b0b', color: '#888', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '6px', fontSize: '11px', cursor: 'not-allowed' }}
                                                                                                     />
                                                                                                     <input
                                                                                                         type="number"
@@ -8582,15 +8622,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                             </div>
                                                                                         </div>
                                                                                     )}
+                                                                                    {!isOperator && stages.length > 0 && !milestoneEditOpen && (
+                                                                                        <div style={{ marginBottom: '12px' }}>
+                                                                                            <button type="button" onClick={() => setMilestoneEditOpen(true)} style={{ padding: '6px 10px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}>
+                                                                                                Edit Milestones
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    )}
                                                                                     {stages.map((stage) => {
                                                                                         const stageKey = stage.stage_key;
                                                                                         const isExpanded = expandedMilestoneStage === stageKey;
                                                                                         const details = milestoneDetailsByStage[stageKey] || stage;
                                                                                         const isBusy = !!milestoneActionBusyByStage[stageKey];
                                                                                         const queueState = !details.stage_submitted_at
-                                                                                            ? 'Awaiting Approval'
+                                                                                            ? 'Awaiting Supplier Submission'
                                                                                             : !details.stage_approved_at
-                                                                                                ? 'Awaiting Approval'
+                                                                                                ? (details.stage_revision_requested_at ? 'Waiting for Supplier Revision' : 'Awaiting Approval')
                                                                                                 : !details.payment_confirmed_at
                                                                                                     ? 'Payment Pending'
                                                                                                     : 'Payment Received → Proceed';
@@ -8616,9 +8663,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                         {details.stage_proof_attachment_url && <div style={{ marginBottom: '6px' }}><a href={details.stage_proof_attachment_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>View supplier proof</a></div>}
                                                                                                         {details.stage_proof_note && <div style={{ marginBottom: '6px' }}>Supplier note: {details.stage_proof_note}</div>}
                                                                                                         {details.stage_meeting_link && <div style={{ marginBottom: '6px' }}><a href={details.stage_meeting_link} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>Open meeting link</a></div>}
+                                                                                                        {Array.isArray(details.stage_submission_history) && details.stage_submission_history.length > 0 && (
+                                                                                                            <div style={{ marginBottom: '8px', padding: '8px', border: `1px solid ${darkBorder}`, borderRadius: '4px', background: '#101010' }}>
+                                                                                                                <div style={{ marginBottom: '6px', color: '#ddd' }}>Submission history</div>
+                                                                                                                {details.stage_submission_history.map((h, idx) => (
+                                                                                                                    <div key={`hist-${stageKey}-${idx}`} style={{ marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px dashed #2a2a2a' }}>
+                                                                                                                        <div style={{ color: '#fff' }}>#{h.submission_no || idx + 1} - {h.submitted_at || ''}</div>
+                                                                                                                        {h.attachment_url && <div><a href={h.attachment_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>View submitted file</a></div>}
+                                                                                                                        {h.meeting_link && <div><a href={h.meeting_link} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>Meeting link</a></div>}
+                                                                                                                        {h.supplier_note && <div>Supplier note: {h.supplier_note}</div>}
+                                                                                                                        {h.review_status === 'approved' && <div style={{ color: '#4caf50', fontWeight: 600 }}>Approved {h.reviewed_at || ''}</div>}
+                                                                                                                        {h.review_status === 'revision_requested' && <div style={{ color: '#ffb347', fontWeight: 600 }}>Revision requested {h.reviewed_at || ''}{h.reviewer_note ? ` - ${h.reviewer_note}` : ''}</div>}
+                                                                                                                    </div>
+                                                                                                                ))}
+                                                                                                            </div>
+                                                                                                        )}
                                                                                                         {details.stage_revision_requested_at && <div style={{ marginBottom: '6px', color: '#ffb347' }}>Revision requested {new Date(details.stage_revision_requested_at).toLocaleString()}</div>}
                                                                                                         {details.stage_revision_note && <div style={{ marginBottom: '6px' }}>Revision note: {details.stage_revision_note}</div>}
-                                                                                                        {details.stage_submitted_at && !details.stage_approved_at && !isOperator && (
+                                                                                                        {details.stage_submitted_at && !details.stage_approved_at && !!details.stage_revision_requested_at && !isOperator && (
+                                                                                                            <div style={{ marginBottom: '8px', color: '#ffb347' }}>
+                                                                                                                Waiting for supplier resubmission. Approval/Revision actions will reappear after new submission.
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                        {details.stage_submitted_at && !details.stage_approved_at && !details.stage_revision_requested_at && !isOperator && (
                                                                                                             <div style={{ marginBottom: '8px' }}>
                                                                                                                 <textarea
                                                                                                                     rows={2}
@@ -8634,7 +8701,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                                         onClick={() => runMilestoneAction(stageKey, 'n88_approve_stage_progress')}
                                                                                                                         style={{ padding: '6px 10px', fontSize: '11px', background: '#1e3a8a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                                                                                                     >
-                                                                                                                        Approve Stage Progress
+                                                                                                                        {isBusy && milestoneActionTypeByStage[stageKey] === 'n88_approve_stage_progress' ? 'Approving...' : 'Approve Stage Progress'}
                                                                                                                     </button>
                                                                                                                     <button
                                                                                                                         type="button"
@@ -8644,7 +8711,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                                         })}
                                                                                                                         style={{ padding: '6px 10px', fontSize: '11px', background: '#3a1f1f', color: '#ffb347', border: '1px solid #ffb347', borderRadius: '4px', cursor: 'pointer' }}
                                                                                                                     >
-                                                                                                                        Request Revision
+                                                                                                                        {isBusy && milestoneActionTypeByStage[stageKey] === 'n88_request_stage_progress_revision' ? 'Requesting Revision...' : 'Request Revision'}
                                                                                                                     </button>
                                                                                                                 </div>
                                                                                                             </div>
@@ -8654,8 +8721,15 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                                 <div style={{ marginBottom: '6px', color: '#ddd' }}>Payment required for this stage.</div>
                                                                                                                 {details.payment_attachment_url && <div style={{ marginBottom: '6px' }}><a href={details.payment_attachment_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>View payment proof</a></div>}
                                                                                                                 {details.payment_note && <div style={{ marginBottom: '6px' }}>Payment note: {details.payment_note}</div>}
+                                                                                                                {!!details.payment_submitted_at && !details.payment_confirmed_at && (
+                                                                                                                    <div style={{ marginBottom: '8px', color: '#ffb347' }}>
+                                                                                                                        Payment proof submitted on {new Date(details.payment_submitted_at).toLocaleString()}. Awaiting approval.
+                                                                                                                    </div>
+                                                                                                                )}
                                                                                                                 {!isOperator && (
                                                                                                                     <>
+                                                                                                                        {!details.payment_submitted_at && (
+                                                                                                                            <>
                                                                                                                         <input
                                                                                                                             type="text"
                                                                                                                             placeholder="Payment method (optional)"
@@ -8688,6 +8762,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                                         >
                                                                                                                             Submit Payment Proof
                                                                                                                         </button>
+                                                                                                                            </>
+                                                                                                                        )}
                                                                                                                     </>
                                                                                                                 )}
                                                                                                                 {isOperator && (

@@ -494,6 +494,57 @@ class N88_RFQ_Admin {
             $card_status_color = '#f4b400';
         }
 
+        // Milestone-aware status override for designer cards after production starts.
+        $item_id = isset( $item_meta['id'] ) ? absint( $item_meta['id'] ) : ( isset( $item_meta['item_id'] ) ? absint( $item_meta['item_id'] ) : 0 );
+        if ( $item_id > 0 && $can_commit && $production_started ) {
+            global $wpdb;
+            $milestone_table = $wpdb->prefix . 'n88_payment_milestones';
+            $milestone_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT stage_label, stage_enabled, stage_submitted_at, stage_approved_at, stage_revision_requested_at, payment_submitted_at, payment_confirmed_at, payment_status
+                     FROM {$milestone_table}
+                     WHERE item_id = %d
+                     ORDER BY sort_order ASC, milestone_id ASC",
+                    $item_id
+                ),
+                ARRAY_A
+            );
+            if ( is_array( $milestone_rows ) && ! empty( $milestone_rows ) ) {
+                $next_stage = null;
+                foreach ( $milestone_rows as $ms_row ) {
+                    if ( empty( $ms_row['stage_enabled'] ) ) {
+                        continue;
+                    }
+                    if ( empty( $ms_row['payment_confirmed_at'] ) ) {
+                        $next_stage = $ms_row;
+                        break;
+                    }
+                }
+                if ( $next_stage ) {
+                    $ms_label = ! empty( $next_stage['stage_label'] ) ? sanitize_text_field( (string) $next_stage['stage_label'] ) : 'Current Stage';
+                    if ( ! empty( $next_stage['stage_revision_requested_at'] ) || ( isset( $next_stage['payment_status'] ) && 'revision_requested' === sanitize_key( (string) $next_stage['payment_status'] ) ) ) {
+                        $card_status_text  = sprintf( 'Rev Req: %s', $ms_label );
+                        $card_status_color = '#f57c00';
+                    } elseif ( empty( $next_stage['stage_submitted_at'] ) ) {
+                        $card_status_text  = sprintf( 'Awaiting Submit: %s', $ms_label );
+                        $card_status_color = '#f57c00';
+                    } elseif ( empty( $next_stage['stage_approved_at'] ) ) {
+                        $card_status_text  = sprintf( 'Awaiting Approval: %s', $ms_label );
+                        $card_status_color = '#f57c00';
+                    } elseif ( empty( $next_stage['payment_submitted_at'] ) ) {
+                        $card_status_text  = sprintf( 'Awaiting Payment: %s', $ms_label );
+                        $card_status_color = '#f57c00';
+                    } elseif ( empty( $next_stage['payment_confirmed_at'] ) ) {
+                        $card_status_text  = sprintf( 'Payment Pending: %s', $ms_label );
+                        $card_status_color = '#f57c00';
+                    }
+                } else {
+                    $card_status_text  = 'Milestones Completed';
+                    $card_status_color = '#2e7d32';
+                }
+            }
+        }
+
         return array(
             'enabled'                 => ! empty( $request['requested_at'] ) || ! empty( $review['approved_at'] ) || ! empty( $supplier['updated_at'] ) || ! empty( $commitment['po_uploaded_at'] ),
             'supplier_id'             => $supplier_id,
@@ -4709,6 +4760,9 @@ class N88_RFQ_Admin {
                             }
                         }
                         
+                        if ( ! isset( $item_meta['id'] ) ) {
+                            $item_meta['id'] = $item_id;
+                        }
                         $validation_card_state = $this->get_item_validation_card_status( $item_meta );
 
                         // Commit 3.B.5.A1: Step 4–6 status for designer/operator item cards (supplier video, operator video, designer comment, step started/completed)
@@ -5141,6 +5195,9 @@ class N88_RFQ_Admin {
                             }
                         }
                         
+                        if ( ! isset( $item_meta['id'] ) ) {
+                            $item_meta['id'] = $item_id;
+                        }
                         $validation_card_state = $this->get_item_validation_card_status( $item_meta );
 
                         // Commit 3.B.5.A1: Step 4–6 status for new items (no layout)
@@ -6228,9 +6285,11 @@ class N88_RFQ_Admin {
                 <?php else : ?>
                 <div class="n88-actions-row">
                     <div class="n88-actions-left">
-                        <button type="button" id="n88-create-project-btn" class="n88-btn-bracket">[ + Create Project ]</button>
+                        <button type="button" id="n88-create-project-btn" class="n88-btn-bracket">[ + Full Workflow Project ]</button>
+                        <button type="button" id="n88-create-project-tracking-btn" class="n88-btn-bracket">[ + Production Tracking Project ]</button>
                         <?php if ( $is_real_board ) : ?>
-                        <button type="button" id="n88-add-item-btn" class="n88-btn-bracket">[ + Add Item ]</button>
+                        <button type="button" id="n88-add-item-btn" class="n88-btn-bracket">[ + Add Item (Full) ]</button>
+                        <button type="button" id="n88-add-item-tracking-btn" class="n88-btn-bracket">[ + Add Item (Tracking) ]</button>
                         <button type="button" id="n88-invite-team-member-btn" class="n88-btn-bracket n88-invite-btn">[ + Invite Team Member ]</button>
                         <?php if ( isset( $_GET['project_id'] ) && absint( $_GET['project_id'] ) > 0 ) : ?>
                         <button type="button" id="n88-create-batch-rfq-btn" class="n88-btn-bracket">[ Create Batch RFQ ]</button>
@@ -6580,12 +6639,14 @@ class N88_RFQ_Admin {
                     var el = document.getElementById(id);
                     if (el && el.parentNode && el.parentNode !== document.body) document.body.appendChild(el);
                 });
-                var createProjectBtn = document.getElementById('n88-create-project-btn');
+                var createProjectBtn = document.getElementById('n88-create-project-btn') || document.getElementById('n88-create-project-full-btn');
+                var createProjectTrackingBtn = document.getElementById('n88-create-project-tracking-btn');
                 var addProjectBackdrop = document.getElementById('n88-add-project-modal-backdrop');
                 var addProjectCloseBtn = document.getElementById('n88-add-project-modal-close');
                 var addProjectSubmitBtn = document.getElementById('n88-modal-create-project-submit');
                 var addProjectNameInput = document.getElementById('n88-modal-project-name');
                 var addProjectResultEl = document.getElementById('n88-add-project-modal-result');
+                var projectEntryMode = 'full_process';
                 
                 function openAddProjectModal() {
                     if (addProjectBackdrop) {
@@ -6604,7 +6665,8 @@ class N88_RFQ_Admin {
                     }
                 }
                 
-                if (createProjectBtn) createProjectBtn.addEventListener('click', openAddProjectModal);
+                if (createProjectBtn) createProjectBtn.addEventListener('click', function() { projectEntryMode = 'full_process'; openAddProjectModal(); });
+                if (createProjectTrackingBtn) createProjectTrackingBtn.addEventListener('click', function() { projectEntryMode = 'production_only'; openAddProjectModal(); });
                 if (addProjectCloseBtn) addProjectCloseBtn.addEventListener('click', closeAddProjectModal);
                 if (addProjectBackdrop) addProjectBackdrop.addEventListener('click', function(e) { if (e.target === addProjectBackdrop) closeAddProjectModal(); });
                 
@@ -6637,6 +6699,7 @@ class N88_RFQ_Admin {
                         formData.append('action', 'n88_create_board_project');
                         formData.append('board_id', boardId);
                         formData.append('name', projectName);
+                        formData.append('entry_mode', projectEntryMode);
                         formData.append('_ajax_nonce', nonce);
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                         
@@ -7134,6 +7197,9 @@ class N88_RFQ_Admin {
                 <div id="n88-add-item-modal" role="dialog" aria-labelledby="n88-add-item-title" aria-modal="true">
                     <div class="n88-add-item-header">
                         <h2 class="n88-add-item-title" id="n88-add-item-title">Add Item</h2>
+                        <div id="n88-add-item-mode-banner" style="display:none; margin-top:8px; font-size:12px; color:#bdbdbd;">
+                            Production Tracking Mode - Full visibility and structured oversight into every stage of production with your supplier.
+                        </div>
                         <button type="button" class="n88-add-item-close" id="n88-add-item-modal-close" aria-label="Close">x</button>
                     </div>
                     <form id="n88-add-item-modal-form" class="n88-add-item-body">
@@ -7383,6 +7449,7 @@ class N88_RFQ_Admin {
                         </div>
 
                         <input type="hidden" id="n88-modal-item-size" name="size" value="S">
+                        <input type="hidden" id="n88-modal-item-entry-mode" name="entry_mode" value="full_process">
                         <input type="hidden" id="n88-modal-item-board" name="board_id" value="<?php echo esc_attr( $add_item_modal_board_id ); ?>">
                         <?php if ( $add_item_modal_board_id > 0 ) : ?>
                         <div class="n88-field">
@@ -7481,7 +7548,8 @@ class N88_RFQ_Admin {
             (function() {
                 var addItemBackdrop = document.getElementById('n88-add-item-modal-backdrop');
                 if (addItemBackdrop && addItemBackdrop.parentNode && addItemBackdrop.parentNode !== document.body) document.body.appendChild(addItemBackdrop);
-                var addItemBtn = document.getElementById('n88-add-item-btn');
+                var addItemBtn = document.getElementById('n88-add-item-btn') || document.getElementById('n88-add-item-full-btn');
+                var addItemTrackingBtn = document.getElementById('n88-add-item-tracking-btn');
                 var backdrop = document.getElementById('n88-add-item-modal-backdrop');
                 var closeBtn = document.getElementById('n88-add-item-modal-close');
                 var modal = document.getElementById('n88-add-item-modal');
@@ -7491,6 +7559,7 @@ class N88_RFQ_Admin {
                 var submitRfqDirectBtn = document.getElementById('n88-modal-submit-rfq-direct');
                 var resultEl = document.getElementById('n88-add-item-modal-result');
                 var pendingCreateSubmitRfq = false;
+                var selectedEntryMode = 'full_process';
                 function populateCategorySelect(selectEl, selectedValue) {
                     if (!selectEl) return;
                     var currentValue = selectedValue !== undefined ? selectedValue : (selectEl.value || '');
@@ -7626,7 +7695,23 @@ class N88_RFQ_Admin {
                     return payload;
                 }
                 
-                function openAddItemModal() {
+                function applyEntryModeUi() {
+                    var modeInput = document.getElementById('n88-modal-item-entry-mode');
+                    var mode = (modeInput && modeInput.value) ? modeInput.value : selectedEntryMode;
+                    var isTracking = mode === 'production_only';
+                    var rfqBtn = document.getElementById('n88-modal-submit-rfq-direct');
+                    var modeBanner = document.getElementById('n88-add-item-mode-banner');
+                    if (modeBanner) modeBanner.style.display = isTracking ? 'block' : 'none';
+                    if (rfqBtn) rfqBtn.style.display = isTracking ? 'none' : 'none';
+                }
+                function openAddItemModal(mode) {
+                    var preferredMode = 'full_process';
+                    try {
+                        preferredMode = localStorage.getItem('n88_workflow_preferred_entry_mode') || window.n88PreferredEntryMode || 'full_process';
+                    } catch (e) {}
+                    selectedEntryMode = (mode === 'production_only' || mode === 'full_process') ? mode : (preferredMode === 'production_only' ? 'production_only' : 'full_process');
+                    var modeInput = document.getElementById('n88-modal-item-entry-mode');
+                    if (modeInput) modeInput.value = selectedEntryMode;
                     if (backdrop) {
                         backdrop.classList.add('n88-modal-open');
                         backdrop.setAttribute('aria-hidden', 'false');
@@ -7647,6 +7732,14 @@ class N88_RFQ_Admin {
                             el.style.boxShadow = '';
                         });
                     }
+                    if (selectedEntryMode === 'production_only') {
+                        var tooltipKey = 'n88_tracking_tooltip_dismissed_v1';
+                        if (!localStorage.getItem(tooltipKey)) {
+                            alert('Production Tracking Only\n\nUse this when your order is already placed and you want visibility into production.\n\nYou\\'ll skip pricing and go straight into production oversight.');
+                            localStorage.setItem(tooltipKey, 'true');
+                        }
+                    }
+                    applyEntryModeUi();
                     updateDirectRfqButtonVisibility();
                 }
                 if (form) {
@@ -7672,7 +7765,8 @@ class N88_RFQ_Admin {
                     resetAddItemModalState();
                 }
                 
-                if (addItemBtn) addItemBtn.addEventListener('click', openAddItemModal);
+                if (addItemBtn) addItemBtn.addEventListener('click', function() { openAddItemModal('full_process'); });
+                if (addItemTrackingBtn) addItemTrackingBtn.addEventListener('click', function() { openAddItemModal('production_only'); });
                 if (closeBtn) closeBtn.addEventListener('click', closeAddItemModal);
                 if (backdrop) {
                     backdrop.addEventListener('click', function(e) {
@@ -8650,6 +8744,7 @@ class N88_RFQ_Admin {
                     formData.append('description', document.getElementById('n88-modal-item-description').value);
                     formData.append('item_type', document.getElementById('n88-modal-item-type').value);
                     formData.append('status', 'active');
+                    formData.append('entry_mode', selectedEntryMode);
                     formData.append('size', document.getElementById('n88-modal-item-size').value);
                     formData.append('board_id', boardId);
                     var projectId = (projectSelect && projectSelect.value) ? projectSelect.value : '';
@@ -8762,6 +8857,7 @@ class N88_RFQ_Admin {
                         return (v && v.trim()) ? v : 'OTHER';
                     })());
                     formData.append('status', 'active');
+                    formData.append('entry_mode', selectedEntryMode);
                     formData.append('size', (document.getElementById('n88-modal-item-size') || {}).value || 'S');
                     formData.append('board_id', boardId);
                     var projSel = block.querySelector('[name="project_id"]');
@@ -8919,6 +9015,7 @@ class N88_RFQ_Admin {
 
                     var orderedFiles = [];
                     var orderedCaptions = [];
+                    var isTrackingMode = selectedEntryMode === 'production_only';
                     if (files && files.length > 0) {
                         var primaryIndex = typeof block.n88PrimaryIndex === 'number' ? block.n88PrimaryIndex : 0;
                         if (primaryIndex < 0 || primaryIndex >= files.length) primaryIndex = 0;
@@ -8941,6 +9038,7 @@ class N88_RFQ_Admin {
                             description: (block.querySelector('[name="description"]') || {}).value || '',
                             item_type: (itemTypeEl && itemTypeEl.value && itemTypeEl.value.trim()) ? itemTypeEl.value : 'OTHER',
                             status: 'active',
+                            entry_mode: selectedEntryMode,
                             size: (document.getElementById('n88-modal-item-size') || {}).value || 'S',
                             board_id: boardId || '',
                             project_id: projSel ? (projSel.value || '') : '',
@@ -8954,14 +9052,14 @@ class N88_RFQ_Admin {
                             measurement_length: measurementData.measurement_length || '',
                             measurement_length_unit: measurementData.measurement_length_unit || '',
                             custom_specification: measurementData.custom_specification || '',
-                            delivery_country: deliveryCountrySel ? (deliveryCountrySel.value || '') : '',
-                            delivery_postal: deliveryPostalInp ? (deliveryPostalInp.value || '') : '',
-                            preferred_delivery_date: preferredDeliveryDateInp ? (preferredDeliveryDateInp.value || '') : '',
-                            rfq_overall_notes: overallNotesBlock ? (overallNotesBlock.value || '') : '',
-                            rfq_fabric_supplied_flag: (fabricNoRadio && fabricNoRadio.checked) ? 'no' : 'yes',
-                            rfq_fabric_notes: fabricNotesBlock ? (fabricNotesBlock.value || '') : '',
-                            rfq_draft_invited_suppliers: invitedBlock,
-                            rfq_draft_allow_system_invites: allowSystemBlock ? 1 : 0,
+                            delivery_country: isTrackingMode ? '' : (deliveryCountrySel ? (deliveryCountrySel.value || '') : ''),
+                            delivery_postal: isTrackingMode ? '' : (deliveryPostalInp ? (deliveryPostalInp.value || '') : ''),
+                            preferred_delivery_date: isTrackingMode ? '' : (preferredDeliveryDateInp ? (preferredDeliveryDateInp.value || '') : ''),
+                            rfq_overall_notes: isTrackingMode ? '' : (overallNotesBlock ? (overallNotesBlock.value || '') : ''),
+                            rfq_fabric_supplied_flag: isTrackingMode ? 'yes' : ((fabricNoRadio && fabricNoRadio.checked) ? 'no' : 'yes'),
+                            rfq_fabric_notes: isTrackingMode ? '' : (fabricNotesBlock ? (fabricNotesBlock.value || '') : ''),
+                            rfq_draft_invited_suppliers: isTrackingMode ? [] : invitedBlock,
+                            rfq_draft_allow_system_invites: isTrackingMode ? 0 : (allowSystemBlock ? 1 : 0),
                             image_captions: orderedCaptions
                         },
                         orderedFiles: orderedFiles
@@ -11598,6 +11696,20 @@ class N88_RFQ_Admin {
                         var cadStatus = (item.cad_status || '').toLowerCase() || null;
                         var prototypePaymentStatus = (item.prototype_payment_status || '').toLowerCase() || null;
                         var hasPaymentReceiptUploaded = truthy(item.has_payment_receipt_uploaded);
+                        var entryMode = (item && item.entry_mode) ? String(item.entry_mode) : '';
+                        if (!entryMode && item && item.meta && item.meta.entry_mode) entryMode = String(item.meta.entry_mode);
+                        entryMode = entryMode.toLowerCase();
+                        if (entryMode === 'production_only') {
+                            var timelineSteps = (item && item.timeline && Array.isArray(item.timeline.steps)) ? item.timeline.steps : [];
+                            var step4 = timelineSteps.find(function(s) { return parseInt(s.step_number, 10) === 4; });
+                            if (step4 && String(step4.status || '').toLowerCase() === 'in_progress') {
+                                return { text: 'In Production', color: '#2e7d32', dot: '#2e7d32' };
+                            }
+                            if (step4 && String(step4.status || '').toLowerCase() === 'completed') {
+                                return { text: 'CAD Pending', color: '#f4b400', dot: '#f4b400' };
+                            }
+                            return { text: 'Production Tracking', color: '#1e88e5', dot: '#1e88e5' };
+                        }
 
                         // Compute awarded state once so it can override Prototype Approved when a bid is awarded
                         var hasAwardedBid = truthy(item.has_awarded_bid);
@@ -11873,6 +11985,8 @@ class N88_RFQ_Admin {
                     };
 
                     var itemStatus = getItemStatus();
+                    var itemEntryMode = (item && item.entry_mode) ? String(item.entry_mode).toLowerCase() : '';
+                    if (!itemEntryMode && item && item.meta && item.meta.entry_mode) itemEntryMode = String(item.meta.entry_mode).toLowerCase();
                     
                     // HIGH APPROACH: Cooldown period after drag - block clicks for 2 seconds after drag ends
                     var _isDraggingState = React.useState(false);
@@ -12257,6 +12371,19 @@ class N88_RFQ_Admin {
                         }
                     },
                         React.createElement('div', { style: { fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '1.2' } }, item.title || item.description || ('Item ' + item.id)),
+                        itemEntryMode === 'production_only' ? React.createElement('span', {
+                            style: {
+                                display: 'inline-flex',
+                                alignSelf: 'flex-start',
+                                fontSize: '9px',
+                                fontWeight: 600,
+                                color: '#1e88e5',
+                                border: '1px solid rgba(30,136,229,0.35)',
+                                backgroundColor: 'rgba(30,136,229,0.08)',
+                                borderRadius: '999px',
+                                padding: '2px 8px'
+                            }
+                        }, 'Production Tracking') : null,
                         // Status + Support row
                         React.createElement('div', {
                             style: {
@@ -14945,7 +15072,9 @@ class N88_RFQ_Admin {
                     );
                     
                     var initialPreloadedRfqState = item && item.rfq_state && typeof item.rfq_state === 'object' ? item.rfq_state : null;
+                    var initialEntryMode = String((item && item.entry_mode) || (item && item.meta && item.meta.entry_mode) || '').toLowerCase();
                     var initialItemState = Object.assign({
+                        entry_mode: initialEntryMode || 'full_process',
                         has_rfq: false,
                         has_bids: false,
                         has_awarded_bid: false,
@@ -15729,6 +15858,13 @@ class N88_RFQ_Admin {
                     var _activeTabState = React.useState(initialTabProp);
                     var activeTab = _activeTabState[0];
                     var setActiveTab = _activeTabState[1];
+                    var itemEntryMode = String(
+                        (itemState && itemState.entry_mode) ||
+                        (item && item.entry_mode) ||
+                        (item && item.meta && item.meta.entry_mode) ||
+                        ''
+                    ).toLowerCase();
+                    var isProductionOnlyItem = itemEntryMode === 'production_only';
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     var manualTabOverrideRef = React.useRef(false);
@@ -15792,6 +15928,9 @@ class N88_RFQ_Admin {
                     var _milestoneSetupChoiceState = React.useState('none');
                     var milestoneSetupChoice = _milestoneSetupChoiceState[0];
                     var setMilestoneSetupChoice = _milestoneSetupChoiceState[1];
+                    var _milestoneEditOpenState = React.useState(true);
+                    var milestoneEditOpen = _milestoneEditOpenState[0];
+                    var setMilestoneEditOpen = _milestoneEditOpenState[1];
                     var _milestoneUiNoticeState = React.useState('');
                     var milestoneUiNotice = _milestoneUiNoticeState[0];
                     var setMilestoneUiNotice = _milestoneUiNoticeState[1];
@@ -15810,6 +15949,9 @@ class N88_RFQ_Admin {
                     var _milestoneActionBusyByStageState = React.useState({});
                     var milestoneActionBusyByStage = _milestoneActionBusyByStageState[0];
                     var setMilestoneActionBusyByStage = _milestoneActionBusyByStageState[1];
+                    var _milestoneActionTypeByStageState = React.useState({});
+                    var milestoneActionTypeByStage = _milestoneActionTypeByStageState[0];
+                    var setMilestoneActionTypeByStage = _milestoneActionTypeByStageState[1];
 
                     React.useEffect(function() {
                         if (!isOpen) {
@@ -15857,6 +15999,11 @@ class N88_RFQ_Admin {
                     React.useEffect(function() {
                         if (!isOpen) return;
                         if (manualTabOverrideRef.current) return;
+                        if (isProductionOnlyItem) {
+                            if (activeTab !== 'timeline') setActiveTab('timeline');
+                            setSelectedStepIndex(3);
+                            return;
+                        }
                         if (openToDetailsAndSupport) {
                             if (activeTab !== 'details') {
                                 setActiveTab('details');
@@ -15901,7 +16048,7 @@ class N88_RFQ_Admin {
                         if (activeTab !== 'details') {
                             setActiveTab('details');
                         }
-                    }, [isOpen, openToDetailsAndSupport, initialTabProp, requestSampleContextProp, pinnedTimelineStep, item && item.action_required, item && item.has_unread_operator_messages, item && item.has_unread_supplier_messages, item && item.has_prototype_payment, item && item.has_prototype_video_submitted, item && item.has_bids, item && item.prototype_status]);
+                    }, [isOpen, isProductionOnlyItem, openToDetailsAndSupport, initialTabProp, requestSampleContextProp, pinnedTimelineStep, item && item.action_required, item && item.has_unread_operator_messages, item && item.has_unread_supplier_messages, item && item.has_prototype_payment, item && item.has_prototype_video_submitted, item && item.has_bids, item && item.prototype_status]);
 
                     // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
                     React.useEffect(function() {
@@ -15926,6 +16073,11 @@ class N88_RFQ_Admin {
                     React.useEffect(function() {
                         if (openToDetailsAndSupport) return;
                         if (manualTabOverrideRef.current) return;
+                        if (isProductionOnlyItem) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(3);
+                            return;
+                        }
                         if (isOpen && initialTabProp === 'timeline') {
                             setActiveTab('timeline');
                             if (initialTimelineStepProp !== null) {
@@ -16087,7 +16239,7 @@ class N88_RFQ_Admin {
                         } else {
                             setActiveTab('details');
                         }
-                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, itemState.validation_state, itemState.validation_card_status_text, item.validation_state, item.validation_card_status_text, openToDetailsAndSupport, requestSampleContextProp, isOpen, initialTimelineStepProp, pinnedTimelineStep]);
+                    }, [isProductionOnlyItem, itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, itemState.validation_state, itemState.validation_card_status_text, item.validation_state, item.validation_card_status_text, openToDetailsAndSupport, requestSampleContextProp, isOpen, initialTimelineStepProp, pinnedTimelineStep]);
                     
                     // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                     React.useEffect(function() {
@@ -17109,9 +17261,11 @@ class N88_RFQ_Admin {
                                     setMilestoneUiNotice('Milestones saved. Stage 4.1 is ready to start.');
                                     var firstStage = (nextSummary && Array.isArray(nextSummary.stages) && nextSummary.stages.length) ? nextSummary.stages[0] : null;
                                     if (firstStage && firstStage.stage_key) setExpandedMilestoneStage(firstStage.stage_key);
+                                    setMilestoneEditOpen(false);
                                 } else {
                                     setMilestoneUiNotice('Milestones disabled. Normal flow continues.');
                                     setExpandedMilestoneStage('');
+                                    setMilestoneEditOpen(true);
                                 }
                                 return true;
                             })
@@ -17147,6 +17301,7 @@ class N88_RFQ_Admin {
                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
                         if (!nonce) return Promise.resolve(false);
                         setMilestoneActionBusyByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = true; return next; });
+                        setMilestoneActionTypeByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = actionName; return next; });
                         var fd = new FormData();
                         fd.append('action', actionName);
                         fd.append('item_id', String(itemId));
@@ -17168,6 +17323,8 @@ class N88_RFQ_Admin {
                                     return Object.assign({}, prev, { validation_state: nextValidation });
                                 });
                                 setMilestoneDetailsByStage(function(prev) { var next = Object.assign({}, prev); delete next[stageKey]; return next; });
+                                if (typeof fetchItemState === 'function') fetchItemState('full', true);
+                                try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
                                 return true;
                             })
                             .catch(function() {
@@ -17176,6 +17333,7 @@ class N88_RFQ_Admin {
                             })
                             .finally(function() {
                                 setMilestoneActionBusyByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = false; return next; });
+                                setMilestoneActionTypeByStage(function(prev) { var next = Object.assign({}, prev); next[stageKey] = ''; return next; });
                             });
                     }, [itemId]);
                     React.useEffect(function() {
@@ -17189,8 +17347,10 @@ class N88_RFQ_Admin {
                         var stages = validationState.payment_milestones && Array.isArray(validationState.payment_milestones.stages) ? validationState.payment_milestones.stages : [];
                         if (!stages.length) {
                             setMilestoneSetupDraft([]);
+                            setMilestoneEditOpen(true);
                             return;
                         }
+                        setMilestoneEditOpen(!(validationState.payment_milestones && validationState.payment_milestones.enabled));
                         setMilestoneSetupDraft(stages.map(function(stage) {
                             return {
                                 stage_key: stage.stage_key,
@@ -17201,6 +17361,12 @@ class N88_RFQ_Admin {
                                 payment_required: !!stage.payment_required
                             };
                         }));
+                    }, [itemState.validation_state]);
+                    React.useEffect(function() {
+                        var validationState = itemState.validation_state && typeof itemState.validation_state === 'object' ? itemState.validation_state : {};
+                        var summary = validationState.payment_milestones && typeof validationState.payment_milestones === 'object' ? validationState.payment_milestones : null;
+                        if (!summary || !summary.enabled) return;
+                        if (summary.next_stage_key) setExpandedMilestoneStage(summary.next_stage_key);
                     }, [itemState.validation_state]);
                     React.useEffect(function() {
                         if (!milestoneUiNotice) return;
@@ -17352,9 +17518,12 @@ class N88_RFQ_Admin {
                                     });
                                     var nextLoadingSections = ensureItemStateSectionMap(previousState.loading_sections);
                                     nextLoadingSections[sectionKey] = false;
+                                    var responseEntryMode = String(data.data.entry_mode || previousState.entry_mode || '').toLowerCase();
+                                    var responseIsProductionOnly = responseEntryMode === 'production_only';
                                     var nextState = Object.assign({}, previousState, {
-                                        has_rfq: data.data.has_rfq || false,
-                                        has_bids: data.data.has_bids || false,
+                                        entry_mode: responseEntryMode || previousState.entry_mode || '',
+                                        has_rfq: responseIsProductionOnly ? false : (data.data.has_rfq || false),
+                                        has_bids: responseIsProductionOnly ? false : (data.data.has_bids || false),
                                         has_awarded_bid: !!data.data.has_awarded_bid,
                                         rfq_revision_current: data.data.rfq_revision_current || null,
                                         revision_changed: data.data.revision_changed || false,
@@ -17383,7 +17552,7 @@ class N88_RFQ_Admin {
                                         prototype_status: data.data.prototype_status || null,
                                         prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
                                         prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
-                                        prototype_submission: data.data.prototype_submission || null,
+                                        prototype_submission: responseIsProductionOnly ? null : (data.data.prototype_submission || null),
                                         direction_keyword_ids: data.data.direction_keyword_ids || null,
                                         direction_keyword_names: data.data.direction_keyword_names || null,
                                         workflow_milestones: data.data.workflow_milestones || null,
@@ -17402,7 +17571,7 @@ class N88_RFQ_Admin {
                                         loading_sections: nextLoadingSections
                                     });
                                     if (incomingLoadedSections.bids) {
-                                        nextState.bids = data.data.bids || [];
+                                        nextState.bids = responseIsProductionOnly ? [] : (data.data.bids || []);
                                         nextState.proposal_group_workspaces = data.data.proposal_group_workspaces || [];
                                     }
                                     if (incomingLoadedSections.workflow) {
@@ -17435,7 +17604,7 @@ class N88_RFQ_Admin {
                                     if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
                                 }
                                 // When all bids withdrawn: item is State A; reset Request Quote to show "Request Quote" (fresh form)
-                                if ( (data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids) ) {
+                                if ( String(data.data.entry_mode || '').toLowerCase() !== 'production_only' && (data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids) ) {
                                     setShowRfqForm(false);
                                 }
                             } else {
@@ -24500,11 +24669,11 @@ class N88_RFQ_Admin {
                                                                         ' · Next: ',
                                                                         React.createElement('span', { style: { color: '#fff' } }, (summary && summary.next_stage_label) ? summary.next_stage_label : 'Completed')
                                                                     ),
-                                                                    !isOperatorMs && stages.length > 0 ? React.createElement('div', { style: { marginBottom: '12px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#0f0f0f' } },
+                                                                    !isOperatorMs && stages.length > 0 && milestoneEditOpen ? React.createElement('div', { style: { marginBottom: '12px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#0f0f0f' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: '#ddd', marginBottom: '8px' } }, 'Edit future milestones (total must be 100%)'),
                                                                         milestoneSetupDraft.map(function(row, idx) {
                                                                             return React.createElement('div', { key: row.stage_key || idx, style: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', marginBottom: '6px' } },
-                                                                                React.createElement('input', { type: 'text', value: row.stage_label || '', onChange: function(e) { var v = e.target.value; setMilestoneSetupDraft(function(prev) { return prev.map(function(r, i) { return i === idx ? Object.assign({}, r, { stage_label: v }) : r; }); }); }, style: { background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px' } }),
+                                                                                React.createElement('input', { type: 'text', value: row.stage_label || '', readOnly: true, disabled: true, style: { background: '#0b0b0b', color: '#888', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px', cursor: 'not-allowed' } }),
                                                                                 React.createElement('input', { type: 'number', min: '0', max: '100', step: '0.01', value: row.percent_alloc, readOnly: true, disabled: true, title: 'Percent allocation is locked for this setup.', style: { background: '#0b0b0b', color: '#888', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px', cursor: 'not-allowed' } }),
                                                                                 React.createElement('input', { type: 'number', min: '0', step: '0.01', value: row.amount_alloc, onChange: function(e) { var v = e.target.value; setMilestoneSetupDraft(function(prev) { return prev.map(function(r, i) { return i === idx ? Object.assign({}, r, { amount_alloc: v }) : r; }); }); }, style: { background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', fontSize: '11px' } }),
                                                                                 React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: '#bbb', fontSize: '11px' } }, React.createElement('input', { type: 'checkbox', checked: !!row.stage_enabled, onChange: function(e) { var v = !!e.target.checked; setMilestoneSetupDraft(function(prev) { return prev.map(function(r, i) { return i === idx ? Object.assign({}, r, { stage_enabled: v }) : r; }); }); } }), 'On')
@@ -24515,12 +24684,15 @@ class N88_RFQ_Admin {
                                                                             React.createElement('button', { type: 'button', disabled: milestoneSaving, onClick: function() { saveMilestoneSetup(false, []); }, style: { padding: '6px 10px', fontSize: '11px', background: 'transparent', color: '#bbb', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, 'Disable milestones')
                                                                         )
                                                                     ) : null,
+                                                                    !isOperatorMs && stages.length > 0 && !milestoneEditOpen ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                                        React.createElement('button', { type: 'button', onClick: function() { setMilestoneEditOpen(true); }, style: { padding: '6px 10px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, 'Edit Milestones')
+                                                                    ) : null,
                                                                     stages.map(function(stage) {
                                                                         var stageKey = stage.stage_key;
                                                                         var isExpanded = expandedMilestoneStage === stageKey;
                                                                         var details = (milestoneDetailsByStage && milestoneDetailsByStage[stageKey]) ? milestoneDetailsByStage[stageKey] : stage;
                                                                         var isBusy = !!(milestoneActionBusyByStage && milestoneActionBusyByStage[stageKey]);
-                                                                        var queueState = !details.stage_submitted_at ? 'Awaiting Approval' : (!details.stage_approved_at ? 'Awaiting Approval' : (!details.payment_confirmed_at ? 'Payment Pending' : 'Payment Received → Proceed'));
+                                                                        var queueState = !details.stage_submitted_at ? 'Awaiting Supplier Submission' : (!details.stage_approved_at ? (details.stage_revision_requested_at ? 'Waiting for Supplier Revision' : 'Awaiting Approval') : (!details.payment_confirmed_at ? 'Payment Pending' : 'Payment Received → Proceed'));
                                                                         return React.createElement('div', { key: stageKey, style: { border: '1px solid ' + darkBorder, borderRadius: '4px', marginBottom: '8px', overflow: 'hidden' } },
                                                                             React.createElement('button', { type: 'button', onClick: function() { if (isExpanded) { setExpandedMilestoneStage(''); return; } setExpandedMilestoneStage(stageKey); fetchMilestoneStageDetails(stageKey); }, style: { width: '100%', textAlign: 'left', padding: '10px', background: '#111', color: '#ddd', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: '8px' } },
                                                                                 React.createElement('span', null, (stage.stage_label || '') + ' (' + (stage.percent_alloc || 0) + '%)'),
@@ -24530,24 +24702,41 @@ class N88_RFQ_Admin {
                                                                                 details.stage_proof_attachment_url ? React.createElement('div', { style: { marginBottom: '6px' } }, React.createElement('a', { href: details.stage_proof_attachment_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'View supplier proof')) : null,
                                                                                 details.stage_proof_note ? React.createElement('div', { style: { marginBottom: '6px' } }, 'Supplier note: ' + details.stage_proof_note) : null,
                                                                                 details.stage_meeting_link ? React.createElement('div', { style: { marginBottom: '6px' } }, React.createElement('a', { href: details.stage_meeting_link, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'Open meeting link')) : null,
+                                                                                (Array.isArray(details.stage_submission_history) && details.stage_submission_history.length > 0) ? React.createElement('div', { style: { marginBottom: '8px', padding: '8px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#101010' } },
+                                                                                    React.createElement('div', { style: { marginBottom: '6px', color: '#ddd' } }, 'Submission history'),
+                                                                                    details.stage_submission_history.map(function(h, idx) {
+                                                                                        return React.createElement('div', { key: 'hist-' + stageKey + '-' + idx, style: { marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px dashed #2a2a2a' } },
+                                                                                            React.createElement('div', { style: { color: '#fff' } }, '#' + (h.submission_no || (idx + 1)) + ' - ' + (h.submitted_at || '')),
+                                                                                            h.attachment_url ? React.createElement('div', null, React.createElement('a', { href: h.attachment_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'View submitted file')) : null,
+                                                                                            h.meeting_link ? React.createElement('div', null, React.createElement('a', { href: h.meeting_link, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'Meeting link')) : null,
+                                                                                            h.supplier_note ? React.createElement('div', null, 'Supplier note: ' + h.supplier_note) : null,
+                                                                                            h.review_status === 'approved' ? React.createElement('div', { style: { color: '#4caf50', fontWeight: 600 } }, 'Approved ' + (h.reviewed_at || '')) : null,
+                                                                                            h.review_status === 'revision_requested' ? React.createElement('div', { style: { color: '#ffb347', fontWeight: 600 } }, 'Revision requested ' + (h.reviewed_at || '') + (h.reviewer_note ? (' - ' + h.reviewer_note) : '')) : null
+                                                                                        );
+                                                                                    })
+                                                                                ) : null,
                                                                                 details.stage_revision_requested_at ? React.createElement('div', { style: { marginBottom: '6px', color: '#ffb347' } }, 'Revision requested ' + new Date(details.stage_revision_requested_at).toLocaleString()) : null,
                                                                                 details.stage_revision_note ? React.createElement('div', { style: { marginBottom: '6px' } }, 'Revision note: ' + details.stage_revision_note) : null,
-                                                                                (details.stage_submitted_at && !details.stage_approved_at && !isOperatorMs) ? React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                                (details.stage_submitted_at && !details.stage_approved_at && !!details.stage_revision_requested_at && !isOperatorMs) ? React.createElement('div', { style: { marginBottom: '8px', color: '#ffb347' } }, 'Waiting for supplier resubmission. Approval/Revision actions will reappear after new submission.') : null,
+                                                                                (details.stage_submitted_at && !details.stage_approved_at && !details.stage_revision_requested_at && !isOperatorMs) ? React.createElement('div', { style: { marginBottom: '8px' } },
                                                                                     React.createElement('textarea', { rows: 2, placeholder: 'Add revision note (optional)', value: (revisionNotesByStage && revisionNotesByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setRevisionNotesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
                                                                                     React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_approve_stage_progress'); }, style: { padding: '6px 10px', fontSize: '11px', background: '#1e3a8a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' } }, 'Approve Stage Progress'),
-                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_request_stage_progress_revision', function(fdAction) { if (revisionNotesByStage && revisionNotesByStage[stageKey]) fdAction.append('note', revisionNotesByStage[stageKey]); }); }, style: { padding: '6px 10px', fontSize: '11px', background: '#3a1f1f', color: '#ffb347', border: '1px solid #ffb347', borderRadius: '4px', cursor: 'pointer' } }, 'Request Revision')
+                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_approve_stage_progress'); }, style: { padding: '6px 10px', fontSize: '11px', background: '#1e3a8a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' } }, (isBusy && milestoneActionTypeByStage && milestoneActionTypeByStage[stageKey] === 'n88_approve_stage_progress') ? 'Approving...' : 'Approve Stage Progress'),
+                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_request_stage_progress_revision', function(fdAction) { if (revisionNotesByStage && revisionNotesByStage[stageKey]) fdAction.append('note', revisionNotesByStage[stageKey]); }); }, style: { padding: '6px 10px', fontSize: '11px', background: '#3a1f1f', color: '#ffb347', border: '1px solid #ffb347', borderRadius: '4px', cursor: 'pointer' } }, (isBusy && milestoneActionTypeByStage && milestoneActionTypeByStage[stageKey] === 'n88_request_stage_progress_revision') ? 'Requesting Revision...' : 'Request Revision')
                                                                                     )
                                                                                 ) : null,
                                                                                 (details.stage_approved_at && !details.payment_confirmed_at) ? React.createElement('div', { style: { borderTop: '1px solid ' + darkBorder, paddingTop: '8px', marginTop: '8px' } },
                                                                                     React.createElement('div', { style: { marginBottom: '6px', color: '#ddd' } }, 'Payment required for this stage.'),
                                                                                     details.payment_attachment_url ? React.createElement('div', { style: { marginBottom: '6px' } }, React.createElement('a', { href: details.payment_attachment_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'View payment proof')) : null,
                                                                                     details.payment_note ? React.createElement('div', { style: { marginBottom: '6px' } }, 'Payment note: ' + details.payment_note) : null,
+                                                                                    (!!details.payment_submitted_at && !details.payment_confirmed_at) ? React.createElement('div', { style: { marginBottom: '8px', color: '#ffb347' } }, 'Payment proof submitted on ' + new Date(details.payment_submitted_at).toLocaleString() + '. Awaiting approval.') : null,
                                                                                     !isOperatorMs ? React.createElement(React.Fragment, null,
-                                                                                        React.createElement('input', { type: 'text', placeholder: 'Payment method (optional)', value: (paymentMethodsByStage && paymentMethodsByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setPaymentMethodsByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
-                                                                                        React.createElement('textarea', { rows: 2, placeholder: 'Add payment note', value: (paymentNotesByStage && paymentNotesByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setPaymentNotesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
-                                                                                        React.createElement('input', { type: 'file', onChange: function(e) { var f = (e.target.files && e.target.files[0]) ? e.target.files[0] : null; setPaymentProofFilesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = f; return n; }); }, style: { marginBottom: '6px', fontSize: '11px', color: '#ccc' } }),
-                                                                                        React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_submit_stage_payment_proof', function(fdAction) { if (paymentMethodsByStage && paymentMethodsByStage[stageKey]) fdAction.append('payment_method', paymentMethodsByStage[stageKey]); if (paymentNotesByStage && paymentNotesByStage[stageKey]) fdAction.append('note', paymentNotesByStage[stageKey]); if (paymentProofFilesByStage && paymentProofFilesByStage[stageKey]) fdAction.append('payment_proof', paymentProofFilesByStage[stageKey]); }); }, style: { padding: '6px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' } }, 'Submit Payment Proof')
+                                                                                        !details.payment_submitted_at ? React.createElement(React.Fragment, null,
+                                                                                            React.createElement('input', { type: 'text', placeholder: 'Payment method (optional)', value: (paymentMethodsByStage && paymentMethodsByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setPaymentMethodsByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
+                                                                                            React.createElement('textarea', { rows: 2, placeholder: 'Add payment note', value: (paymentNotesByStage && paymentNotesByStage[stageKey]) || '', onChange: function(e) { var v = e.target.value; setPaymentNotesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = v; return n; }); }, style: { width: '100%', background: '#111', color: '#ddd', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '6px', marginBottom: '6px', fontSize: '11px' } }),
+                                                                                            React.createElement('input', { type: 'file', onChange: function(e) { var f = (e.target.files && e.target.files[0]) ? e.target.files[0] : null; setPaymentProofFilesByStage(function(prev) { var n = Object.assign({}, prev); n[stageKey] = f; return n; }); }, style: { marginBottom: '6px', fontSize: '11px', color: '#ccc' } }),
+                                                                                            React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_submit_stage_payment_proof', function(fdAction) { if (paymentMethodsByStage && paymentMethodsByStage[stageKey]) fdAction.append('payment_method', paymentMethodsByStage[stageKey]); if (paymentNotesByStage && paymentNotesByStage[stageKey]) fdAction.append('note', paymentNotesByStage[stageKey]); if (paymentProofFilesByStage && paymentProofFilesByStage[stageKey]) fdAction.append('payment_proof', paymentProofFilesByStage[stageKey]); }); }, style: { padding: '6px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' } }, 'Submit Payment Proof')
+                                                                                        ) : null
                                                                                     ) : React.createElement('button', { type: 'button', disabled: isBusy, onClick: function() { runMilestoneAction(stageKey, 'n88_approve_stage_payment'); }, style: { padding: '6px 10px', fontSize: '11px', background: '#0f5132', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' } }, 'Confirm Payment')
                                                                                 ) : null
                                                                             ) : null
@@ -26438,6 +26627,11 @@ class N88_RFQ_Admin {
                         setIsVisible(false);
                         if (onClose) onClose();
                     };
+                    var setPreferredModeAndClose = function(mode) {
+                        try { localStorage.setItem('n88_workflow_preferred_entry_mode', mode); } catch (e) {}
+                        window.n88PreferredEntryMode = mode;
+                        handleClose();
+                    };
                     
                     if (!isVisible) return null;
                     
@@ -26495,50 +26689,62 @@ class N88_RFQ_Admin {
                             fontWeight: 'bold',
                             color: '#333',
                         },
-                    }, 'Welcome to Your Board'), React.createElement('p', {
+                    }, 'Welcome to Wireframe OS'), React.createElement('p', {
                         style: {
                             marginBottom: '20px',
                             fontSize: '16px',
                             color: '#666',
                             lineHeight: 1.6,
                         },
-                    }, 'Get started by exploring your board. Drag items to organize them, change sizes, and customize your layout.'), React.createElement('div', {
+                    }, 'How would you like to get started?'),
+                    React.createElement('div', { style: { marginBottom: '14px', border: '1px solid #d7e7ff', borderRadius: '8px', padding: '14px', background: '#f6fbff' } },
+                        React.createElement('div', { style: { fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: '#123' } }, 'Start Full Workflow (Recommended)'),
+                        React.createElement('div', { style: { fontSize: '13px', color: '#555', marginBottom: '10px', lineHeight: 1.5 } }, 'Request pricing, review proposals, manage samples, and track the entire production process with your suppliers.'),
+                        React.createElement('button', {
+                            onClick: function() { setPreferredModeAndClose('full_process'); },
+                            style: {
+                                width: '100%',
+                                padding: '12px 24px',
+                                backgroundColor: '#0073aa',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                            },
+                        }, 'Continue with Full Workflow \u2192')
+                    ),
+                    React.createElement('div', { style: { marginBottom: '8px', border: '1px solid #ececec', borderRadius: '8px', padding: '12px' } },
+                        React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: '#333' } }, 'Production Tracking Only'),
+                        React.createElement('div', { style: { fontSize: '12px', color: '#666', marginBottom: '8px', lineHeight: 1.4 } }, 'Already placed the order offline? Jump straight into structured production behaviour.'),
+                        React.createElement('button', {
+                            onClick: function() { setPreferredModeAndClose('production_only'); },
+                            style: {
+                                width: '100%',
+                                padding: '10px 20px',
+                                backgroundColor: '#f5f5f5',
+                                color: '#333',
+                                border: '1px solid #d0d0d0',
+                                borderRadius: '4px',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                            },
+                        }, 'Production Tracking Only')
+                    ),
+                    React.createElement('button', {
+                        onClick: function() { setPreferredModeAndClose('full_process'); },
                         style: {
                             width: '100%',
-                            paddingBottom: '56.25%',
-                            position: 'relative',
-                            backgroundColor: '#f0f0f0',
-                            borderRadius: '4px',
-                            marginBottom: '20px',
-                            overflow: 'hidden',
-                        },
-                    }, React.createElement('div', {
-                        style: {
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#999',
-                            fontSize: '14px',
-                        },
-                    }, 'Video placeholder (embed video here)')), React.createElement('button', {
-                        onClick: handleClose,
-                        style: {
-                            width: '100%',
-                            padding: '12px 24px',
-                            backgroundColor: '#0073aa',
-                            color: '#fff',
+                            padding: '8px 14px',
+                            backgroundColor: 'transparent',
+                            color: '#666',
                             border: 'none',
-                            borderRadius: '4px',
-                            fontSize: '16px',
-                            fontWeight: '600',
+                            fontSize: '12px',
                             cursor: 'pointer',
                         },
-                    }, 'Get Started')));
+                    }, 'You can use both modes across different projects.')));
                 };
 
                 // BoardCanvas Component
@@ -33779,6 +33985,9 @@ class N88_RFQ_Admin {
                 'batch_proposal_group_ids'        => array(),
                 'batch_primary_proposal_group_id' => 0,
             );
+            if ( ! isset( $item_meta_for_deposit['id'] ) ) {
+                $item_meta_for_deposit['id'] = $item_id;
+            }
             $validation_card_state = $this->get_item_validation_card_status( $item_meta_for_deposit );
             $has_awarded_bid = ! empty( $awarded_bid_counts[ $item_id ] );
             $has_rfq         = ! empty( $rfq_route_counts[ $item_id ] ) || $has_awarded_bid || ! empty( $batch_proposal_context['batch_proposal_bid_count'] );
