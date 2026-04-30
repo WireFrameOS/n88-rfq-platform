@@ -18836,6 +18836,22 @@ class N88_RFQ_Auth {
                     <div id="n88-designer-form-message" class="n88-auth-message" style="margin-top: 15px; display: none;"></div>
                 </div>
             </form>
+            <div id="n88-onboarding-workflow-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:99999; align-items:center; justify-content:center;">
+                <div style="width:min(680px,92vw); background:#fff; border-radius:10px; padding:22px; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+                    <h2 style="margin:0 0 10px; font-size:24px;">Welcome to Wireframe OS</h2>
+                    <p style="margin:0 0 16px; color:#555;">How would you like to get started?</p>
+                    <div style="border:1px solid #d7e7ff; border-radius:8px; background:#f6fbff; padding:14px; margin-bottom:12px;">
+                        <div style="font-size:16px; font-weight:700; margin-bottom:6px;">Start Full Workflow (Recommended)</div>
+                        <div style="font-size:13px; color:#555; margin-bottom:10px;">Request pricing, review proposals, manage samples, and track the entire production process with your suppliers.</div>
+                        <button type="button" id="n88-onboarding-select-full" style="width:100%; padding:12px 14px; background:#0073aa; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">Continue with Full Workflow →</button>
+                    </div>
+                    <div style="border:1px solid #e5e5e5; border-radius:8px; padding:12px;">
+                        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">Production Tracking Only</div>
+                        <div style="font-size:12px; color:#666; margin-bottom:8px;">Already placed the order offline? Jump straight into structured production behaviour.</div>
+                        <button type="button" id="n88-onboarding-select-tracking" style="width:100%; padding:10px 14px; background:#f5f5f5; color:#333; border:1px solid #ccc; border-radius:6px; cursor:pointer; font-weight:600;">Production Tracking Only</button>
+                    </div>
+                </div>
+            </div>
             </div>
         </div>
 
@@ -18844,6 +18860,63 @@ class N88_RFQ_Auth {
             var form = document.getElementById('n88-designer-onboarding-form');
             var submitButton = document.getElementById('n88-submit-designer-profile');
             var messageDiv = document.getElementById('n88-designer-form-message');
+            var workflowModal = document.getElementById('n88-onboarding-workflow-modal');
+            var selectFullBtn = document.getElementById('n88-onboarding-select-full');
+            var selectTrackingBtn = document.getElementById('n88-onboarding-select-tracking');
+            var profileSaved = false;
+
+            function redirectToBoard(mode, boardId) {
+                try { localStorage.setItem('n88_workflow_preferred_entry_mode', mode); } catch (e) {}
+                var url = '<?php echo esc_js( admin_url( 'admin.php?page=n88-rfq-board-demo' ) ); ?>';
+                var params = new URLSearchParams();
+                params.set('n88_entry_mode', mode);
+                if (boardId && parseInt(boardId, 10) > 0) {
+                    params.set('board_id', String(parseInt(boardId, 10)));
+                }
+                window.location.href = url + '&' + params.toString();
+            }
+
+            function createBoardAndRedirect(mode) {
+                var boardNonce = '<?php echo esc_js( wp_create_nonce( 'n88-rfq-nonce' ) ); ?>';
+                var boardName = mode === 'production_only' ? 'Production Tracking Workspace' : 'Full Workflow Workspace';
+                var boardData = new FormData();
+                boardData.append('action', 'n88_create_board');
+                boardData.append('nonce', boardNonce);
+                boardData.append('name', boardName);
+                boardData.append('description', mode === 'production_only' ? 'Production Tracking Only' : 'Start Full Workflow');
+                boardData.append('view_mode', 'grid');
+
+                fetch('<?php echo admin_url( 'admin-ajax.php' ); ?>', { method: 'POST', body: boardData })
+                    .then(function(r) { return r.json(); })
+                    .then(function(resp) {
+                        if (resp && resp.success && resp.data && resp.data.board_id) {
+                            redirectToBoard(mode, resp.data.board_id);
+                            return;
+                        }
+                        // If board already exists or any non-fatal create failure, fallback to board page auto-resolve.
+                        redirectToBoard(mode, 0);
+                    })
+                    .catch(function() {
+                        redirectToBoard(mode, 0);
+                    });
+            }
+
+            if (selectFullBtn) {
+                selectFullBtn.addEventListener('click', function() {
+                    if (!profileSaved) return;
+                    selectFullBtn.disabled = true;
+                    if (selectTrackingBtn) selectTrackingBtn.disabled = true;
+                    createBoardAndRedirect('full_process');
+                });
+            }
+            if (selectTrackingBtn) {
+                selectTrackingBtn.addEventListener('click', function() {
+                    if (!profileSaved) return;
+                    if (selectFullBtn) selectFullBtn.disabled = true;
+                    selectTrackingBtn.disabled = true;
+                    createBoardAndRedirect('production_only');
+                });
+            }
 
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
@@ -18865,11 +18938,10 @@ class N88_RFQ_Auth {
                         messageDiv.className = 'n88-auth-message n88-auth-message-success';
                         messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Profile saved successfully!';
-                        
-                        var redirectUrl = '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
-                        setTimeout(function() {
-                            window.location.href = redirectUrl;
-                        }, 2000);
+                        profileSaved = true;
+                        if (workflowModal) {
+                            workflowModal.style.display = 'flex';
+                        }
                     } else {
                         messageDiv.className = 'n88-auth-message n88-auth-message-error';
                         messageDiv.style.display = 'block';

@@ -6599,6 +6599,27 @@ class N88_RFQ_Admin {
                 // Fix 2: Add body class when project is selected (for top spacing)
                 var urlParams = new URLSearchParams(window.location.search);
                 var projectId = urlParams.get('project_id');
+                var entryModeFromUrl = (urlParams.get('n88_entry_mode') || '').toLowerCase();
+                if (entryModeFromUrl === 'full_process' || entryModeFromUrl === 'production_only') {
+                    try { localStorage.setItem('n88_board_cta_mode_v1', entryModeFromUrl); } catch (e) {}
+                }
+                var ctaMode = '';
+                try { ctaMode = (localStorage.getItem('n88_board_cta_mode_v1') || '').toLowerCase(); } catch (e) {}
+                var fullProjectBtn = document.getElementById('n88-create-project-btn');
+                var trackingProjectBtn = document.getElementById('n88-create-project-tracking-btn');
+                var fullItemBtn = document.getElementById('n88-add-item-btn');
+                var trackingItemBtn = document.getElementById('n88-add-item-tracking-btn');
+                if (ctaMode === 'full_process') {
+                    if (trackingProjectBtn) trackingProjectBtn.style.display = 'none';
+                    if (trackingItemBtn) trackingItemBtn.style.display = 'none';
+                    if (fullProjectBtn) fullProjectBtn.style.display = '';
+                    if (fullItemBtn) fullItemBtn.style.display = '';
+                } else if (ctaMode === 'production_only') {
+                    if (fullProjectBtn) fullProjectBtn.style.display = 'none';
+                    if (fullItemBtn) fullItemBtn.style.display = 'none';
+                    if (trackingProjectBtn) trackingProjectBtn.style.display = '';
+                    if (trackingItemBtn) trackingItemBtn.style.display = '';
+                }
                 if (projectId && projectId !== '0') {
                     document.body.classList.add('has-project-selected');
                 }
@@ -7203,6 +7224,22 @@ class N88_RFQ_Admin {
                         <button type="button" class="n88-add-item-close" id="n88-add-item-modal-close" aria-label="Close">x</button>
                     </div>
                     <form id="n88-add-item-modal-form" class="n88-add-item-body">
+                        <div id="n88-production-project-room-section" style="display:none; margin-bottom:14px; padding:12px; border:1px solid rgba(255,255,255,0.12); border-radius:6px; background:#1f1f1f;">
+                            <div style="font-size:12px; font-weight:700; margin-bottom:8px; color:#fff;">PROJECT (Required)  ROOM / AREA (Optional)</div>
+                            <div style="display:grid; grid-template-columns:1fr auto 1fr auto; gap:8px; align-items:center;">
+                                <select id="n88-production-top-project" style="width:100%;">
+                                    <option value="">Select Project</option>
+                                    <?php foreach ( $add_item_modal_projects as $proj ) : ?>
+                                        <option value="<?php echo esc_attr( $proj->id ); ?>"><?php echo esc_html( $proj->name ); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="button" id="n88-production-top-new-project" class="n88-btn-add-item" style="padding:8px 10px;">+ New Project</button>
+                                <select id="n88-production-top-room" style="width:100%;">
+                                    <option value="">Select Room</option>
+                                </select>
+                                <button type="button" id="n88-production-top-new-room" class="n88-btn-add-item" style="padding:8px 10px;">+ New Room</button>
+                            </div>
+                        </div>
                         <div id="n88-add-item-blocks">
                             <div class="n88-add-item-block n88-item-block-expanded" data-index="1">
                                 <div class="n88-item-block-header" tabindex="0" role="button" aria-expanded="true">Item 01 <span class="n88-item-block-toggle">&#9660;</span></div>
@@ -7330,7 +7367,7 @@ class N88_RFQ_Admin {
                         </div>
 
                         <!-- COMMIT 3.C.3: Delivery + RFQ evidence fields at Add Item stage -->
-                        <div class="n88-field">
+                        <div class="n88-field n88-production-hide-field">
                             <label for="n88-modal-delivery-country">Delivery Country</label>
                             <label class="n88-sync-from-first n88-delivery-sync-toggle">
                                 <input type="checkbox" class="n88-sync-delivery-from-first">
@@ -7346,7 +7383,7 @@ class N88_RFQ_Admin {
                             </select>
                         </div>
 
-                        <div class="n88-field">
+                        <div class="n88-field n88-production-hide-field">
                             <label for="n88-modal-delivery-postal">Final Delivery ZIP Code</label>
                             <input
                                 type="text"
@@ -7356,7 +7393,7 @@ class N88_RFQ_Admin {
                             >
                         </div>
 
-                        <div class="n88-field">
+                        <div class="n88-field n88-production-hide-field">
                             <label for="n88-modal-preferred-delivery-date">Preferred Delivery Date</label>
                             <label class="n88-sync-from-first n88-delivery-date-sync-toggle">
                                 <input type="checkbox" class="n88-sync-delivery-date-from-first">
@@ -7370,7 +7407,7 @@ class N88_RFQ_Admin {
                             <p class="n88-hint">Select preferred delivery date (month/day/year).</p>
                         </div>
 
-                        <div class="n88-field">
+                        <div class="n88-field n88-production-hide-field">
                             <label for="n88-modal-rfq-overall-notes">Overall Notes</label>
                             <p class="n88-hint">Overall notes for these references (dimensions, finish, proportions, performance requirements).</p>
                             <textarea
@@ -7382,7 +7419,7 @@ class N88_RFQ_Admin {
                             ></textarea>
                         </div>
 
-                        <div class="n88-field">
+                        <div class="n88-field n88-production-hide-field">
                             <label>Where applicable, will you supply fabric?</label>
                             <label class="n88-sync-from-first n88-fabric-sync-toggle">
                                 <input type="checkbox" class="n88-sync-fabric-from-first">
@@ -7452,7 +7489,7 @@ class N88_RFQ_Admin {
                         <input type="hidden" id="n88-modal-item-entry-mode" name="entry_mode" value="full_process">
                         <input type="hidden" id="n88-modal-item-board" name="board_id" value="<?php echo esc_attr( $add_item_modal_board_id ); ?>">
                         <?php if ( $add_item_modal_board_id > 0 ) : ?>
-                        <div class="n88-field">
+                        <div class="n88-field n88-production-inline-project-room">
                             <label for="n88-modal-item-project">Project</label>
                             <!-- <p class="n88-hint">Select a project to organize this item</p> -->
                             <select id="n88-modal-item-project" name="project_id">
@@ -7462,7 +7499,7 @@ class N88_RFQ_Admin {
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="n88-field" id="n88-modal-room-row" style="display:none;">
+                        <div class="n88-field n88-production-inline-project-room" id="n88-modal-room-row" style="display:none;">
                             <label for="n88-modal-item-room">Room</label>
                             <select id="n88-modal-item-room" name="room_id">
                                 <option value="">Select Room</option>
@@ -7474,6 +7511,10 @@ class N88_RFQ_Admin {
                         </div>
                     </form>
                     <div class="n88-add-item-footer">
+                        <div id="n88-production-guidance-note" style="display:none; font-size:12px; color:#bcbcbc; margin-bottom:10px;">
+                            You can upload PO, deposit proof, shipping instructions, or COM details anytime through the message thread.
+                            Note: This is Production Tracking mode. Pricing, samples, and RFQs are skipped. Use Full Workflow if you still need those steps.
+                        </div>
                         <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item" data-default-text="[ Add to Workspace ]">[ Add to Workspace ]</button>
                         <button type="button" id="n88-modal-add-another-item" class="n88-btn-add-another">[ + Add Another Item ]</button>
                         <?php if ( $is_designer && $is_real_board ) : ?>
@@ -7560,6 +7601,11 @@ class N88_RFQ_Admin {
                 var resultEl = document.getElementById('n88-add-item-modal-result');
                 var pendingCreateSubmitRfq = false;
                 var selectedEntryMode = 'full_process';
+                var topProjectSection = document.getElementById('n88-production-project-room-section');
+                var topProjectSelect = document.getElementById('n88-production-top-project');
+                var topRoomSelect = document.getElementById('n88-production-top-room');
+                var topNewProjectBtn = document.getElementById('n88-production-top-new-project');
+                var topNewRoomBtn = document.getElementById('n88-production-top-new-room');
                 function populateCategorySelect(selectEl, selectedValue) {
                     if (!selectEl) return;
                     var currentValue = selectedValue !== undefined ? selectedValue : (selectEl.value || '');
@@ -7701,6 +7747,29 @@ class N88_RFQ_Admin {
                     var isTracking = mode === 'production_only';
                     var rfqBtn = document.getElementById('n88-modal-submit-rfq-direct');
                     var modeBanner = document.getElementById('n88-add-item-mode-banner');
+                    var guidanceNote = document.getElementById('n88-production-guidance-note');
+                    var titleEl = document.getElementById('n88-add-item-title');
+                    var helperEl = document.getElementById('n88-add-item-mode-banner');
+                    var hideFields = form ? form.querySelectorAll('.n88-production-hide-field') : [];
+                    if (titleEl) titleEl.textContent = isTracking ? 'Add Production Items' : 'Add Item';
+                    if (submitBtn) {
+                        submitBtn.textContent = isTracking ? '[ Create Production Items ]' : '[ Add to Workspace ]';
+                        submitBtn.setAttribute('data-default-text', isTracking ? '[ Create Production Items ]' : '[ Add to Workspace ]');
+                    }
+                    if (addAnotherBtn) addAnotherBtn.style.display = isTracking ? '' : '';
+                    if (helperEl) {
+                        helperEl.style.display = 'block';
+                        helperEl.textContent = isTracking
+                            ? 'Quickly add items already ordered with your supplier for structured production tracking.'
+                            : 'Production Tracking Mode - Full visibility and structured oversight into every stage of production with your supplier.';
+                    }
+                    if (topProjectSection) topProjectSection.style.display = isTracking ? 'block' : 'none';
+                    if (guidanceNote) guidanceNote.style.display = isTracking ? 'block' : 'none';
+                    hideFields.forEach(function(el) { el.style.display = isTracking ? 'none' : ''; });
+                    if (form) {
+                        var inlineProjectRows = form.querySelectorAll('.n88-production-inline-project-room');
+                        inlineProjectRows.forEach(function(el) { el.style.display = isTracking ? 'none' : ''; });
+                    }
                     if (modeBanner) modeBanner.style.display = isTracking ? 'block' : 'none';
                     if (rfqBtn) rfqBtn.style.display = isTracking ? 'none' : 'none';
                 }
@@ -7735,7 +7804,7 @@ class N88_RFQ_Admin {
                     if (selectedEntryMode === 'production_only') {
                         var tooltipKey = 'n88_tracking_tooltip_dismissed_v1';
                         if (!localStorage.getItem(tooltipKey)) {
-                            alert('Production Tracking Only\n\nUse this when your order is already placed and you want visibility into production.\n\nYou\\'ll skip pricing and go straight into production oversight.');
+                            alert('Production Tracking Only\n\nUse this when your order is already placed and you want visibility into production.\n\nYou\'ll skip pricing and go straight into production oversight.');
                             localStorage.setItem(tooltipKey, 'true');
                         }
                     }
@@ -7767,6 +7836,14 @@ class N88_RFQ_Admin {
                 
                 if (addItemBtn) addItemBtn.addEventListener('click', function() { openAddItemModal('full_process'); });
                 if (addItemTrackingBtn) addItemTrackingBtn.addEventListener('click', function() { openAddItemModal('production_only'); });
+                if (topNewProjectBtn) topNewProjectBtn.addEventListener('click', function() {
+                    var btn = document.getElementById('n88-create-project-btn');
+                    if (btn) btn.click();
+                });
+                if (topNewRoomBtn) topNewRoomBtn.addEventListener('click', function() {
+                    var btn = document.getElementById('n88-create-room-btn');
+                    if (btn) btn.click();
+                });
                 if (closeBtn) closeBtn.addEventListener('click', closeAddItemModal);
                 if (backdrop) {
                     backdrop.addEventListener('click', function(e) {
@@ -8127,6 +8204,26 @@ class N88_RFQ_Admin {
                         roomSel.innerHTML = opts;
                     }).catch(function() { roomSel.innerHTML = '<option value="">Error loading rooms</option>'; });
                 }
+                function loadTopRooms(projectId) {
+                    if (!topRoomSelect) return;
+                    if (!projectId) {
+                        topRoomSelect.innerHTML = '<option value="">Select Room</option>';
+                        return;
+                    }
+                    topRoomSelect.innerHTML = '<option value="">Loading...</option>';
+                    var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                    var url = ajaxUrl + '?action=n88_get_project_rooms&project_id=' + encodeURIComponent(projectId) + '&nonce=' + encodeURIComponent(nonce);
+                    fetch(url).then(function(r) { return r.json(); }).then(function(res) {
+                        var opts = '<option value="">Select Room</option>';
+                        if (res.success && res.data && res.data.rooms) {
+                            res.data.rooms.forEach(function(room) {
+                                opts += '<option value="' + room.id + '">' + (room.name || '') + '</option>';
+                            });
+                        }
+                        topRoomSelect.innerHTML = opts;
+                    }).catch(function() { topRoomSelect.innerHTML = '<option value="">Error loading rooms</option>'; });
+                }
                 if (form) {
                     form.addEventListener('change', function(e) {
                         var target = e.target;
@@ -8197,6 +8294,11 @@ class N88_RFQ_Admin {
                 if (projectSelect && roomRow && roomSelect) {
                     projectSelect.addEventListener('change', function() {
                         loadRoomsForBlock(projectSelect.closest('.n88-add-item-block'), projectSelect.value);
+                    });
+                }
+                if (topProjectSelect) {
+                    topProjectSelect.addEventListener('change', function() {
+                        loadTopRooms(topProjectSelect.value || '');
                     });
                 }
                 
@@ -9364,6 +9466,25 @@ class N88_RFQ_Admin {
                                 if (!firstMissingEl) firstMissingEl = activeUploadZone;
                                 if (!firstErrorMessage) firstErrorMessage = blockLabel + ': At least one reference image is required.';
                             }
+                            if (selectedEntryMode === 'production_only') {
+                                var invitedCount = (activeBlock.n88InvitedSuppliers && activeBlock.n88InvitedSuppliers.length) ? activeBlock.n88InvitedSuppliers.length : 0;
+                                if (invitedCount <= 0 && !firstErrorMessage) {
+                                    firstErrorMessage = blockLabel + ': Supplier is required.';
+                                }
+                            }
+                        }
+                        if (selectedEntryMode === 'production_only') {
+                            var topProjectId = topProjectSelect ? String(topProjectSelect.value || '').trim() : '';
+                            if (!topProjectId) {
+                                firstErrorMessage = firstErrorMessage || 'Project is required for Production Tracking items.';
+                            } else {
+                                activeBlocks.forEach(function(block) {
+                                    var p = block.querySelector('[name="project_id"]');
+                                    var r = block.querySelector('[name="room_id"]');
+                                    if (p) p.value = topProjectId;
+                                    if (r) r.value = topRoomSelect ? (topRoomSelect.value || '') : '';
+                                });
+                            }
                         }
                         if (firstErrorMessage) {
                             resultEl.textContent = firstErrorMessage;
@@ -9476,7 +9597,13 @@ class N88_RFQ_Admin {
                                     submitBtn.innerHTML = defaultText;
                                     if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
                                     if (resultEl) {
-                                        resultEl.textContent = createdItemIds.length + ' item(s) created successfully.';
+                                        if (selectedEntryMode === 'production_only') {
+                                            var pjName = topProjectSelect && topProjectSelect.selectedOptions && topProjectSelect.selectedOptions[0] ? topProjectSelect.selectedOptions[0].textContent : 'Selected Project';
+                                            var rmName = topRoomSelect && topRoomSelect.value && topRoomSelect.selectedOptions && topRoomSelect.selectedOptions[0] ? topRoomSelect.selectedOptions[0].textContent : 'No Room';
+                                            resultEl.textContent = 'Production items created successfully ✓ Added to "' + pjName + '" → "' + rmName + '". Open any item to begin Step 4 tracking.';
+                                        } else {
+                                            resultEl.textContent = createdItemIds.length + ' item(s) created successfully.';
+                                        }
                                         resultEl.className = 'n88-result success';
                                     }
                                     if (shouldSubmitRfqAfterCreate) {
@@ -9498,7 +9625,13 @@ class N88_RFQ_Admin {
                                 submitBtn.innerHTML = defaultText;
                                 if (submitRfqDirectBtn) submitRfqDirectBtn.innerHTML = defaultDirectText;
                                 if (resultEl) {
-                                    resultEl.textContent = createdItemIds.length + ' item(s) created successfully.';
+                                    if (selectedEntryMode === 'production_only') {
+                                        var pjName2 = topProjectSelect && topProjectSelect.selectedOptions && topProjectSelect.selectedOptions[0] ? topProjectSelect.selectedOptions[0].textContent : 'Selected Project';
+                                        var rmName2 = topRoomSelect && topRoomSelect.value && topRoomSelect.selectedOptions && topRoomSelect.selectedOptions[0] ? topRoomSelect.selectedOptions[0].textContent : 'No Room';
+                                        resultEl.textContent = 'Production items created successfully ✓ Added to "' + pjName2 + '" → "' + rmName2 + '". Open any item to begin Step 4 tracking.';
+                                    } else {
+                                        resultEl.textContent = createdItemIds.length + ' item(s) created successfully.';
+                                    }
                                     resultEl.className = 'n88-result success';
                                 }
                                 <?php if ( $is_designer && $is_real_board ) : ?>
@@ -16001,7 +16134,7 @@ class N88_RFQ_Admin {
                         if (manualTabOverrideRef.current) return;
                         if (isProductionOnlyItem) {
                             if (activeTab !== 'timeline') setActiveTab('timeline');
-                            setSelectedStepIndex(3);
+                            setSelectedStepIndex(2);
                             return;
                         }
                         if (openToDetailsAndSupport) {
@@ -16053,6 +16186,7 @@ class N88_RFQ_Admin {
                     // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
                     React.useEffect(function() {
                         if (!isOpen || !openToDetailsAndSupport) return;
+                        if (isProductionOnlyItem) return;
                         setActiveTab('details');
                         setShowDesignerMessageForm(true);
                         if (typeof loadDesignerMessages === 'function') {
@@ -16075,7 +16209,7 @@ class N88_RFQ_Admin {
                         if (manualTabOverrideRef.current) return;
                         if (isProductionOnlyItem) {
                             setActiveTab('timeline');
-                            setSelectedStepIndex(3);
+                            setSelectedStepIndex(2);
                             return;
                         }
                         if (isOpen && initialTabProp === 'timeline') {
@@ -20550,7 +20684,7 @@ class N88_RFQ_Admin {
                                             flexShrink: 0,
                                         }
                                     },
-                                        React.createElement('button', {
+                                        !isProductionOnlyItem ? React.createElement('button', {
                                             onClick: function() { switchDesignerModalTabManually('details'); },
                                             style: {
                                                 flex: 1,
@@ -20564,7 +20698,7 @@ class N88_RFQ_Admin {
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, 'Item Specification'),
+                                        }, 'Item Specification') : null,
                                         React.createElement('button', {
                                             onClick: function() { switchDesignerModalTabManually('timeline'); },
                                             style: {
@@ -20598,7 +20732,7 @@ class N88_RFQ_Admin {
                                         className: 'n88-modal-scroll-content'
                                     },
                                         // Tab 1: Item Specification - 60% left / 40% right
-                                        activeTab === 'details' ? React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start', flex: 1, minHeight: 0 } },
+                                        (!isProductionOnlyItem && activeTab === 'details') ? React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start', flex: 1, minHeight: 0 } },
                                             // Left 60%: main content scrolls with the modal scroll container
                                             React.createElement('div', { style: { flex: '0 0 60%', maxWidth: '60%', paddingRight: '8px' } },
                                             itemState.loading ? renderLoadingNotice('Loading item details, please wait...') : null,
@@ -26757,16 +26891,20 @@ class N88_RFQ_Admin {
                         []
                     );
                     
-                    // Initialize debounced save hook (must be called unconditionally for React hooks rules)
-                    // Pass boardId (can be 0 for demo mode - hook will handle it gracefully)
-                    var saveHook = null;
-                    if (useDebouncedSave) {
-                        console.log('BoardCanvas: Initializing useDebouncedSave with boardId =', boardId);
-                        saveHook = useDebouncedSave(boardId || 0, getItems);
-                        console.log('BoardCanvas: saveHook initialized:', saveHook);
-                    } else {
-                        console.warn('BoardCanvas: useDebouncedSave is not available!');
-                    }
+                    // Always invoke a hook-compatible function to keep hook order stable.
+                    var safeUseDebouncedSave = (typeof useDebouncedSave === 'function')
+                        ? useDebouncedSave
+                        : function() {
+                            return {
+                                unsynced: false,
+                                triggerSave: function() {},
+                                clearUnsynced: function() {},
+                                saveNow: function() {}
+                            };
+                        };
+                    console.log('BoardCanvas: Initializing useDebouncedSave with boardId =', boardId);
+                    var saveHook = safeUseDebouncedSave(boardId || 0, getItems) || {};
+                    console.log('BoardCanvas: saveHook initialized:', saveHook);
                     
                     // Track unsynced state in component state to trigger re-renders
                     var _unsyncedState = React.useState(saveHook ? saveHook.unsynced : false);

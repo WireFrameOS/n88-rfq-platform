@@ -2474,7 +2474,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     React.useEffect(() => {
         if (isProductionOnly) {
             setActiveTab('workflow');
-            setSelectedStepIndex(3);
+            setSelectedStepIndex(2);
             return;
         }
         if (itemState.loading) return;
