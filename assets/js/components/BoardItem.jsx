@@ -104,6 +104,21 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
     const getItemStatus = () => {
         const itemEntryMode = ((item.entry_mode || item.meta?.entry_mode || '') + '').toLowerCase();
         if (itemEntryMode === 'production_only') {
+            const vs = item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null;
+            const execPay = vs?.execution_payment_status
+                ? String(vs.execution_payment_status).toLowerCase()
+                : (vs?.commitment?.execution_activation?.payment_status
+                    ? String(vs.commitment.execution_activation.payment_status).toLowerCase()
+                    : '');
+            if (execPay === 'confirmed') {
+                return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+            }
+            if (execPay === 'pending_verification') {
+                return { text: 'Activation payment verification', color: '#ff9800', dot: '#ff9800' };
+            }
+            if (execPay === 'pending') {
+                return { text: 'Activation payment submitted', color: '#ff9800', dot: '#ff9800' };
+            }
             const step4 = Array.isArray(item.timeline?.steps)
                 ? item.timeline.steps.find((step) => Number(step.step_number) === 4)
                 : null;
@@ -111,7 +126,7 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
                 return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
             }
             if ((step4?.status || '').toLowerCase() === 'completed') {
-                return { text: 'CAD Pending', color: '#ff9800', dot: '#ff9800' };
+                return { text: 'Step 4 completed', color: '#4caf50', dot: '#4caf50' };
             }
             return { text: 'Production Tracking', color: '#2196f3', dot: '#2196f3' };
         }
@@ -834,11 +849,6 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId, _modalHandler
                         <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {itemTitle}
                         </div>
-                        {itemEntryMode === 'production_only' && (
-                            <div style={{ fontSize: '9px', color: '#2196f3', fontWeight: 700 }}>
-                                [ Production Tracking ]
-                            </div>
-                        )}
                         {/* Status row: for S/D show status and Support on separate lines; for L/XL show side by side */}
                         {(currentSize === 'S' || currentSize === 'D') ? (
                             <>

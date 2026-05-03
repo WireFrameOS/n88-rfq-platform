@@ -154,6 +154,10 @@ class N88_RFQ_Auth {
         // Commit 2.3.9.1C-a: Mark payment received
         add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
 
+        add_action( 'n88_after_item_created', array( $this, 'after_item_created_sync_invited_supplier_routes' ), 10, 1 );
+        // Item facts / batch-board saves can persist makers after create; queues need matching routes then too.
+        add_action( 'n88_item_supplier_invites_maybe_sync_routes', array( $this, 'after_item_created_sync_invited_supplier_routes' ), 10, 1 );
+
         // Fix #13/#26: Mark Resolved  clear Action Required for operator/supplier/designer
         add_action( 'wp_ajax_n88_mark_clarification_resolved', array( $this, 'ajax_mark_clarification_resolved' ) );
         // Supplier confirms clarification (operator sees via case_resolutions)
@@ -468,6 +472,9 @@ class N88_RFQ_Auth {
 
             $supplier_user = false;
             $invite_email  = sanitize_email( $invite_token );
+            if ( ! $invite_email && preg_match( '/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/', $invite_token, $email_match ) ) {
+                $invite_email = sanitize_email( $email_match[0] );
+            }
             if ( $invite_email ) {
                 $supplier_user = get_user_by( 'email', $invite_email );
             }
@@ -504,6 +511,61 @@ class N88_RFQ_Auth {
         }
 
         return array_values( array_unique( array_filter( array_map( 'absint', $supplier_ids ) ) ) );
+    }
+
+    /**
+     * Read normalized entry_mode from item meta_json.
+     *
+     * @param int $item_id Item ID.
+     * @return string 'full_process' or 'production_only'.
+     */
+    private function get_item_meta_entry_mode( $item_id ) {
+        global $wpdb;
+
+        $item_id = absint( $item_id );
+        if ( ! $item_id ) {
+            return 'full_process';
+        }
+
+        $items_table = $wpdb->prefix . 'n88_items';
+        $meta_json   = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d LIMIT 1",
+                $item_id
+            )
+        );
+        $meta = ! empty( $meta_json ) ? json_decode( $meta_json, true ) : array();
+        if ( ! is_array( $meta ) ) {
+            $meta = array();
+        }
+        $entry = isset( $meta['entry_mode'] ) ? sanitize_key( (string) $meta['entry_mode'] ) : 'full_process';
+        if ( ! in_array( $entry, array( 'full_process', 'production_only' ), true ) ) {
+            $entry = 'full_process';
+        }
+
+        return $entry;
+    }
+
+    /**
+     * After item creation (or draft invite meta save), ensure RFQ routes exist for invite-resolved makers
+     * so items show on supplier queues — only when entry_mode is production_only.
+     * Full workflow items stay off supplier queues until the designer submits RFQ.
+     *
+     * @param int $item_id Item ID.
+     */
+    public function after_item_created_sync_invited_supplier_routes( $item_id ) {
+        $item_id = absint( $item_id );
+        if ( ! $item_id ) {
+            return;
+        }
+
+        if ( 'production_only' !== $this->get_item_meta_entry_mode( $item_id ) ) {
+            return;
+        }
+
+        foreach ( $this->get_item_invited_supplier_ids( $item_id ) as $supplier_id ) {
+            $this->ensure_rfq_route_for_designer_message( $item_id, (int) $supplier_id );
+        }
     }
 
     /**
@@ -4375,7 +4437,7 @@ class N88_RFQ_Auth {
     /**
      * Commit 2.3.7.1: Check and update expired routes (lazy evaluation)
      * 
-     * For each system_invited or designer_invited route:
+     * For each system_invited or designer_invited route (designer_message routes are not auto-expired):
      * - If eligible_after IS NOT NULL
      * - AND NOW() > eligible_after + INTERVAL (N88_SYSTEM_INVITED_EXPIRY_SECONDS)
      * - OR if eligible_after IS NULL AND routed_at IS NOT NULL
@@ -4392,8 +4454,8 @@ class N88_RFQ_Auth {
         
         $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
         
-        // Build WHERE clause - include system_invited, designer_invited, and pre-RFQ designer_message routes
-        $where_conditions = array( "route_type IN ('system_invited', 'designer_invited', 'designer_message')" );
+        // Expire time-boxed invitations only — not designer_message (used for routed makers including production-tracking).
+        $where_conditions = array( "route_type IN ('system_invited', 'designer_invited')" );
         $where_conditions[] = "status IN ('queued', 'sent', 'viewed')";
         
         // Calculate expiry timestamp
@@ -4429,8 +4491,8 @@ class N88_RFQ_Auth {
         );
         
         if ( $updated > 0 ) {
-            error_log( sprintf( 
-                'N88 RFQ: Updated %d route(s) (system_invited/designer_invited/designer_message) to expired status (expiry window: %d seconds)',
+            error_log( sprintf(
+                'N88 RFQ: Updated %d route(s) (system_invited/designer_invited) to expired status (expiry window: %d seconds)',
                 $updated,
                 $expiry_seconds
             ) );
@@ -4473,7 +4535,24 @@ class N88_RFQ_Auth {
         
         return $route->status === 'expired';
     }
-    
+
+    /**
+     * WireFrame admin maker (platform verifier): row stays actionable in queue whenever execution activation ran.
+     *
+     * @param array $item_data Row built in render_supplier_queue.
+     * @return bool
+     */
+    private function supplier_queue_wireframe_activation_oversight_row( array $item_data ) {
+        $vs          = isset( $item_data['validation_state'] ) && is_array( $item_data['validation_state'] ) ? $item_data['validation_state'] : array();
+        $commitment  = isset( $vs['commitment'] ) && is_array( $vs['commitment'] ) ? $vs['commitment'] : array();
+        $exe         = isset( $commitment['execution_activation'] ) && is_array( $commitment['execution_activation'] ) ? $commitment['execution_activation'] : array();
+        if ( empty( $exe ) ) {
+            return false;
+        }
+        $payment_status = isset( $exe['payment_status'] ) ? sanitize_key( (string) $exe['payment_status'] ) : '';
+        return in_array( $payment_status, array( 'pending', 'pending_verification', 'confirmed' ), true );
+    }
+
     /**
      * Render supplier queue page (M) - Redesigned to match wireframe
      */
@@ -4501,7 +4580,9 @@ class N88_RFQ_Auth {
         }
 
         // Read filter values from URL query parameters (M5)
-        $status_filter = isset( $_GET['status'] ) ? sanitize_text_field( wp_unslash( $_GET['status'] ) ) : 'needs_action';
+        $status_query_param       = isset( $_GET['status'] ) ? sanitize_text_field( wp_unslash( $_GET['status'] ) ) : '';
+        $supplier_queue_defaults  = ( $is_wireframe_supplier_queue || $is_system_operator ) ? 'all' : 'needs_action';
+        $status_filter            = '' !== $status_query_param ? $status_query_param : $supplier_queue_defaults;
         $time_remaining_filter = isset( $_GET['time_remaining'] ) ? sanitize_text_field( wp_unslash( $_GET['time_remaining'] ) ) : 'all';
         $category_filter = isset( $_GET['category'] ) ? sanitize_text_field( wp_unslash( $_GET['category'] ) ) : 'all';
         $search = isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '';
@@ -5009,6 +5090,32 @@ class N88_RFQ_Auth {
                 $action_badge = 'approve_payment';
             }
 
+            // Production-tracking items have no RFQ; map pre-RFQ queue badges to awarded-style workflow starting at timeline step 4.
+            $item_entry_queue_mode = isset( $item_meta['entry_mode'] ) ? sanitize_key( (string) $item_meta['entry_mode'] ) : 'full_process';
+            $item_data['item_entry_mode'] = $item_entry_queue_mode;
+            $item_data['supplier_queue_is_production_only'] = false;
+            $cad_prototype_active_queue = ( null !== $cad_status && '' !== trim( (string) $cad_status ) )
+                || ( null !== $prototype_status && '' !== trim( (string) $prototype_status ) )
+                || ( null !== $prototype_payment_status && '' !== trim( (string) $prototype_payment_status ) );
+            $qualifies_production_supplier_queue = (
+                'production_only' === $item_entry_queue_mode
+                && empty( $item_data['payment_approval_kind'] )
+                && 'approve_payment' !== $item_data['action_badge']
+                && ! $cad_prototype_active_queue
+            );
+            if (
+                $qualifies_production_supplier_queue
+                && in_array( $action_badge, array( 'submit_bid', 'message_thread', 'continue_draft', 'specs_changed', 'submitted' ), true )
+            ) {
+                $item_data['action_badge'] = 'awarded';
+                $action_badge              = 'awarded';
+            }
+            if ( $qualifies_production_supplier_queue && 'awarded' === $action_badge ) {
+                $item_data['supplier_queue_is_production_only'] = true;
+                $show_action_required                        = $has_message_action_required;
+                $item_data['show_action_required']           = $has_message_action_required;
+            }
+
             if ( $has_unread_designer_messages ) {
                 $status_note = sprintf(
                     /* translators: %d: unread direct messages from designer */
@@ -5028,7 +5135,45 @@ class N88_RFQ_Auth {
                 $status_color = '#ff4500';
                 $status_note = '';
                 $is_action_required = true;
+            } elseif ( 'approve_payment' === $item_data['action_badge'] ) {
+                $pay_kind = isset( $item_data['payment_approval_kind'] ) ? sanitize_key( (string) $item_data['payment_approval_kind'] ) : '';
+                if ( 'execution' === $pay_kind ) {
+                    $status_label = __( 'Activation payment request received', 'n88-rfq-platform' );
+                    $status_note  = __( 'Designer submitted execution activation proof — approve to confirm payment.', 'n88-rfq-platform' );
+                } else {
+                    $status_label = __( 'Payment verification request received', 'n88-rfq-platform' );
+                    $stage_lbl = isset( $item_data['payment_approval_stage_label'] ) ? trim( (string) $item_data['payment_approval_stage_label'] ) : '';
+                    $status_note = $stage_lbl
+                        /* translators: %s optional milestone stage label */
+                        ? sprintf( __( 'Approve payment for: %s', 'n88-rfq-platform' ), $stage_lbl )
+                        : __( 'Designer submitted payment proof awaiting your verification.', 'n88-rfq-platform' );
+                }
+                $status_color       = '#ffb347';
+                $status_note_color  = '#ffb347';
+                $is_action_required = true;
             } elseif ( $action_badge === 'awarded' ) {
+                // Production-tracking board: skip RFQ / samples / milestones UI in queue; spine starts at timeline step 4.
+                if ( ! empty( $item_data['supplier_queue_is_production_only'] ) ) {
+                    $status_note = '';
+                    $status_note_color = '#ffb347';
+                    if ( 'pending_verification' === $execution_payment_status ) {
+                        $status_label = __( 'Activation payment — under review', 'n88-rfq-platform' );
+                        $status_color = '#ffb347';
+                        $status_note = __( 'Designer submitted activation payment proof; awaiting verification.', 'n88-rfq-platform' );
+                    } elseif ( 'confirmed' !== $execution_payment_status ) {
+                        $status_label = __( 'Ready for Production', 'n88-rfq-platform' );
+                        $status_color = '#66aaff';
+                        $status_note = __( 'Awaiting confirmed execution activation payment from designer.', 'n88-rfq-platform' );
+                    } else {
+                        $status_label = __( 'In Production', 'n88-rfq-platform' );
+                        $status_color = '#00ff00';
+                        $status_note  = __( 'Activation payment confirmed. Continue from Production (step 4) onward.', 'n88-rfq-platform' );
+                        $status_note_color = '#00ff00';
+                        if ( ! $validation_production_started ) {
+                            $status_note = __( 'Activation payment confirmed. Begin production workflow from step 4 when ready.', 'n88-rfq-platform' );
+                        }
+                    }
+                } else {
                 // Commit 3.C.1: Commercial gate states for supplier queue
                 $milestone_summary = isset( $validation_state['payment_milestones'] ) && is_array( $validation_state['payment_milestones'] )
                     ? $validation_state['payment_milestones']
@@ -5112,6 +5257,7 @@ class N88_RFQ_Auth {
                     $status_note_color = '#00ff00';
                     $is_action_required = false;
                 }
+                } // Non-production_only awarded milestone branch ends.
             } elseif ( $validation_samples_approved ) {
                 $status_label = __( 'Samples Approved', 'n88-rfq-platform' );
                 $status_color = '#00ff00';
@@ -5242,6 +5388,14 @@ class N88_RFQ_Auth {
                 $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received', 'message_thread', 'approve_payment' ), true )
                     || ! empty( $item_data['show_action_required'] )
                     || ! empty( $item_data['supplier_is_action_required'] );
+                if (
+                    ! $passes_status
+                    && $is_wireframe_supplier_queue
+                    && $this->supplier_queue_wireframe_activation_oversight_row( $item_data )
+                ) {
+                    /* WireFrame admin verifier: surface execution-activation lifecycle even after milestones go passive. */
+                    $passes_status = true;
+                }
             } elseif ( $status_filter === 'draft_saved' ) {
                 $passes_status = $item_data['action_badge'] === 'continue_draft';
             } elseif ( $status_filter === 'submitted' ) {
@@ -5474,6 +5628,12 @@ class N88_RFQ_Auth {
                                         $action_button_text = __( 'Sample Received', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Samples Approved' === $supplier_status_label ) {
                                         $action_button_text = __( 'Samples Approved', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Activation payment — under review' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Ready for Production', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Activation payment request received' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Approve activation payment', 'n88-rfq-platform' ) . ' ->';
+                                    } elseif ( 'Payment verification request received' === $supplier_status_label ) {
+                                        $action_button_text = __( 'Approve payment', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'Ready for Production' === $supplier_status_label ) {
                                         $action_button_text = __( 'Ready for Production', 'n88-rfq-platform' ) . ' ->';
                                     } elseif ( 'In Production' === $supplier_status_label ) {
@@ -5506,7 +5666,10 @@ class N88_RFQ_Auth {
                                 }
                                 $queue_open_tab = '';
                                 $queue_open_step = '';
-                                if ( ! empty( $item_data['supplier_status_label'] ) && 'Ready for Production' === trim( (string) $item_data['supplier_status_label'] ) ) {
+                                if ( ! empty( $item_data['supplier_queue_is_production_only'] ) ) {
+                                    $queue_open_tab  = 'workflow';
+                                    $queue_open_step = '4';
+                                } elseif ( ! empty( $item_data['supplier_status_label'] ) && 'Ready for Production' === trim( (string) $item_data['supplier_status_label'] ) ) {
                                     $queue_open_tab  = 'workflow';
                                     $queue_open_step = '2';
                                 } elseif ( ! empty( $item_data['supplier_status_label'] ) && 'In Production' === trim( (string) $item_data['supplier_status_label'] ) ) {
@@ -10753,8 +10916,11 @@ class N88_RFQ_Auth {
                     var step3Body = (awardDecisionHTML || '') + step3LifecycleHTML + (step3CommercialBody || step3Fallback);
                     var w3 = w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Step 3 Award Decision</div>' + step3Body + '</div>' : '';
+                    var productionStep4Unlocked = item.production_step4_unlocked === true || item.production_step4_unlocked === 1 || item.production_step4_unlocked === '1';
                     var activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 0;
-                    if (isAwardedWorkflowState) {
+                    if (productionStep4Unlocked) {
+                        activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 3;
+                    } else if (isAwardedWorkflowState) {
                         activeStepIdx = 2;
                     } else if (isPreAwardSampleWorkflow) {
                         activeStepIdx = 1;
@@ -10842,7 +11008,17 @@ class N88_RFQ_Auth {
                     };
                     var step4OfficialQuoteHTML = '';
                     var isAwardedForStep4 = effectiveBidStatus === 'awarded' || item.is_awarded_supplier === true || (item.bid_data && (item.bid_data.bid_status === 'awarded' || item.bid_data.is_awarded === true)) || (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id));
-                    if (isAwardedForStep4) {
+                    if (productionStep4Unlocked) {
+                        var supplierMilestoneSummaryPr = item.validation_state && item.validation_state.payment_milestones ? item.validation_state.payment_milestones : null;
+                        var supplierMilestoneStep4HTMLPr = renderSupplierMilestonesStep4(supplierMilestoneSummaryPr, (item.item_id || itemId));
+                        if (validationCanCommit && validationProductionStarted) {
+                            step4OfficialQuoteHTML = supplierMilestoneStep4HTMLPr || '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production in progress.</div>';
+                        } else if (validationCanCommit) {
+                            step4OfficialQuoteHTML = supplierMilestoneStep4HTMLPr || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #ddd; background: #101010;">Ready for production when material validation milestones complete.</div>';
+                        } else {
+                            step4OfficialQuoteHTML = supplierMilestoneStep4HTMLPr || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #ccc; background: #101010;">Activation payment confirmed. Submit production payment milestones and Step 4-6 videos via the timeline loaders below.</div>';
+                        }
+                    } else if (isAwardedForStep4) {
                         var oqStatus = item.official_quote_status || '';
                         if (oqStatus === 'submitted') {
                             step4OfficialQuoteHTML = '<div style="margin-bottom: 16px; padding: 12px; background-color: rgba(0,0,0,0.4); border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
@@ -10867,19 +11043,22 @@ class N88_RFQ_Auth {
                     }
                     var supplierMilestoneSummary = item.validation_state && item.validation_state.payment_milestones ? item.validation_state.payment_milestones : null;
                     var supplierMilestoneStep4HTML = renderSupplierMilestonesStep4(supplierMilestoneSummary, (item.item_id || itemId));
-                    if (validationCanCommit && validationProductionStarted) {
-                        step4OfficialQuoteHTML = supplierMilestoneStep4HTML || '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production begins.</div>';
-                    } else if (validationCanCommit) {
-                        step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #ddd; background: #101010;">Ready for production. Click <strong style="color:#FF0065;">Begin Production</strong> in Step 3 to start.</div>';
+                    if (!productionStep4Unlocked) {
+                        if (validationCanCommit && validationProductionStarted) {
+                            step4OfficialQuoteHTML = supplierMilestoneStep4HTML || '<div style="padding: 12px; border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3; background: rgba(76,175,80,0.08);">Production begins.</div>';
+                        } else if (validationCanCommit) {
+                            step4OfficialQuoteHTML = '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #ddd; background: #101010;">Ready for production. Click <strong style="color:#FF0065;">Begin Production</strong> in Step 3 to start.</div>';
+                        }
                     }
                     var w4Content = step4OfficialQuoteHTML.length ? step4OfficialQuoteHTML : '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timelineâ€¦</div>';
+                    var timelineCadProtoUnlocked = !!(paymentNotif || productionStep4Unlocked);
                     // Workflow tab: show when payment/CAD/prototype hai YA sirf award pe Step 4 (Official Quote PDF)  PDF upload ka payment se taaluq nahi
-                    var showWorkflowSteps = workflowStep1Visible || paymentNotif || w3Show || (step4OfficialQuoteHTML && step4OfficialQuoteHTML.length > 0);
+                    var showWorkflowSteps = workflowStep1Visible || paymentNotif || w3Show || productionStep4Unlocked || (step4OfficialQuoteHTML && step4OfficialQuoteHTML.length > 0);
                     var w4WithClass = (showWorkflowSteps ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 4 - Production</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc4 + '</div>' + w4Content + '</div>' : '');
-                    var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
+                    var w5WithClass = (timelineCadProtoUnlocked ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 5 Quality Review & Packing</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc5 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline...</div></div>' : '');
-                    var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
+                    var w6WithClass = (timelineCadProtoUnlocked ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">Step 6 Delivery</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc6 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline...</div></div>' : '');
                     var stepRow = '';
                     if (showWorkflowSteps) {
@@ -11666,10 +11845,11 @@ class N88_RFQ_Auth {
                             if (!sel || !sel.step_id) return '';
                             var stepId = sel.step_id;
                             var stepNumber = sel.step_number || 0;
-                            var isStep456 = stepNumber >= 4 && stepNumber <= 6;
+                            if (stepNumber === 4) return '';
+                            var isStep456 = stepNumber >= 5 && stepNumber <= 6;
                             var block = '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>';
-                            // Acceptance: Supplier can submit video for Steps 4-6 only; Steps 1-3 never show [ Submit Step Video ].
-                            // Allow submit for Pending/In Progress/Completed (steps 4-6 default to Pending until operator starts them).
+                            // Acceptance: Supplier can submit video for Steps 5-6 only; Step 4 uses milestones; Steps 1-3 never show [ Submit Step Video ].
+                            // Allow submit for Pending/In Progress/Completed (steps 5-6 default to Pending until operator starts them).
                             if (isStep456) {
                                 var videos = step456Videos[stepNumber] || [];
                                 if (videos.length > 0) {
@@ -18836,19 +19016,19 @@ class N88_RFQ_Auth {
                     <div id="n88-designer-form-message" class="n88-auth-message" style="margin-top: 15px; display: none;"></div>
                 </div>
             </form>
-            <div id="n88-onboarding-workflow-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:99999; align-items:center; justify-content:center;">
-                <div style="width:min(680px,92vw); background:#fff; border-radius:10px; padding:22px; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
-                    <h2 style="margin:0 0 10px; font-size:24px;">Welcome to Wireframe OS</h2>
-                    <p style="margin:0 0 16px; color:#555;">How would you like to get started?</p>
-                    <div style="border:1px solid #d7e7ff; border-radius:8px; background:#f6fbff; padding:14px; margin-bottom:12px;">
-                        <div style="font-size:16px; font-weight:700; margin-bottom:6px;">Start Full Workflow (Recommended)</div>
-                        <div style="font-size:13px; color:#555; margin-bottom:10px;">Request pricing, review proposals, manage samples, and track the entire production process with your suppliers.</div>
-                        <button type="button" id="n88-onboarding-select-full" style="width:100%; padding:12px 14px; background:#0073aa; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">Continue with Full Workflow →</button>
+            <div id="n88-onboarding-workflow-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.78); z-index:99999; align-items:center; justify-content:center;">
+                <div style="width:min(680px,92vw); background:#1a1a1a; border:1px solid rgba(255,255,255,0.14); border-radius:10px; padding:22px; box-shadow:0 14px 38px rgba(0,0,0,0.52);">
+                    <h2 style="margin:0 0 10px; font-size:24px; color:#f5f5f5;">Welcome to Wireframe OS</h2>
+                    <p style="margin:0 0 16px; color:#bcbcbc;">How would you like to get started?</p>
+                    <div style="border:1px solid rgba(255,255,255,0.2); border-radius:8px; background:#252525; padding:14px; margin-bottom:12px;">
+                        <div style="font-size:16px; font-weight:700; margin-bottom:6px; color:#f5f5f5;">Start Full Workflow (Recommended)</div>
+                        <div style="font-size:13px; color:#c9c9c9; margin-bottom:10px;">Request pricing, review proposals, manage samples, and track the entire production process with your suppliers.</div>
+                        <button type="button" id="n88-onboarding-select-full" style="width:100%; padding:12px 14px; background:#111111; color:#ffffff; border:1px solid rgb(255, 0, 101); border-radius:6px; cursor:pointer; font-weight:600;">Continue with Full Workflow →</button>
                     </div>
-                    <div style="border:1px solid #e5e5e5; border-radius:8px; padding:12px;">
-                        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">Production Tracking Only</div>
-                        <div style="font-size:12px; color:#666; margin-bottom:8px;">Already placed the order offline? Jump straight into structured production behaviour.</div>
-                        <button type="button" id="n88-onboarding-select-tracking" style="width:100%; padding:10px 14px; background:#f5f5f5; color:#333; border:1px solid #ccc; border-radius:6px; cursor:pointer; font-weight:600;">Production Tracking Only</button>
+                    <div style="border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:12px; background:#202020;">
+                        <div style="font-size:14px; font-weight:700; margin-bottom:6px; color:#f5f5f5;">Production Tracking Only</div>
+                        <div style="font-size:12px; color:#bcbcbc; margin-bottom:8px;">Already placed the order offline? Jump straight into structured production behaviour.</div>
+                        <button type="button" id="n88-onboarding-select-tracking" style="width:100%; padding:10px 14px; background:#2b2b2b; color:#e8e8e8; border:1px solid rgba(255,255,255,0.2); border-radius:6px; cursor:pointer; font-weight:600;">Production Tracking Only</button>
                     </div>
                 </div>
             </div>
@@ -19278,6 +19458,19 @@ class N88_RFQ_Auth {
             error_log( 'Supplier Detail View - Parsed meta_json for item ' . $item_id . ': ' . wp_json_encode( $meta ) );
         } else {
             error_log( 'Supplier Detail View - meta_json is empty for item ' . $item_id );
+        }
+
+        if ( $is_supplier && class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+            $ifp = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT is_free, is_paid FROM {$items_table} WHERE id = %d AND (deleted_at IS NULL OR deleted_at = '')",
+                    $item_id
+                ),
+                ARRAY_A
+            );
+            if ( $ifp && ! N88_Item_Unlock::workflow_eligible( $meta, isset( $ifp['is_free'] ) ? $ifp['is_free'] : null, isset( $ifp['is_paid'] ) ? $ifp['is_paid'] : null ) ) {
+                wp_send_json_error( array( 'message' => 'This item is not available.' ), 403 );
+            }
         }
 
         // Get item image - ensure absolute URL
@@ -21044,6 +21237,18 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $bid_status === 'awarded' ) {
             $supplier_workflow_active_step = 2;
         }
+        $supplier_item_entry_mode   = isset( $meta['entry_mode'] ) ? sanitize_key( (string) $meta['entry_mode'] ) : 'full_process';
+        $production_step4_unlocked  = false;
+        if ( 'production_only' === $supplier_item_entry_mode && $is_supplier && is_array( $validation_state )
+            && $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+            $pex_sup = isset( $validation_state['commitment']['execution_activation']['payment_status'] )
+                ? sanitize_key( (string) $validation_state['commitment']['execution_activation']['payment_status'] )
+                : '';
+            if ( 'confirmed' === $pex_sup ) {
+                $production_step4_unlocked       = true;
+                $supplier_workflow_active_step   = 3; // Ribbon index Step 04 — Production
+            }
+        }
         $response_awarded_bid_id = $awarded_bid_id_from_meta ? $awarded_bid_id_from_meta : ( ( isset( $bid_status ) && $bid_status === 'awarded' && isset( $bid_id ) ) ? intval( $bid_id ) : null );
 
         
@@ -21113,6 +21318,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'project_name' => $project_name ? sanitize_text_field( $project_name ) : '',
             'rfq_reference' => 'ITEM-' . intval( $item['id'] ),
             'validation_state' => $validation_state,
+            'entry_mode' => $supplier_item_entry_mode,
+            'production_step4_unlocked' => $production_step4_unlocked,
         );
         if ( ! $this->is_cad_prototype_enabled() ) {
             $response['payment_notification'] = null;
@@ -22274,8 +22481,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $items_table = $wpdb->prefix . 'n88_items';
         $users_table = $wpdb->users;
         $default_wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
+        $item_select_unlock = 'owner_user_id, meta_json';
+        if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+            $item_select_unlock .= ', is_free, is_paid, is_locked';
+        }
         $item_owner_row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT owner_user_id, meta_json FROM {$items_table} WHERE id = %d",
+            "SELECT {$item_select_unlock} FROM {$items_table} WHERE id = %d",
             $item_id
         ), ARRAY_A );
 
@@ -22317,38 +22528,6 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $entry_mode = ( isset( $meta ) && is_array( $meta ) && ! empty( $meta['entry_mode'] ) ) ? sanitize_key( (string) $meta['entry_mode'] ) : 'full_process';
         if ( ! in_array( $entry_mode, array( 'full_process', 'production_only' ), true ) ) {
             $entry_mode = 'full_process';
-        }
-        if ( 'production_only' === $entry_mode ) {
-            $flush_json_success( array(
-                'entry_mode'                     => 'production_only',
-                'requested_section'              => $requested_section,
-                'loaded_sections'                => array(
-                    'summary'  => true,
-                    'workflow' => true,
-                    'bids'     => false,
-                ),
-                'has_rfq'                        => false,
-                'has_bids'                       => false,
-                'has_awarded_bid'                => false,
-                'bids'                           => array(),
-                'smart_alternatives_enabled'     => false,
-                'smart_alternatives_note'        => '',
-                'rfq_revision_current'           => null,
-                'revision_changed'               => false,
-                'has_unread_operator_messages'   => false,
-                'unread_operator_messages'       => 0,
-                'has_prototype_payment'          => false,
-                'prototype_payment_status'       => null,
-                'prototype_submission'           => null,
-                'validation_state'               => null,
-                'deposit_status'                 => '',
-                'deposit_amount'                 => null,
-                'deposit_calculated_at'          => null,
-                'deposit_received_at'            => null,
-                'deposit_receipt_url'            => '',
-                'deposit_sent_note'              => '',
-                'deposit_sent_at'                => null,
-            ) );
         }
         
         // Fallback: Get quantity from delivery_context if not in item meta
@@ -22444,6 +22623,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $item_id,
             isset( $meta ) && is_array( $meta ) ? $meta : null
         );
+
+        // Production-tracking: no bid row — confirmed execution activation unlocks Step 4 milestones like an awarded project.
+        if ( ! $has_awarded_bid && 'production_only' === $entry_mode && is_array( $validation_state ) ) {
+            $commit_v = isset( $validation_state['commitment'] ) && is_array( $validation_state['commitment'] ) ? $validation_state['commitment'] : array();
+            $ex_v     = isset( $commit_v['execution_activation'] ) && is_array( $commit_v['execution_activation'] ) ? $commit_v['execution_activation'] : array();
+            $ex_pay   = isset( $ex_v['payment_status'] ) ? sanitize_key( (string) $ex_v['payment_status'] ) : '';
+            if ( 'confirmed' === $ex_pay ) {
+                $has_awarded_bid = true;
+            }
+        }
 
         $bids = array();
         $proposal_group_workspaces = array();
@@ -23258,6 +23447,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        $unlock_payload = array();
+        if ( class_exists( 'N88_Item_Unlock' ) ) {
+            $unlock_payload = N88_Item_Unlock::frontend_payload_from_row( $item_owner_row, isset( $meta ) && is_array( $meta ) ? $meta : array() );
+        }
+
         $response_payload = array(
             'entry_mode' => $entry_mode,
             'requested_section' => $requested_section,
@@ -23317,6 +23511,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             // Action Required: so card updates when operator opens modal (e.g. review payment proof)
             'action_required' => $has_unread_operator_messages || $has_unread_supplier_messages || ( $is_system_operator && isset( $meta ) && is_array( $meta ) && isset( $meta['deposit_status'] ) && $meta['deposit_status'] === 'sent_by_designer' ),
         );
+        if ( ! empty( $unlock_payload ) && is_array( $unlock_payload ) ) {
+            $response_payload['is_free']            = $unlock_payload['is_free'];
+            $response_payload['is_paid']            = $unlock_payload['is_paid'];
+            $response_payload['is_locked']          = $unlock_payload['is_locked'];
+            $response_payload['workflow_eligible']  = $unlock_payload['workflow_eligible'];
+            $response_payload['unlock_price_usd']  = $unlock_payload['unlock_price_usd'];
+        }
         if ( ! $cad_prototype_enabled ) {
             unset(
                 $response_payload['has_prototype_payment'],
@@ -23423,11 +23624,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return array();
         }
 
-        $items_table = $wpdb->prefix . 'n88_items';
+        $items_table       = $wpdb->prefix . 'n88_items';
         $item_placeholders = implode( ',', array_fill( 0, count( $item_ids ), '%d' ) );
+        $item_select_batch = 'id, owner_user_id, meta_json';
+        if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+            $item_select_batch .= ', is_free, is_paid, is_locked';
+        }
         $item_rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, owner_user_id, meta_json FROM {$items_table} WHERE id IN ({$item_placeholders})",
+                "SELECT {$item_select_batch} FROM {$items_table} WHERE id IN ({$item_placeholders})",
                 $item_ids
             ),
             ARRAY_A
@@ -23647,6 +23852,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             if ( ! is_array( $meta ) ) {
                 $meta = array();
             }
+            $unlock_row = array();
+            if ( class_exists( 'N88_Item_Unlock' ) ) {
+                $unlock_row = N88_Item_Unlock::frontend_payload_from_row( isset( $item_rows_by_id[ $item_id ] ) ? $item_rows_by_id[ $item_id ] : array(), $meta );
+            }
             $states[ $item_id ] = array(
                 'requested_section' => 'bids_summary',
                 'loaded_sections'   => array(
@@ -23664,7 +23873,23 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'bids'     => false,
                     'workflow' => false,
                 ),
+                'entry_mode'         => ! empty( $unlock_row['entry_mode'] ) ? $unlock_row['entry_mode'] : ( isset( $meta['entry_mode'] ) ? sanitize_key( (string) $meta['entry_mode'] ) : 'full_process' ),
+                'is_free'            => ! empty( $unlock_row ) ? $unlock_row['is_free'] : true,
+                'is_paid'            => ! empty( $unlock_row ) ? $unlock_row['is_paid'] : false,
+                'is_locked'          => ! empty( $unlock_row ) ? $unlock_row['is_locked'] : false,
+                'workflow_eligible'  => ! empty( $unlock_row ) ? $unlock_row['workflow_eligible'] : true,
+                'unlock_price_usd'   => ! empty( $unlock_row ) ? $unlock_row['unlock_price_usd'] : ( class_exists( 'N88_Item_Unlock' ) ? N88_Item_Unlock::UNLOCK_PRICE_USD : 149 ),
             );
+            if ( empty( $states[ $item_id ]['has_awarded_bid'] ) ) {
+                $em_mode = isset( $meta['entry_mode'] ) ? sanitize_key( (string) $meta['entry_mode'] ) : '';
+                if ( 'production_only' === $em_mode ) {
+                    $vs_b = isset( $states[ $item_id ]['validation_state'] ) && is_array( $states[ $item_id ]['validation_state'] ) ? $states[ $item_id ]['validation_state'] : array();
+                    $ex_b = isset( $vs_b['commitment']['execution_activation']['payment_status'] ) ? sanitize_key( (string) $vs_b['commitment']['execution_activation']['payment_status'] ) : '';
+                    if ( 'confirmed' === $ex_b ) {
+                        $states[ $item_id ]['has_awarded_bid'] = true;
+                    }
+                }
+            }
             if ( $skip_timeline ) {
                 $states[ $item_id ]['timeline_payload'] = null;
             } else {
@@ -23717,7 +23942,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $is_declined = ( 'declined' === $bid_status );
             $prototype_status = isset( $prototype_status_by_bid[ absint( $bid_row['bid_id'] ) ] ) ? $prototype_status_by_bid[ absint( $bid_row['bid_id'] ) ] : null;
             $has_prototype_request = array_key_exists( absint( $bid_row['bid_id'] ), $prototype_status_by_bid );
-            $can_award = ! $is_awarded && ! $is_declined && ( ! $has_prototype_request || 'approved' === $prototype_status );
+            $wf_item_meta = isset( $item_rows_by_id[ $item_id ]['meta_json'] ) ? json_decode( (string) $item_rows_by_id[ $item_id ]['meta_json'], true ) : array();
+            $wf_item_meta = is_array( $wf_item_meta ) ? $wf_item_meta : array();
+            $wf_is_free   = isset( $item_rows_by_id[ $item_id ]['is_free'] ) ? $item_rows_by_id[ $item_id ]['is_free'] : null;
+            $wf_is_paid   = isset( $item_rows_by_id[ $item_id ]['is_paid'] ) ? $item_rows_by_id[ $item_id ]['is_paid'] : null;
+            $wf_ok        = ! class_exists( 'N88_Item_Unlock' ) || N88_Item_Unlock::workflow_eligible( $wf_item_meta, $wf_is_free, $wf_is_paid );
+            $can_award        = $wf_ok && ! $is_awarded && ! $is_declined && ( ! $has_prototype_request || 'approved' === $prototype_status );
 
             $states[ $item_id ]['has_bids'] = true;
             if ( $is_awarded ) {
@@ -23810,6 +24040,24 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
                 if ( ! $route_exists || intval( $route_exists ) === 0 ) {
                     wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+                }
+
+                if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+                    $items_t = $wpdb->prefix . 'n88_items';
+                    $bid_chk = $wpdb->get_row(
+                        $wpdb->prepare(
+                            "SELECT meta_json, is_free, is_paid FROM {$items_t} WHERE id = %d AND deleted_at IS NULL",
+                            $item_id
+                        ),
+                        ARRAY_A
+                    );
+                    if ( $bid_chk ) {
+                        $bm = ! empty( $bid_chk['meta_json'] ) ? json_decode( $bid_chk['meta_json'], true ) : array();
+                        $bm = is_array( $bm ) ? $bm : array();
+                        if ( ! N88_Item_Unlock::workflow_eligible( $bm, isset( $bid_chk['is_free'] ) ? $bid_chk['is_free'] : null, isset( $bid_chk['is_paid'] ) ? $bid_chk['is_paid'] : null ) ) {
+                            wp_send_json_error( array( 'message' => 'This item is not available for bids.' ), 403 );
+                        }
+                    }
                 }
             }
         }
@@ -24992,6 +25240,23 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+            $award_item_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT meta_json, is_free, is_paid FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+                    $item_id
+                ),
+                ARRAY_A
+            );
+            if ( $award_item_row ) {
+                $am = ! empty( $award_item_row['meta_json'] ) ? json_decode( $award_item_row['meta_json'], true ) : array();
+                $am = is_array( $am ) ? $am : array();
+                if ( ! N88_Item_Unlock::workflow_eligible( $am, isset( $award_item_row['is_free'] ) ? $award_item_row['is_free'] : null, isset( $award_item_row['is_paid'] ) ? $award_item_row['is_paid'] : null ) ) {
+                    wp_send_json_error( array( 'message' => 'This item is locked. Unlock it before awarding.' ), 403 );
+                }
+            }
+        }
+
         // Verify bid exists and belongs to this item
         $bid = $wpdb->get_row( $wpdb->prepare(
             "SELECT bid_id, supplier_id, status, unit_price, production_lead_time_text, 
@@ -25340,9 +25605,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 continue;
             }
 
+            $samples_item_select = 'id, owner_user_id, meta_json';
+            if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+                $samples_item_select .= ', is_free, is_paid';
+            }
             $item_row = $wpdb->get_row(
                 $wpdb->prepare(
-                    "SELECT id, owner_user_id, meta_json FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+                    "SELECT {$samples_item_select} FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
                     $item_id
                 ),
                 ARRAY_A
@@ -25356,6 +25625,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             if ( ! $is_system_operator && intval( $item_row['owner_user_id'] ) !== intval( $current_user->ID ) ) {
                 $failure_messages[] = 'You do not have access to item #' . $item_id . '.';
                 continue;
+            }
+
+            if ( class_exists( 'N88_Item_Unlock' ) ) {
+                $smeta = ! empty( $item_row['meta_json'] ) ? json_decode( $item_row['meta_json'], true ) : array();
+                $smeta = is_array( $smeta ) ? $smeta : array();
+                $s_free = isset( $item_row['is_free'] ) ? $item_row['is_free'] : null;
+                $s_paid = isset( $item_row['is_paid'] ) ? $item_row['is_paid'] : null;
+                if ( ! N88_Item_Unlock::workflow_eligible( $smeta, $s_free, $s_paid ) ) {
+                    $failure_messages[] = 'Item #' . $item_id . ' is locked. Unlock it before requesting samples.';
+                    continue;
+                }
             }
 
             $bid_row = $wpdb->get_row(
@@ -26267,6 +26547,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
             wp_send_json_error( array( 'message' => 'Failed to submit execution payment details.' ) );
+        }
+
+        $wireframe_route_supplier_id = $this->get_default_wireframe_supplier_id();
+        if ( $wireframe_route_supplier_id ) {
+            $this->ensure_rfq_route_for_designer_message( $item_id, $wireframe_route_supplier_id );
         }
 
         if ( function_exists( 'n88_log_event' ) ) {
@@ -27918,7 +28203,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
             // Validate item exists and user owns it
             $item = $wpdb->get_row( $wpdb->prepare(
-                "SELECT id, owner_user_id, item_type, deleted_at FROM {$items_table} WHERE id = %d",
+                "SELECT id, owner_user_id, item_type, deleted_at, meta_json" . (
+                    class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist()
+                    ? ', is_free, is_paid, is_locked'
+                    : ''
+                ) . " FROM {$items_table} WHERE id = %d",
                 $item_id
             ) );
 
@@ -27930,6 +28219,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             if ( (int) $item->owner_user_id !== $current_user->ID && ! $is_system_operator ) {
                 $errors[ "item_{$index}" ] = "You do not have permission to submit RFQ for item #{$item_id}.";
                 continue;
+            }
+
+            if ( class_exists( 'N88_Item_Unlock' ) ) {
+                $im = ! empty( $item->meta_json ) ? json_decode( $item->meta_json, true ) : array();
+                $im = is_array( $im ) ? $im : array();
+                $is_f = isset( $item->is_free ) ? $item->is_free : null;
+                $is_p = isset( $item->is_paid ) ? $item->is_paid : null;
+                if ( ! N88_Item_Unlock::workflow_eligible( $im, $is_f, $is_p ) ) {
+                    $errors[ "item_{$index}" ] = "Item #{$item_id} is locked. Unlock it to send an RFQ.";
+                    continue;
+                }
             }
 
             // Validate quantity
@@ -31380,42 +31680,44 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var status = stepData.status || 'pending';
                             var hasEvidence = stepData.has_required_evidence !== false;
                             var h = '';
-                            h += '<div style="font-size:12px;font-weight:600;color:' + green + ';margin-bottom:8px;">Video Submissions</div>';
-                            if (videos.length > 0) {
-                                for (var vi = 0; vi < videos.length; vi++) {
-                                    var sub = videos[vi];
-                                    h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:6px;">v' + (sub.version || '') + '  ' + (sub.source === 'operator' ? 'Operator' : 'Supplier') + '</div>';
-                                    if (sub.optional_note) h += '<div style="font-size:11px;color:#888;font-style:italic;margin-bottom:4px;">' + (sub.optional_note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                                    if (sub.links && sub.links.length) {
-                                        h += '<ul style="margin:0 0 8px 18px;padding:0;font-size:11px;">';
-                                        for (var li = 0; li < sub.links.length; li++) {
-                                            var lk = sub.links[li];
-                                            h += '<li><a href="' + (lk.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:' + green + ';">' + (lk.provider || 'Link') + '</a></li>';
+                            if (stepNum !== 4) {
+                                h += '<div style="font-size:12px;font-weight:600;color:' + green + ';margin-bottom:8px;">Video Submissions</div>';
+                                if (videos.length > 0) {
+                                    for (var vi = 0; vi < videos.length; vi++) {
+                                        var sub = videos[vi];
+                                        h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:6px;">v' + (sub.version || '') + '  ' + (sub.source === 'operator' ? 'Operator' : 'Supplier') + '</div>';
+                                        if (sub.optional_note) h += '<div style="font-size:11px;color:#888;font-style:italic;margin-bottom:4px;">' + (sub.optional_note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                        if (sub.links && sub.links.length) {
+                                            h += '<ul style="margin:0 0 8px 18px;padding:0;font-size:11px;">';
+                                            for (var li = 0; li < sub.links.length; li++) {
+                                                var lk = sub.links[li];
+                                                h += '<li><a href="' + (lk.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:' + green + ';">' + (lk.provider || 'Link') + '</a></li>';
+                                            }
+                                            h += '</ul>';
                                         }
-                                        h += '</ul>';
                                     }
+                                } else {
+                                    h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:10px;">No video submissions yet.</div>';
                                 }
-                            } else {
-                                h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:10px;">No video submissions yet.</div>';
-                            }
-                            h += '<button type="button" class="n88-op-attach-video-btn" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:#111;color:' + green + ';border:1px solid ' + green + ';border-radius:4px;cursor:pointer;font-family:monospace;margin-bottom:12px;">Attach video link</button>';
-                            h += '<div id="n88-op-attach-form-' + stepNum + '" style="display:none;margin-bottom:12px;padding:10px;border:1px solid ' + darkBorder + ';border-radius:4px;background:rgba(0,0,0,0.2);">';
-                            h += '<input type="url" id="n88-op-video-url1-' + stepNum + '" placeholder="Video URL 1 (YouTube/Vimeo/Loom)" style="width:100%;padding:6px;margin-bottom:6px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
-                            h += '<input type="url" id="n88-op-video-url2-' + stepNum + '" placeholder="URL 2 (optional)" style="width:100%;padding:6px;margin-bottom:6px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
-                            h += '<input type="url" id="n88-op-video-url3-' + stepNum + '" placeholder="URL 3 (optional)" style="width:100%;padding:6px;margin-bottom:8px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
-                            h += '<textarea id="n88-op-video-note-' + stepNum + '" placeholder="Optional note" rows="2" style="width:100%;padding:6px;margin-bottom:8px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;resize:vertical;"></textarea>';
-                            h += '<div style="display:flex;gap:8px;"><button type="button" class="n88-op-attach-submit" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:' + green + ';color:#000;border:none;border-radius:4px;cursor:pointer;">Submit</button>';
-                            h += '<button type="button" class="n88-op-attach-cancel" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:transparent;color:' + darkText + ';border:1px solid ' + darkBorder + ';border-radius:4px;cursor:pointer;">Cancel</button></div></div>';
-                            h += '<div style="font-size:12px;font-weight:600;color:' + green + ';margin-top:12px;margin-bottom:8px;">Designer Comments</div>';
-                            if (comments.length > 0) {
-                                h += '<ul style="margin:0;padding-left:18px;font-size:11px;color:' + darkText + ';">';
-                                for (var ci = 0; ci < comments.length; ci++) {
-                                    var cm = comments[ci];
-                                    h += '<li style="margin-bottom:6px;">' + (cm.created_at || '').split(' ')[0] + ' ' + (cm.designer_name || '') + ': &quot;' + (cm.comment_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '&quot;</li>';
+                                h += '<button type="button" class="n88-op-attach-video-btn" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:#111;color:' + green + ';border:1px solid ' + green + ';border-radius:4px;cursor:pointer;font-family:monospace;margin-bottom:12px;">Attach video link</button>';
+                                h += '<div id="n88-op-attach-form-' + stepNum + '" style="display:none;margin-bottom:12px;padding:10px;border:1px solid ' + darkBorder + ';border-radius:4px;background:rgba(0,0,0,0.2);">';
+                                h += '<input type="url" id="n88-op-video-url1-' + stepNum + '" placeholder="Video URL 1 (YouTube/Vimeo/Loom)" style="width:100%;padding:6px;margin-bottom:6px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
+                                h += '<input type="url" id="n88-op-video-url2-' + stepNum + '" placeholder="URL 2 (optional)" style="width:100%;padding:6px;margin-bottom:6px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
+                                h += '<input type="url" id="n88-op-video-url3-' + stepNum + '" placeholder="URL 3 (optional)" style="width:100%;padding:6px;margin-bottom:8px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
+                                h += '<textarea id="n88-op-video-note-' + stepNum + '" placeholder="Optional note" rows="2" style="width:100%;padding:6px;margin-bottom:8px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;resize:vertical;"></textarea>';
+                                h += '<div style="display:flex;gap:8px;"><button type="button" class="n88-op-attach-submit" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:' + green + ';color:#000;border:none;border-radius:4px;cursor:pointer;">Submit</button>';
+                                h += '<button type="button" class="n88-op-attach-cancel" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:transparent;color:' + darkText + ';border:1px solid ' + darkBorder + ';border-radius:4px;cursor:pointer;">Cancel</button></div></div>';
+                                h += '<div style="font-size:12px;font-weight:600;color:' + green + ';margin-top:12px;margin-bottom:8px;">Designer Comments</div>';
+                                if (comments.length > 0) {
+                                    h += '<ul style="margin:0;padding-left:18px;font-size:11px;color:' + darkText + ';">';
+                                    for (var ci = 0; ci < comments.length; ci++) {
+                                        var cm = comments[ci];
+                                        h += '<li style="margin-bottom:6px;">' + (cm.created_at || '').split(' ')[0] + ' ' + (cm.designer_name || '') + ': &quot;' + (cm.comment_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '&quot;</li>';
+                                    }
+                                    h += '</ul>';
+                                } else {
+                                    h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:10px;">No designer comments yet.</div>';
                                 }
-                                h += '</ul>';
-                            } else {
-                                h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:10px;">No designer comments yet.</div>';
                             }
                             h += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
                             if (status === 'pending') {
@@ -36688,7 +36990,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
-     * Commit 3.B.5.A1: Supplier submit video evidence for Step 4, 5, or 6 only (append-only, optional note).
+     * Commit 3.B.5.A1: Supplier submit video evidence for Steps 5–6 only (append-only, optional note).
      */
     public function ajax_supplier_submit_step_video_456() {
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
@@ -36702,8 +37004,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
-        if ( ! $item_id || ! in_array( $step_number, array( 4, 5, 6 ), true ) ) {
-            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 4, 5, 6 only.' ) );
+        if ( ! $item_id || ! in_array( $step_number, array( 5, 6 ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 5 and 6 only for step video.' ) );
         }
         if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
             wp_send_json_error( array( 'message' => 'You are not routed to this item.' ), 403 );
@@ -36730,7 +37032,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
-     * Commit 3.B.5.A1: Operator add video evidence for Step 4, 5, or 6.
+     * Commit 3.B.5.A1: Operator add video evidence for Steps 5–6.
      */
     public function ajax_operator_add_step_video() {
         check_ajax_referer( 'n88_timeline_step_evidence', '_ajax_nonce' );
@@ -36745,8 +37047,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
-        if ( ! $item_id || ! in_array( $step_number, array( 4, 5, 6 ), true ) ) {
-            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 4, 5, 6 only.' ) );
+        if ( ! $item_id || ! in_array( $step_number, array( 5, 6 ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 5 and 6 only for step video.' ) );
         }
         if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
             wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
@@ -36773,7 +37075,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
-     * Commit 3.B.5.A1: Designer submit immutable step comment for Step 4, 5, or 6.
+     * Commit 3.B.5.A1: Designer submit immutable step comment for Steps 5–6.
      */
     public function ajax_designer_submit_step_comment() {
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
@@ -36788,8 +37090,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $media_version === 0 ) {
             $media_version = null;
         }
-        if ( ! $item_id || ! in_array( $step_number, array( 4, 5, 6 ), true ) ) {
-            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 4, 5, 6 only.' ) );
+        if ( ! $item_id || ! in_array( $step_number, array( 5, 6 ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 5 and 6 only for step comments.' ) );
         }
         if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
             wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );

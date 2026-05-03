@@ -2431,7 +2431,15 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [showClarificationBanner, setShowClarificationBanner] = React.useState(false);
     
     // Tab state for new layout
-    const [activeTab, setActiveTab] = React.useState('details');
+    const urlEntryMode = (() => {
+        try {
+            return String(new URLSearchParams(window.location.search || '').get('n88_entry_mode') || '').toLowerCase();
+        } catch (e) {
+            return '';
+        }
+    })();
+    const initialIsProductionOnly = String((item?.entry_mode || item?.meta?.entry_mode || item?.rfq_state?.entry_mode || urlEntryMode || '')).toLowerCase() === 'production_only';
+    const [activeTab, setActiveTab] = React.useState(initialIsProductionOnly ? 'workflow' : 'details');
     // Commit 3.A.1: Item timeline (read-only for designer)
     const [timelineData, setTimelineData] = React.useState(null);
     const [timelineLoading, setTimelineLoading] = React.useState(false);
@@ -2472,12 +2480,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     
     // Auto-expand bids and set tab: CAD/messages → Step 2; CAD released or video submitted → Step 3; payment approved → Step 1 (synced with admin.php)
     React.useEffect(() => {
-        if (isProductionOnly) {
-            setActiveTab('workflow');
-            setSelectedStepIndex(2);
-            return;
-        }
         if (itemState.loading) return;
+        // Production tracking: default tab is workflow (useState); do not auto-switch tabs — user can open Item Specification
+        if (isProductionOnly) return;
         if (skipNextTabSwitchFromCadActionRef.current) {
             skipNextTabSwitchFromCadActionRef.current = false;
             return;
@@ -2533,6 +2538,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
 
     // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
     React.useEffect(() => {
+        if (isProductionOnly) return;
         if (isOpen && openToDetailsAndSupport) {
             setActiveTab('details');
             setShowDesignerMessageForm(true);
@@ -2543,7 +2549,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             };
             setTimeout(scrollToSupport, 300);
         }
-    }, [isOpen, openToDetailsAndSupport]);
+    }, [isOpen, openToDetailsAndSupport, isProductionOnly]);
     
     // Image lightbox state
     const [lightboxImage, setLightboxImage] = React.useState(null);
@@ -2566,6 +2572,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         item?.entry_mode ||
         itemState?.meta?.entry_mode ||
         item?.meta?.entry_mode ||
+        item?.rfq_state?.entry_mode ||
+        urlEntryMode ||
         ''
     );
     const isProductionOnly = String(entryModeRaw).toLowerCase() === 'production_only';
@@ -2707,7 +2715,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         deposit_receipt_url: data.data.deposit_receipt_url || '',
                         deposit_sent_note: data.data.deposit_sent_note || '',
                         deposit_sent_at: data.data.deposit_sent_at || null,
-                        loading: section === 'summary' ? false : prev.loading,
+                        loading: section === 'summary' || section === 'workflow' || section === 'bids' ? false : prev.loading,
                     };
                     return nextItemState;
                 });
@@ -3003,12 +3011,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     React.useEffect(() => {
         setTimelineData(null);
         setTimelineError(null);
-        setSelectedStepIndex(0);
+        // Step numbers are 1-based; array index for Step 04 Production is 3.
+        setSelectedStepIndex(isProductionOnly ? 3 : 0);
         setSupplierStepEvidenceView(null);
         setDesignerStep456CommentDraft({});
         setMilestoneSetupPromptOpen(true);
         setMilestoneSetupChoice('none');
-    }, [itemId]);
+    }, [itemId, isProductionOnly]);
     
     // Load keywords when bid is selected (Commit 2.3.9.1B)
     React.useEffect(() => {
@@ -5092,7 +5101,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     borderBottom: `1px solid ${darkBorder}`,
                                     flexShrink: 0,
                                 }}>
-                                    {!isProductionOnly && <button
+                                    <button
                                         onClick={() => setActiveTab('details')}
                                         style={{
                                             flex: 1,
@@ -5107,8 +5116,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             fontFamily: 'monospace',
                                         }}
                                     >
-                                        The Mission Spec
-                                    </button>}
+                                        Item Specification
+                                    </button>
                                     <button
                                         onClick={() => setActiveTab('workflow')}
                                         style={{
@@ -5124,7 +5133,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             fontFamily: 'monospace',
                                         }}
                                     >
-                                        {isProductionOnly ? 'Production Tracking Mode' : 'Project Workflow'}
+                                        Project Workflow
                                     </button>
                                     {!isProductionOnly && itemState.has_bids && (
                                         <button
@@ -5146,12 +5155,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         </button>
                                     )}
                                 </div>
-                                {isProductionOnly && (
-                                    <div style={{ margin: '12px 20px 0', padding: '10px 12px', border: `1px solid ${darkBorder}`, borderRadius: '4px', background: '#111' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>Production Tracking Mode</div>
-                                        <div style={{ fontSize: '12px', color: darkText }}>Full visibility and structured oversight into every stage of production with your supplier.</div>
-                                    </div>
-                                )}
                                 
                                 {/* Tab Content */}
                                 <div style={{
@@ -5793,7 +5796,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             
                                             {/* Request Quote Button / RFQ Form / Specs Updated Panel */}
                             {/* Commit 2.6.1: Hide RFQ submission for view-only team members */}
-                            {currentState === 'A' && !isViewOnly && (
+                            {!isProductionOnly && currentState === 'A' && !isViewOnly && (
                                 <div id="request-quote-section" style={{ marginBottom: '24px' }}>
                                     {/* D5: Specs Updated Panel - Show when revision_changed=true and has_rfq=true */}
                                     {(itemState.revision_changed === true || item.revision_changed === true) && itemState.has_rfq === true ? (
@@ -7859,12 +7862,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     )}
 
                                     {/* Tab: The Workflow (Commit 3.A.1 — read-only 6-step timeline) */}
-                                    {activeTab === 'workflow' && (
+                                    {activeTab === 'workflow' && (() => {
+                                        const workflowTopBusy =
+                                            timelineLoading ||
+                                            (isProductionOnly && !!itemState.has_awarded_bid && milestoneSummaryLoading);
+                                        return (
                                         <div style={{ fontFamily: 'monospace' }}>
                                             <div style={{ marginBottom: '16px', fontSize: '11px', color: darkText }}>
                                             </div>
-                                            {timelineLoading && (
-                                                <div style={{ padding: '24px', textAlign: 'center', color: darkText }}>Loading timeline…</div>
+                                            {workflowTopBusy && (
+                                                <div style={{ padding: '24px', textAlign: 'center', color: darkText }}>
+                                                    Loading workflow…
+                                                </div>
                                             )}
                                             {timelineError && (
                                                 <div style={{ padding: '16px', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' }}>{timelineError}</div>
@@ -7925,7 +7934,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                     )}
                                                 </div>
                                             )}
-                                            {!timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
+                                            {!workflowTopBusy && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
                                                 <>
                                                     {/* Horizontal 6-step row with connector lines between steps — sticky */}
                                                     <div style={{
@@ -8500,7 +8509,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: `1px solid ${darkBorder}`, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
                                                                             <div style={{ fontSize: '12px', fontWeight: '700', color: greenAccent, marginBottom: '8px' }}>Payment Milestones (Step 4)</div>
                                                                             {milestoneUiNotice && <div style={{ fontSize: '11px', color: greenAccent, marginBottom: '8px' }}>{milestoneUiNotice}</div>}
-                                                                            {milestoneSummaryLoading && <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>Loading milestones…</div>}
+                                                                            {milestoneSummaryLoading && !(isProductionOnly && itemState.has_awarded_bid) && (
+                                                                                <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>Loading milestones…</div>
+                                                                            )}
                                                                             {!summary?.enabled && (
                                                                                 <div style={{ fontSize: '11px', color: darkText }}>
                                                                                     {milestoneSetupPromptOpen ? (
@@ -8857,8 +8868,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         )}
                                                                     </div>
                                                                 )}
-                                                                {/* Commit 3.B.5.A1: Step 4–6 — Video evidence + designer step comments */}
-                                                                {s.step_number >= 4 && s.step_number <= 6 && (() => {
+                                                                {/* Commit 3.B.5.A1: Steps 5–6 — video evidence + designer step comments (Step 4 uses payment milestones only) */}
+                                                                {s.step_number >= 5 && s.step_number <= 6 && (() => {
                                                                     const videos = (timelineData.step_456_videos || {})[s.step_number] || [];
                                                                     const comments = (timelineData.step_456_comments || {})[s.step_number] || [];
                                                                     const canAddComment = !!timelineData.can_add_evidence_comment;
@@ -9026,7 +9037,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 </>
                                             )}
                                         </div>
-                                    )}
+                                        );
+                                    })()}
 
 
                                 </div>
@@ -9045,7 +9057,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                             {/* Commit 2.6.1: Hide Update button for view-only team members */}
                             {/* Update button: Only updates dimensions and quantity */}
                             {/* Also check item.has_rfq as fallback in case itemState not loaded yet */}
-                            {!isViewOnly && ((currentState === 'B' || currentState === 'C') || (item?.has_rfq || itemState.has_rfq)) && (
+                            {!isProductionOnly && !isViewOnly && ((currentState === 'B' || currentState === 'C') || (item?.has_rfq || itemState.has_rfq)) && (
                                 <button
                                     onClick={handleUpdateDimensions}
                                     disabled={isSaving || isUploadingInspiration}

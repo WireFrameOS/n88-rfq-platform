@@ -91,8 +91,8 @@ class N88_Item_Timeline {
 
     /**
      * Production-only entry bootstrap:
-     * - mark steps 1 and 2 as externally completed
-     * - move step 3 out of the way (completed) so item opens directly around step 4 flow
+     * - steps 1–3 are RFQ/designer gates (no RFQ in tracking mode): mark externally complete
+     * - supplier/designer workflow starts at step 4 (Production)
      *
      * @param int $item_id
      * @return void
@@ -175,7 +175,7 @@ class N88_Item_Timeline {
                 'evidence_verified_at' => $row['evidence_verified_at'],
                 'evidence_verified_by' => $row['evidence_verified_by'] ? (int) $row['evidence_verified_by'] : null,
             );
-            if ( $step_number >= 4 && $step_number <= 6 ) {
+            if ( $step_number >= 5 && $step_number <= 6 ) {
                 $step_data['has_required_evidence'] = ! empty( $row['evidence_verified_at'] ) || empty( $row['evidence_required'] );
             } elseif ( 1 === $step_number ) {
                 $step_data['has_required_evidence'] = ! empty( $row['evidence_verified_at'] ) || empty( $row['evidence_required'] ) || $prototype_gate_cleared;
@@ -210,7 +210,7 @@ class N88_Item_Timeline {
     /**
      * Check if required evidence exists for completing a step.
      * Steps 1-3: Phase 3 compatible checks (payment, CAD, prototype).
-     * Steps 4-6: evidence_verified_at fallback until their workflows exist.
+     * Steps 5-6: video / operator evidence. Step 4 is not gated on step video in has_required_evidence().
      *
      * @param int $item_id
      * @param int $step_number 1-6
@@ -294,8 +294,13 @@ class N88_Item_Timeline {
             }
         }
 
-        // Steps 4–6 (Commit 3.B.5.A1): at least one video submission OR operator evidence OR evidence_verified_at
-        if ( $step_number >= 4 && $step_number <= 6 ) {
+        // Step 4 (Production): not gated on step video evidence — milestones/deposit gates apply separately.
+        if ( 4 === $step_number ) {
+            return true;
+        }
+
+        // Steps 5–6 (Commit 3.B.5.A1): at least one video submission OR operator evidence OR evidence_verified_at
+        if ( $step_number >= 5 && $step_number <= 6 ) {
             $video_sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
             $evidence_table  = $wpdb->prefix . 'n88_timeline_step_evidence';
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table ) {
@@ -446,9 +451,9 @@ class N88_Item_Timeline {
             return array( 'success' => false, 'message' => 'Step is not in progress.' );
         }
 
-        // Steps 4–6: require has_required_evidence (video or operator evidence or evidence_verified_at)
+        // Steps 5–6: require has_required_evidence (video or operator evidence or evidence_verified_at). Step 4 uses milestones, not step video.
         $evidence_ok = $evidence_verified_override || ! $step['evidence_required'] || ! empty( $step['evidence_verified_at'] );
-        if ( $step_number >= 4 && $step_number <= 6 ) {
+        if ( $step_number >= 5 && $step_number <= 6 ) {
             $evidence_ok = $evidence_ok || self::has_required_evidence( $item_id, $step_number );
         }
         if ( ! $evidence_ok ) {

@@ -130,6 +130,8 @@ class N88_Items {
         add_action( 'wp_ajax_n88_update_item', array( $this, 'ajax_update_item' ) );
         add_action( 'wp_ajax_n88_save_item_facts', array( $this, 'ajax_save_item_facts' ) );
         add_action( 'wp_ajax_n88_upload_inspiration_image', array( $this, 'ajax_upload_inspiration_image' ) );
+        add_action( 'wp_ajax_n88_unlock_item', array( $this, 'ajax_unlock_item' ) );
+        add_action( 'wp_ajax_n88_validate_items_workflow_eligibility', array( $this, 'ajax_validate_items_workflow_eligibility' ) );
     }
 
     /**
@@ -273,7 +275,7 @@ class N88_Items {
                 'entry_mode'   => $entry_mode,
             );
             if ( 'production_only' === $entry_mode ) {
-                $meta_json['entry_current_step'] = '4_locked';
+                $meta_json['entry_current_step'] = '3_activation';
                 $meta_json['step_1_status'] = 'external_complete';
                 $meta_json['step_2_status'] = 'external_complete';
                 $meta_json['execution_payment_status'] = 'not_started';
@@ -295,21 +297,32 @@ class N88_Items {
             if ( isset( $item_data['rfq_fabric_notes'] ) ) {
                 $meta_json['rfq_fabric_notes'] = sanitize_textarea_field( $item_data['rfq_fabric_notes'] );
             }
+            $invite_list_for_meta = array();
             if ( isset( $item_data['rfq_draft_invited_suppliers'] ) && is_array( $item_data['rfq_draft_invited_suppliers'] ) ) {
-                $clean_invites = array();
                 foreach ( $item_data['rfq_draft_invited_suppliers'] as $invite ) {
                     $invite = trim( (string) $invite );
                     if ( '' === $invite ) {
                         continue;
                     }
-                    $clean_invites[] = substr( sanitize_text_field( $invite ), 0, 255 );
-                    if ( count( $clean_invites ) >= 5 ) {
+                    $invite_list_for_meta[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $invite_list_for_meta ) >= 5 ) {
                         break;
                     }
                 }
-                if ( ! empty( $clean_invites ) ) {
-                    $meta_json['rfq_draft_invited_suppliers'] = $clean_invites;
+            } elseif ( isset( $item_data['invited_suppliers'] ) && is_array( $item_data['invited_suppliers'] ) ) {
+                foreach ( $item_data['invited_suppliers'] as $invite ) {
+                    $invite = trim( (string) $invite );
+                    if ( '' === $invite ) {
+                        continue;
+                    }
+                    $invite_list_for_meta[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $invite_list_for_meta ) >= 5 ) {
+                        break;
+                    }
                 }
+            }
+            if ( ! empty( $invite_list_for_meta ) ) {
+                $meta_json['rfq_draft_invited_suppliers'] = $invite_list_for_meta;
             }
             $meta_json['rfq_draft_allow_system_invites'] = ! empty( $item_data['rfq_draft_allow_system_invites'] );
             if ( isset( $item_data['selected_keyword_ids'] ) && is_array( $item_data['selected_keyword_ids'] ) ) {
@@ -388,8 +401,15 @@ class N88_Items {
                 'updated_at'    => $now,
             );
             $insert_format = array( '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s' );
-            if ( $has_project_id && $project_id > 0 ) {
-                $insert_data['project_id'] = $project_id;
+            $resolved_row_project = $project_id;
+            $fp_counter_project   = 0;
+            if ( 'full_process' === $entry_mode && class_exists( 'N88_Item_Unlock' ) ) {
+                $fp_counter_project   = N88_Item_Unlock::resolve_fp_project_for_new_item( $user_id, $board_id, $project_id );
+                $resolved_row_project = $fp_counter_project;
+            }
+
+            if ( $has_project_id && $resolved_row_project > 0 ) {
+                $insert_data['project_id'] = $resolved_row_project;
                 $insert_format[] = '%d';
             }
             if ( $has_room_id && $room_id > 0 ) {
@@ -403,6 +423,16 @@ class N88_Items {
             if ( $primary_image_id > 0 ) {
                 $insert_data['primary_image_id'] = $primary_image_id;
                 $insert_format[] = '%d';
+            }
+
+            if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+                $uf                       = N88_Item_Unlock::flags_for_new_item( $entry_mode, $fp_counter_project, $user_id );
+                $insert_data['is_free']   = $uf['is_free'];
+                $insert_data['is_paid']   = $uf['is_paid'];
+                $insert_data['is_locked'] = $uf['is_locked'];
+                $insert_format[]          = '%d';
+                $insert_format[]          = '%d';
+                $insert_format[]          = '%d';
             }
 
             $inserted = $wpdb->insert( $table, $insert_data, $insert_format );
@@ -433,6 +463,8 @@ class N88_Items {
                     N88_Item_Timeline::bootstrap_production_only_timeline( $item_id );
                 }
             }
+
+            do_action( 'n88_after_item_created', $item_id );
 
             if ( $board_id > 0 ) {
                 if ( ! isset( $board_item_links[ $board_id ] ) ) {
@@ -709,7 +741,7 @@ class N88_Items {
             'entry_mode'   => $entry_mode,
         );
         if ( 'production_only' === $entry_mode ) {
-            $meta_json['entry_current_step'] = '4_locked';
+            $meta_json['entry_current_step'] = '3_activation';
             $meta_json['step_1_status'] = 'external_complete';
             $meta_json['step_2_status'] = 'external_complete';
             $meta_json['execution_payment_status'] = 'not_started';
@@ -746,26 +778,42 @@ class N88_Items {
             $meta_json['rfq_fabric_notes'] = sanitize_textarea_field( wp_unslash( $_POST['rfq_fabric_notes'] ) );
         }
 
-        // Optional: draft invite data so Invite Suppliers can be pre-filled when opening RFQ later.
+        // Optional: draft invite data so Invite Makers / RFQ picks up routed suppliers later.
+        $draft_invites_for_meta = array();
         if ( isset( $_POST['rfq_draft_invited_suppliers'] ) ) {
             $draft_invites_raw = wp_unslash( $_POST['rfq_draft_invited_suppliers'] );
             $draft_invites     = json_decode( $draft_invites_raw, true );
             if ( is_array( $draft_invites ) ) {
-                $clean_invites = array();
                 foreach ( $draft_invites as $invite ) {
                     $invite = trim( (string) $invite );
                     if ( $invite === '' ) {
                         continue;
                     }
-                    $clean_invites[] = substr( sanitize_text_field( $invite ), 0, 255 );
-                    if ( count( $clean_invites ) >= 5 ) {
+                    $draft_invites_for_meta[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $draft_invites_for_meta ) >= 5 ) {
                         break;
                     }
                 }
-                if ( ! empty( $clean_invites ) ) {
-                    $meta_json['rfq_draft_invited_suppliers'] = $clean_invites;
+            }
+        } elseif ( isset( $_POST['invited_suppliers'] ) ) {
+            // Some flows (legacy / alternate forms) only send invited_suppliers.
+            $alt_raw = wp_unslash( $_POST['invited_suppliers'] );
+            $alt_arr = json_decode( $alt_raw, true );
+            if ( is_array( $alt_arr ) ) {
+                foreach ( $alt_arr as $invite ) {
+                    $invite = trim( (string) $invite );
+                    if ( $invite === '' ) {
+                        continue;
+                    }
+                    $draft_invites_for_meta[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $draft_invites_for_meta ) >= 5 ) {
+                        break;
+                    }
                 }
             }
+        }
+        if ( ! empty( $draft_invites_for_meta ) ) {
+            $meta_json['rfq_draft_invited_suppliers'] = $draft_invites_for_meta;
         }
         if ( isset( $_POST['rfq_draft_allow_system_invites'] ) ) {
             $flag = wp_unslash( $_POST['rfq_draft_allow_system_invites'] );
@@ -884,9 +932,18 @@ class N88_Items {
         $columns = $wpdb->get_col( "DESCRIBE {$table_safe}" );
         $has_meta_json = in_array( 'meta_json', $columns, true );
         
-        // Commit 2.5.2: Get project_id and room_id if provided
-        $project_id = isset( $_POST['project_id'] ) ? absint( $_POST['project_id'] ) : null;
-        $room_id = isset( $_POST['room_id'] ) ? absint( $_POST['room_id'] ) : null;
+        // Commit 2.5.2: Board / project / room context (unlock counter is per project; board resolves default project).
+        $project_id_req = isset( $_POST['project_id'] ) ? absint( $_POST['project_id'] ) : 0;
+        $room_id       = isset( $_POST['room_id'] ) ? absint( $_POST['room_id'] ) : 0;
+        $board_id_req  = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
+        $has_project_id_col = in_array( 'project_id', $columns, true );
+
+        $fp_counter_project = 0;
+        $row_project_id     = $project_id_req;
+        if ( 'full_process' === $entry_mode && class_exists( 'N88_Item_Unlock' ) ) {
+            $fp_counter_project = N88_Item_Unlock::resolve_fp_project_for_new_item( $user_id, $board_id_req, $project_id_req );
+            $row_project_id     = $fp_counter_project;
+        }
         
         // Insert item
         $insert_data = array(
@@ -902,8 +959,8 @@ class N88_Items {
         $insert_format = array( '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s' );
         
         // Commit 2.5.2: Add project_id and room_id if provided
-        if ( $project_id > 0 ) {
-            $insert_data['project_id'] = $project_id;
+        if ( $has_project_id_col && $row_project_id > 0 ) {
+            $insert_data['project_id'] = $row_project_id;
             $insert_format[] = '%d';
         }
         if ( $room_id > 0 ) {
@@ -925,6 +982,16 @@ class N88_Items {
         if ( $primary_image_id ) {
             $insert_data['primary_image_id'] = $primary_image_id;
             $insert_format[] = '%d';
+        }
+
+        if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+            $uf                       = N88_Item_Unlock::flags_for_new_item( $entry_mode, $fp_counter_project, $user_id );
+            $insert_data['is_free']   = $uf['is_free'];
+            $insert_data['is_paid']   = $uf['is_paid'];
+            $insert_data['is_locked'] = $uf['is_locked'];
+            $insert_format[]          = '%d';
+            $insert_format[]          = '%d';
+            $insert_format[]          = '%d';
         }
         
         $inserted = $wpdb->insert(
@@ -966,12 +1033,14 @@ class N88_Items {
             }
         }
 
+        do_action( 'n88_after_item_created', $item_id );
+
         // Ensure designer profile exists (lazy creation)
         $this->ensure_designer_profile( $user_id );
 
         // If board_id provided, add item to board
         $added_to_board = false;
-        $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
+        $board_id = $board_id_req;
         if ( $board_id > 0 ) {
             // Verify board exists and user owns it
             $board = N88_Authorization::get_board_for_user( $board_id, $user_id );
@@ -2563,6 +2632,14 @@ class N88_Items {
             wp_send_json_error( array( 'message' => 'Failed to update item. Database error: ' . $wpdb->last_error ) );
             return;
         }
+
+        if ( array_key_exists( 'rfq_draft_invited_suppliers', $payload ) ) {
+            /**
+             * Creating n88_rfq_routes only ran on insert; canvas/batch/item-modal saves invites later.
+             * @see N88_RFQ_Auth::after_item_created_sync_invited_supplier_routes
+             */
+            do_action( 'n88_item_supplier_invites_maybe_sync_routes', $item_id );
+        }
         
         // Verify the save worked by reading back from database
         $verify_meta_json = $wpdb->get_var( $wpdb->prepare(
@@ -2570,6 +2647,12 @@ class N88_Items {
             $item_id
         ) );
         $verify_meta = ! empty( $verify_meta_json ) ? json_decode( $verify_meta_json, true ) : array();
+
+        if ( is_array( $verify_meta ) && isset( $verify_meta['entry_mode'] ) && 'production_only' === sanitize_key( (string) $verify_meta['entry_mode'] ) ) {
+            if ( class_exists( 'N88_Item_Timeline' ) && method_exists( 'N88_Item_Timeline', 'bootstrap_production_only_timeline' ) ) {
+                N88_Item_Timeline::bootstrap_production_only_timeline( $item_id );
+            }
+        }
         
         error_log( 'Item Facts Save - Database update result: ' . ( $result > 0 ? 'SUCCESS (' . $result . ' rows updated)' : 'NO ROWS UPDATED' ) );
         error_log( 'Item Facts Save - Verified meta_json after save: ' . wp_json_encode( $verify_meta ) );
@@ -2886,5 +2969,126 @@ class N88_Items {
             'title' => $attachment_title ? sanitize_text_field( $attachment_title ) : sanitize_file_name( $attachment_filename ),
             'filename' => sanitize_file_name( $attachment_filename ),
         ) );
+    }
+
+    /**
+     * Commit 3.D.8B: Instant unlock (display $149; no checkout in this handler).
+     */
+    public function ajax_unlock_item() {
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'You must be logged in.' ), 401 );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ), 400 );
+        }
+
+        if ( ! class_exists( 'N88_Item_Unlock' ) || ! N88_Item_Unlock::items_unlock_columns_exist() ) {
+            wp_send_json_error( array( 'message' => 'Unlock is not available.' ), 400 );
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $row         = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, owner_user_id, meta_json, is_free, is_paid, is_locked FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+                $item_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $row ) {
+            wp_send_json_error( array( 'message' => 'Item not found.' ), 404 );
+        }
+
+        $uid = get_current_user_id();
+        if ( (int) $row['owner_user_id'] !== $uid && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $meta = ! empty( $row['meta_json'] ) ? json_decode( $row['meta_json'], true ) : array();
+        $meta = is_array( $meta ) ? $meta : array();
+        if ( N88_Item_Unlock::normalized_entry_mode( $meta ) !== 'full_process' ) {
+            wp_send_json_error( array( 'message' => 'This item does not require unlock.' ), 400 );
+        }
+
+        if ( N88_Item_Unlock::workflow_eligible( $meta, isset( $row['is_free'] ) ? $row['is_free'] : 0, isset( $row['is_paid'] ) ? $row['is_paid'] : 0 ) ) {
+            wp_send_json_success(
+                array(
+                    'item_id'            => $item_id,
+                    'is_free'            => (bool) intval( $row['is_free'] ),
+                    'is_paid'            => (bool) intval( $row['is_paid'] ),
+                    'is_locked'          => false,
+                    'workflow_eligible'  => true,
+                    'unlock_price_usd'   => N88_Item_Unlock::UNLOCK_PRICE_USD,
+                )
+            );
+        }
+
+        $updated = $wpdb->update(
+            $items_table,
+            array(
+                'is_free'   => 0,
+                'is_paid'   => 1,
+                'is_locked' => 0,
+            ),
+            array( 'id' => $item_id ),
+            array( '%d', '%d', '%d' ),
+            array( '%d' )
+        );
+
+        if ( false === $updated ) {
+            wp_send_json_error( array( 'message' => 'Failed to unlock item.' ), 500 );
+        }
+
+        wp_send_json_success(
+            array(
+                'item_id'           => $item_id,
+                'is_free'           => false,
+                'is_paid'           => true,
+                'is_locked'         => false,
+                'workflow_eligible' => true,
+                'unlock_price_usd'  => N88_Item_Unlock::UNLOCK_PRICE_USD,
+            )
+        );
+    }
+
+    /**
+     * Commit 3.D.8B: Lightweight batch eligibility (IDs only).
+     */
+    public function ajax_validate_items_workflow_eligibility() {
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'You must be logged in.' ), 401 );
+        }
+
+        if ( ! class_exists( 'N88_Item_Unlock' ) ) {
+            wp_send_json_error( array( 'message' => 'Server configuration error.' ), 500 );
+        }
+
+        $raw = isset( $_POST['item_ids'] ) ? wp_unslash( $_POST['item_ids'] ) : '[]';
+        $ids = json_decode( $raw, true );
+        if ( ! is_array( $ids ) ) {
+            $ids = array();
+        }
+
+        $ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        foreach ( $ids as $chk ) {
+            $owner = (int) $wpdb->get_var( $wpdb->prepare( "SELECT owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL", $chk ) );
+            if ( $owner !== get_current_user_id() && ! current_user_can( 'manage_options' ) ) {
+                wp_send_json_error( array( 'message' => 'Access denied for one or more items.' ), 403 );
+            }
+        }
+
+        $result = N88_Item_Unlock::validate_item_ids_workflow_eligible( $ids );
+
+        wp_send_json_success( $result );
     }
 }

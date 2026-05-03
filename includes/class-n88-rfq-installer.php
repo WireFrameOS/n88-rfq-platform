@@ -1227,6 +1227,9 @@ class N88_RFQ_Installer {
         // Commit 2.6.1: Migrate firm_members table for pending invitations
         self::migrate_firm_members_for_invitations();
 
+        // Commit 3.D.8B: Item unlock columns + project FP counter (stored entitlement)
+        self::migrate_commit_3_d_8_b_item_unlock();
+
         // Commit 3.A.1: Item Timeline Spine (immutable 6-step per item)
         self::create_phase_3_a_1_item_timeline_tables( $charset_collate );
 
@@ -4119,6 +4122,182 @@ class N88_RFQ_Installer {
         if ( ! in_array( 'room_id', $items_columns, true ) ) {
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN room_id BIGINT UNSIGNED NULL AFTER project_id" );
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY room_id (room_id)" );
+        }
+    }
+
+    /**
+     * Commit 3.D.8B: Per-item unlock flags + per-project full_process_item_count (no render-time counting).
+     */
+    private static function migrate_commit_3_d_8_b_item_unlock() {
+        global $wpdb;
+
+        $unlock_file = dirname( __FILE__ ) . '/class-n88-item-unlock.php';
+        if ( file_exists( $unlock_file ) ) {
+            require_once $unlock_file;
+        }
+
+        $items_table     = $wpdb->prefix . 'n88_items';
+        $items_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table );
+        $projects_table  = $wpdb->prefix . 'n88_projects';
+        $projects_safe   = preg_replace( '/[^a-zA-Z0-9_]/', '', $projects_table );
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$items_table_safe}'" ) !== $items_table_safe ) {
+            return;
+        }
+
+        $items_columns = $wpdb->get_col( "DESCRIBE {$items_table_safe}" );
+        if ( ! in_array( 'is_free', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN is_free TINYINT(1) NOT NULL DEFAULT 1 AFTER updated_at" );
+        }
+        if ( ! in_array( 'is_paid', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN is_paid TINYINT(1) NOT NULL DEFAULT 0 AFTER is_free" );
+        }
+        if ( ! in_array( 'is_locked', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN is_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER is_paid" );
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$projects_safe}'" ) === $projects_safe ) {
+            $proj_cols = $wpdb->get_col( "DESCRIBE {$projects_safe}" );
+            if ( ! in_array( 'full_process_item_count', $proj_cols, true ) ) {
+                $wpdb->query( "ALTER TABLE {$projects_safe} ADD COLUMN full_process_item_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER status" );
+            }
+        }
+
+        if ( get_option( N88_Item_Unlock::MIGRATION_OPTION_KEY, '' ) === '1' ) {
+            return;
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT id, owner_user_id, project_id, meta_json, created_at FROM {$items_table_safe} WHERE deleted_at IS NULL ORDER BY id ASC",
+            ARRAY_A
+        );
+        if ( ! is_array( $rows ) ) {
+            update_option( N88_Item_Unlock::MIGRATION_OPTION_KEY, '1' );
+            return;
+        }
+
+        $buckets = array();
+        foreach ( $rows as $r ) {
+            $id         = isset( $r['id'] ) ? (int) $r['id'] : 0;
+            $owner      = isset( $r['owner_user_id'] ) ? (int) $r['owner_user_id'] : 0;
+            $project_id = isset( $r['project_id'] ) ? (int) $r['project_id'] : 0;
+            $meta       = ! empty( $r['meta_json'] ) ? json_decode( $r['meta_json'], true ) : array();
+            $mode       = class_exists( 'N88_Item_Unlock' ) ? N88_Item_Unlock::normalized_entry_mode( $meta ) : 'full_process';
+            $key        = $project_id > 0 ? 'p' . $project_id : 'o' . max( 1, $owner );
+            if ( ! isset( $buckets[ $key ] ) ) {
+                $buckets[ $key ] = array();
+            }
+            $buckets[ $key ][] = array(
+                'id'         => $id,
+                'mode'       => $mode,
+                'created_at' => isset( $r['created_at'] ) ? (string) $r['created_at'] : '',
+            );
+        }
+
+        foreach ( $buckets as &$list ) {
+            usort(
+                $list,
+                function ( $a, $b ) {
+                    $ta = isset( $a['created_at'] ) ? strtotime( $a['created_at'] ) : 0;
+                    $tb = isset( $b['created_at'] ) ? strtotime( $b['created_at'] ) : 0;
+                    if ( $ta !== $tb ) {
+                        return $ta <=> $tb;
+                    }
+                    return ( $a['id'] ?? 0 ) <=> ( $b['id'] ?? 0 );
+                }
+            );
+        }
+        unset( $list );
+
+        foreach ( $buckets as $list ) {
+            $fp_seq = 0;
+            foreach ( $list as $entry ) {
+                $id   = (int) $entry['id'];
+                $mode = $entry['mode'];
+                if ( 'production_only' === $mode ) {
+                    $wpdb->update(
+                        $items_table_safe,
+                        array(
+                            'is_free'   => 0,
+                            'is_paid'   => 1,
+                            'is_locked' => 0,
+                        ),
+                        array( 'id' => $id ),
+                        array( '%d', '%d', '%d' ),
+                        array( '%d' )
+                    );
+                    continue;
+                }
+                $fp_seq++;
+                if ( $fp_seq <= N88_Item_Unlock::FULL_PROCESS_FREE_CAP ) {
+                    $wpdb->update(
+                        $items_table_safe,
+                        array(
+                            'is_free'   => 1,
+                            'is_paid'   => 0,
+                            'is_locked' => 0,
+                        ),
+                        array( 'id' => $id ),
+                        array( '%d', '%d', '%d' ),
+                        array( '%d' )
+                    );
+                } else {
+                    $wpdb->update(
+                        $items_table_safe,
+                        array(
+                            'is_free'   => 0,
+                            'is_paid'   => 0,
+                            'is_locked' => 1,
+                        ),
+                        array( 'id' => $id ),
+                        array( '%d', '%d', '%d' ),
+                        array( '%d' )
+                    );
+                }
+            }
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$projects_safe}'" ) === $projects_safe ) {
+            $project_rows = $wpdb->get_results(
+                "SELECT id FROM {$projects_safe} WHERE deleted_at IS NULL",
+                ARRAY_A
+            );
+            if ( is_array( $project_rows ) ) {
+                foreach ( $project_rows as $pr ) {
+                    $pid = isset( $pr['id'] ) ? (int) $pr['id'] : 0;
+                    if ( $pid <= 0 ) {
+                        continue;
+                    }
+                    $proj_items = $wpdb->get_results(
+                        $wpdb->prepare(
+                            "SELECT id, meta_json FROM {$items_table_safe} WHERE project_id = %d AND deleted_at IS NULL",
+                            $pid
+                        ),
+                        ARRAY_A
+                    );
+                    $cnt        = 0;
+                    if ( is_array( $proj_items ) ) {
+                        foreach ( $proj_items as $pi ) {
+                            $m = ! empty( $pi['meta_json'] ) ? json_decode( $pi['meta_json'], true ) : array();
+                            if ( N88_Item_Unlock::normalized_entry_mode( $m ) === 'full_process' ) {
+                                $cnt++;
+                            }
+                        }
+                    }
+                    $wpdb->update(
+                        $projects_safe,
+                        array( 'full_process_item_count' => $cnt ),
+                        array( 'id' => $pid ),
+                        array( '%d' ),
+                        array( '%d' )
+                    );
+                }
+            }
+        }
+
+        update_option( N88_Item_Unlock::MIGRATION_OPTION_KEY, '1' );
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( 'N88: migrate_commit_3_d_8_b_item_unlock completed.' );
         }
     }
 }

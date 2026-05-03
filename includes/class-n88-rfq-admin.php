@@ -635,6 +635,37 @@ class N88_RFQ_Admin {
     }
 
     /**
+     * Production-tracking items skip RFQ/award rows in DB — treat confirmed execution activation as awarded for timeline/milestones.
+     *
+     * @param array<string,mixed> $item_meta             Item meta (entry_mode…).
+     * @param array<string,mixed> $validation_card_state Return of get_item_validation_card_status().
+     * @param bool                $has_awarded_bid       Current flag from bids/meta.
+     * @return bool
+     */
+    private function apply_production_only_awarded_equivalent( $item_meta, $validation_card_state, $has_awarded_bid ) {
+        if ( $has_awarded_bid ) {
+            return true;
+        }
+        if ( ! is_array( $item_meta ) || ! is_array( $validation_card_state ) ) {
+            return false;
+        }
+        $entry = isset( $item_meta['entry_mode'] ) ? sanitize_key( (string) $item_meta['entry_mode'] ) : '';
+        if ( 'production_only' !== $entry ) {
+            return false;
+        }
+        $ex_pay = isset( $validation_card_state['execution_payment_status'] )
+            ? sanitize_key( (string) $validation_card_state['execution_payment_status'] )
+            : '';
+        if ( 'confirmed' === $ex_pay ) {
+            return true;
+        }
+        $nested = isset( $validation_card_state['commitment']['execution_activation']['payment_status'] )
+            ? sanitize_key( (string) $validation_card_state['commitment']['execution_activation']['payment_status'] )
+            : '';
+        return 'confirmed' === $nested;
+    }
+
+    /**
      * Map unified message context keys to workflow step indexes.
      *
      * @param string $context_type Context key.
@@ -4209,6 +4240,10 @@ class N88_RFQ_Admin {
                 if ( $has_project_room ) {
                     $select_fields .= ", i.project_id, i.room_id";
                 }
+                $has_unlock_cols_board = class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist();
+                if ( $has_unlock_cols_board ) {
+                    $select_fields .= ', i.is_free, i.is_paid, i.is_locked';
+                }
                 $projects_table = $wpdb->prefix . 'n88_projects';
                 $rooms_table = $wpdb->prefix . 'n88_project_rooms';
                 $projects_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$projects_table}'" ) === $projects_table;
@@ -4392,6 +4427,9 @@ class N88_RFQ_Admin {
                 if ( $is_operator_for_deposit && $has_meta_json && is_array( $board_items ) ) {
                     $on_board_ids = array_map( function( $b ) { return (int) $b->item_id; }, $board_items );
                     $deposit_review_sql = "SELECT i.id AS item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id, i.owner_user_id, i.meta_json";
+                    if ( ! empty( $has_unlock_cols_board ) ) {
+                        $deposit_review_sql .= ', i.is_free, i.is_paid, i.is_locked';
+                    }
                     if ( $has_project_room && $projects_table_exists ) {
                         $deposit_review_sql .= ", i.project_id, p.name AS project_name";
                     }
@@ -4764,6 +4802,7 @@ class N88_RFQ_Admin {
                             $item_meta['id'] = $item_id;
                         }
                         $validation_card_state = $this->get_item_validation_card_status( $item_meta );
+                        $has_awarded_bid        = $this->apply_production_only_awarded_equivalent( $item_meta, $validation_card_state, $has_awarded_bid );
 
                         // Commit 3.B.5.A1: Step 4–6 status for designer/operator item cards (supplier video, operator video, designer comment, step started/completed)
                         $step456_status_text = null;
@@ -4906,6 +4945,12 @@ class N88_RFQ_Admin {
                             'project_name' => ( $has_project_room && $projects_table_exists && ! empty( $board_item->project_name ) ) ? sanitize_text_field( $board_item->project_name ) : null,
                             'room_name' => ( $has_project_room && $rooms_table_exists && ! empty( $board_item->room_name ) ) ? sanitize_text_field( $board_item->room_name ) : null,
                         );
+                        if ( class_exists( 'N88_Item_Unlock' ) ) {
+                            $uw = N88_Item_Unlock::frontend_payload_from_row( $board_item, $item_meta );
+                            foreach ( array( 'entry_mode', 'is_free', 'is_paid', 'is_locked', 'workflow_eligible', 'unlock_price_usd' ) as $unlock_key_board ) {
+                                $item_payload[ $unlock_key_board ] = $uw[ $unlock_key_board ];
+                            }
+                        }
                         if ( $this->is_cad_prototype_enabled() ) {
                             $item_payload['has_prototype_video_submitted'] = $has_prototype_video_submitted;
                             $item_payload['prototype_status'] = $prototype_status;
@@ -5199,6 +5244,7 @@ class N88_RFQ_Admin {
                             $item_meta['id'] = $item_id;
                         }
                         $validation_card_state = $this->get_item_validation_card_status( $item_meta );
+                        $has_awarded_bid        = $this->apply_production_only_awarded_equivalent( $item_meta, $validation_card_state, $has_awarded_bid );
 
                         // Commit 3.B.5.A1: Step 4–6 status for new items (no layout)
                         $step456_status_text_else = null;
@@ -5334,6 +5380,12 @@ class N88_RFQ_Admin {
                             'project_name' => ( $has_project_room && $projects_table_exists && ! empty( $board_item->project_name ) ) ? sanitize_text_field( $board_item->project_name ) : null,
                             'room_name' => ( $has_project_room && $rooms_table_exists && ! empty( $board_item->room_name ) ) ? sanitize_text_field( $board_item->room_name ) : null,
                         );
+                        if ( class_exists( 'N88_Item_Unlock' ) ) {
+                            $uw = N88_Item_Unlock::frontend_payload_from_row( $board_item, $item_meta );
+                            foreach ( array( 'entry_mode', 'is_free', 'is_paid', 'is_locked', 'workflow_eligible', 'unlock_price_usd' ) as $unlock_key_board ) {
+                                $item_payload[ $unlock_key_board ] = $uw[ $unlock_key_board ];
+                            }
+                        }
                         if ( $this->is_cad_prototype_enabled() ) {
                             $item_payload['has_prototype_video_submitted'] = $has_prototype_video_submitted;
                             $item_payload['prototype_status'] = $prototype_status;
@@ -9160,8 +9212,9 @@ class N88_RFQ_Admin {
                             rfq_overall_notes: isTrackingMode ? '' : (overallNotesBlock ? (overallNotesBlock.value || '') : ''),
                             rfq_fabric_supplied_flag: isTrackingMode ? 'yes' : ((fabricNoRadio && fabricNoRadio.checked) ? 'no' : 'yes'),
                             rfq_fabric_notes: isTrackingMode ? '' : (fabricNotesBlock ? (fabricNotesBlock.value || '') : ''),
-                            rfq_draft_invited_suppliers: isTrackingMode ? [] : invitedBlock,
-                            rfq_draft_allow_system_invites: isTrackingMode ? 0 : (allowSystemBlock ? 1 : 0),
+                            // Production-tracking boards still invite a maker by email; routes must be saved so queues work.
+                            rfq_draft_invited_suppliers: invitedBlock.slice(0, 5),
+                            rfq_draft_allow_system_invites: allowSystemBlock ? 1 : 0,
                             image_captions: orderedCaptions
                         },
                         orderedFiles: orderedFiles
@@ -9651,7 +9704,9 @@ class N88_RFQ_Admin {
                                     
                                     var body = document.createElement('div');
                                     body.className = 'n88-postsave-body';
-                                    body.textContent = 'You can request quotes now or return later after refining your specifications.';
+                                    body.textContent = selectedEntryMode === 'production_only'
+                                        ? 'Your production items were added. Continue in the workspace to manage milestones and production tracking.'
+                                        : 'You can request quotes now or return later after refining your specifications.';
                                     card.appendChild(body);
                                     
                                     var added = document.createElement('div');
@@ -9679,12 +9734,14 @@ class N88_RFQ_Admin {
                                     
                                     var goBtn = document.createElement('button');
                                     goBtn.textContent = '[ Go to Workspace ]';
-                                    
-                                    var rfqBtn = document.createElement('button');
-                                    rfqBtn.textContent = isSingle ? '[ Request Quote Now ]' : '[ Request Quotes Now ]';
-                                    
                                     footer.appendChild(goBtn);
-                                    footer.appendChild(rfqBtn);
+
+                                    var rfqBtn = null;
+                                    if (selectedEntryMode !== 'production_only') {
+                                        rfqBtn = document.createElement('button');
+                                        rfqBtn.textContent = isSingle ? '[ Request Quote Now ]' : '[ Request Quotes Now ]';
+                                        footer.appendChild(rfqBtn);
+                                    }
                                     card.appendChild(footer);
                                     overlay.appendChild(card);
                                     
@@ -9719,7 +9776,7 @@ class N88_RFQ_Admin {
                                         var url = buildBoardUrl();
                                         if (url) window.location.href = url;
                                     };
-                                    rfqBtn.onclick = function() {
+                                    if (rfqBtn) rfqBtn.onclick = function() {
                                         try {
                                             if (!createdItemIds || createdItemIds.length === 0) {
                                                 alert('No items were created for RFQ.');
@@ -11396,6 +11453,30 @@ class N88_RFQ_Admin {
                     XL: { w: 360, h: 450 },
                 };
 
+                /** Commit 3.D.8B: full-process locked items excluded from RFQ/proposal batch + award/samples UI. Production-only bypasses. */
+                var boardItemWorkflowEligible = function(itemLike) {
+                    if (!itemLike || typeof itemLike !== 'object') return true;
+                    var rs = itemLike.rfq_state && typeof itemLike.rfq_state === 'object' ? itemLike.rfq_state : null;
+                    var em = String(itemLike.entry_mode || (rs && rs.entry_mode) || (itemLike.meta && itemLike.meta.entry_mode) || '').toLowerCase();
+                    if (em === 'production_only') return true;
+                    var w = itemLike.workflow_eligible;
+                    if (typeof w === 'undefined' && rs && typeof rs.workflow_eligible !== 'undefined') w = rs.workflow_eligible;
+                    if (w === false || w === 0 || w === '0') return false;
+                    if (w === true || w === 1 || w === '1') return true;
+                    var locked = itemLike.is_locked === true || itemLike.is_locked === 1 || itemLike.is_locked === '1';
+                    if (!locked && rs && (rs.is_locked === true || rs.is_locked === 1 || rs.is_locked === '1')) locked = true;
+                    if (locked && (!em || em === 'full_process')) return false;
+                    return true;
+                };
+                var boardItemUnlockDisplayUsd = function(itemLike) {
+                    if (!itemLike || typeof itemLike !== 'object') return 149;
+                    var rs = itemLike.rfq_state && typeof itemLike.rfq_state === 'object' ? itemLike.rfq_state : null;
+                    var v = itemLike.unlock_price_usd;
+                    if (typeof v === 'undefined' && rs) v = rs.unlock_price_usd;
+                    var n = parseFloat(v);
+                    return !isNaN(n) && n > 0 ? n : 149;
+                };
+
                 var getBoardItemBatchProposalOpenState = function(targetItem) {
                     var itemData = targetItem && typeof targetItem === 'object' ? targetItem : {};
                     var truthy = function(v) {
@@ -11590,7 +11671,9 @@ class N88_RFQ_Admin {
                     var batchSelectionIntent = (_batchSelection && _batchSelection.intent) ? _batchSelection.intent : 'rfq';
                     var batchSelected = !!(_batchSelection && _batchSelection.selected);
                     var hasRfqAlready = item && (item.has_rfq === true || item.has_rfq === 1 || item.has_rfq === '1' || item.has_rfq === 'true');
-                    var batchSelectionBlocked = batchSelectionIntent === 'rfq' && hasRfqAlready;
+                    var wfEligibleCard = boardItemWorkflowEligible(item);
+                    var batchSelectionBlockedReason = (!wfEligibleCard) ? 'locked' : ((batchSelectionIntent === 'rfq' && hasRfqAlready) ? 'rfq_sent' : '');
+                    var batchSelectionBlocked = batchSelectionBlockedReason !== '';
                     var toggleBatchSelect = function(e) {
                         if (e) {
                             if (e.preventDefault) e.preventDefault();
@@ -11614,6 +11697,9 @@ class N88_RFQ_Admin {
                     var _priceState = React.useState(false);
                     var priceRequested = _priceState[0];
                     var setPriceRequested = _priceState[1];
+                    var _boardItemUnlockingState = React.useState(false);
+                    var isBoardItemUnlocking = _boardItemUnlockingState[0];
+                    var setBoardItemUnlocking = _boardItemUnlockingState[1];
                     
                     // Modal state for ItemDetailModal
                     var _modalState = React.useState(false);
@@ -11833,13 +11919,30 @@ class N88_RFQ_Admin {
                         if (!entryMode && item && item.meta && item.meta.entry_mode) entryMode = String(item.meta.entry_mode);
                         entryMode = entryMode.toLowerCase();
                         if (entryMode === 'production_only') {
+                            var vsProd = item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null;
+                            var execPay = '';
+                            if (vsProd) {
+                                execPay = vsProd.execution_payment_status ? String(vsProd.execution_payment_status).toLowerCase() : '';
+                                if (!execPay && vsProd.commitment && vsProd.commitment.execution_activation && vsProd.commitment.execution_activation.payment_status) {
+                                    execPay = String(vsProd.commitment.execution_activation.payment_status).toLowerCase();
+                                }
+                            }
+                            if (execPay === 'confirmed') {
+                                return { text: 'In Production', color: '#2e7d32', dot: '#2e7d32' };
+                            }
+                            if (execPay === 'pending_verification') {
+                                return { text: 'Activation payment verification', color: '#f57c00', dot: '#f57c00' };
+                            }
+                            if (execPay === 'pending') {
+                                return { text: 'Activation payment submitted', color: '#f57c00', dot: '#f57c00' };
+                            }
                             var timelineSteps = (item && item.timeline && Array.isArray(item.timeline.steps)) ? item.timeline.steps : [];
                             var step4 = timelineSteps.find(function(s) { return parseInt(s.step_number, 10) === 4; });
                             if (step4 && String(step4.status || '').toLowerCase() === 'in_progress') {
                                 return { text: 'In Production', color: '#2e7d32', dot: '#2e7d32' };
                             }
                             if (step4 && String(step4.status || '').toLowerCase() === 'completed') {
-                                return { text: 'CAD Pending', color: '#f4b400', dot: '#f4b400' };
+                                return { text: 'Step 4 completed', color: '#2e7d32', dot: '#2e7d32' };
                             }
                             return { text: 'Production Tracking', color: '#1e88e5', dot: '#1e88e5' };
                         }
@@ -12415,6 +12518,45 @@ class N88_RFQ_Admin {
                         }).catch(function(err) { console.error(err); alert('Error deleting item.'); });
                     };
 
+                    var itemEntryModeCard = String(item.entry_mode || (item.rfq_state && item.rfq_state.entry_mode) || (item.meta && item.meta.entry_mode) || '').toLowerCase();
+                    var showCardUnlock = !batchSelectionMode && itemEntryModeCard === 'full_process' && !wfEligibleCard;
+                    var handleUnlockItemFromCard = function(ev) {
+                        if (ev) {
+                            if (ev.preventDefault) ev.preventDefault();
+                            if (ev.stopPropagation) ev.stopPropagation();
+                        }
+                        if (isBoardItemUnlocking) return;
+                        var rawId = item.id;
+                        var numericId = typeof rawId === 'string' && rawId.indexOf('item-') === 0 ? parseInt(rawId.replace('item-', ''), 10) : parseInt(rawId, 10);
+                        if (!numericId || numericId <= 0) return;
+                        var ajaxUrlBU = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonceBU = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!nonceBU) {
+                            alert('Security token missing. Refresh the page.');
+                            return;
+                        }
+                        setBoardItemUnlocking(true);
+                        var fdBU = new FormData();
+                        fdBU.append('action', 'n88_unlock_item');
+                        fdBU.append('item_id', String(numericId));
+                        fdBU.append('nonce', nonceBU);
+                        fetch(ajaxUrlBU, { method: 'POST', body: fdBU, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(dBU) {
+                            if (dBU && dBU.success && dBU.data) {
+                                if (typeof updateLayout === 'function') {
+                                    updateLayout(item.id, {
+                                        workflow_eligible: true,
+                                        is_locked: false,
+                                        is_paid: !!dBU.data.is_paid,
+                                        is_free: !!dBU.data.is_free,
+                                        unlock_price_usd: dBU.data.unlock_price_usd || boardItemUnlockDisplayUsd(item)
+                                    });
+                                }
+                            } else {
+                                alert((dBU && dBU.data && dBU.data.message) || (dBU && dBU.message) || 'Unlock failed.');
+                            }
+                        }).catch(function(eBU) { console.error(eBU); alert('Unlock failed.'); }).finally(function() { setBoardItemUnlocking(false); });
+                    };
+
                     return React.createElement(motion.div, {
                         layoutId: 'board-item-' + item.id,
                         style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: batchSelectionMode ? (batchSelectionBlocked ? 'not-allowed' : 'pointer') : 'grab', overflow: 'visible' },
@@ -12478,7 +12620,8 @@ class N88_RFQ_Admin {
                     }, 
                     !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
                     batchSelectionMode && !batchSelectionBlocked ? React.createElement('button', { type: 'button', title: batchSelected ? 'Deselect item' : 'Select item', 'aria-label': batchSelected ? 'Deselect item' : 'Select item', onClick: toggleBatchSelect, style: { position: 'absolute', top: '8px', left: '8px', width: '26px', height: '26px', borderRadius: '50%', border: '2px solid #fff', backgroundColor: batchSelected ? 'rgb(255, 0, 101)' : 'rgba(0,0,0,0.55)', color: '#fff', fontSize: '14px', lineHeight: '22px', textAlign: 'center', cursor: 'pointer', zIndex: 21 } }, batchSelected ? '✓' : '') : null,
-                    batchSelectionMode && batchSelectionBlocked ? React.createElement('div', { style: { position: 'absolute', top: '8px', right: '8px', padding: '3px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,152,0,0.95)', color: '#111', fontSize: '10px', fontWeight: 600, zIndex: 21 } }, 'RFQ already sent') : null,
+                    batchSelectionMode && batchSelectionBlocked ? React.createElement('div', { style: { position: 'absolute', top: '8px', right: '8px', padding: '3px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,152,0,0.95)', color: '#111', fontSize: '10px', fontWeight: 600, zIndex: 21, maxWidth: 'calc(100% - 16px)', textAlign: 'right', lineHeight: 1.2 } }, batchSelectionBlockedReason === 'locked' ? 'Unlock to batch' : 'RFQ already sent') : null,
+                    showCardUnlock ? React.createElement('button', { type: 'button', disabled: isBoardItemUnlocking, onClick: handleUnlockItemFromCard, title: 'Unlock full-process workflow', style: { position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px', border: 'none', backgroundColor: 'rgb(255, 0, 101)', color: '#fff', fontSize: '10px', fontWeight: 700, cursor: isBoardItemUnlocking ? 'wait' : 'pointer', zIndex: 22, opacity: isBoardItemUnlocking ? 0.7 : 1 } }, isBoardItemUnlocking ? '…' : ('Unlock $' + String(boardItemUnlockDisplayUsd(item)))) : null,
                     !batchSelectionMode ? React.createElement('button', { type: 'button', title: 'Options', 'aria-label': 'Open menu', onClick: function(e) { e.stopPropagation(); e.preventDefault(); setContextMenuOpen(function(v) { return !v; }); }, style: { position: 'absolute', top: '8px', right: '8px', width: '28px', height: '28px', padding: 0, margin: 0, fontSize: '16px', lineHeight: '28px', textAlign: 'center', cursor: 'pointer', backgroundColor: contextMenuOpen ? '#000' : '#E5E5E5', color: 'rgb(255, 0, 101)', border: '1px solid rgb(255, 0, 101)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', zIndex: 20, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' } }, '\u22EE') : null,
                     !batchSelectionMode && contextMenuOpen ? React.createElement('div', { style: { position: 'absolute', left: '100%', top: '0', marginLeft: '8px', minWidth: '220px', padding: '12px 14px', backgroundColor: '#3a3a3a', borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 25, fontSize: '13px', color: '#fff' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '8px' } }, 'Card size:'), React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' } }, ['S', 'D', 'L', 'XL'].map(function(sz) { return React.createElement('button', { key: sz, type: 'button', onClick: function(ev) { ev.stopPropagation(); handleSizeChange(sz, ev); setContextMenuOpen(false); }, style: { padding: '4px 10px', fontSize: '12px', cursor: 'pointer', backgroundColor: 'transparent', color: currentSize === sz ? 'rgb(255, 0, 101)' : '#fff', border: 'none', borderRadius: '2px', fontWeight: currentSize === sz ? 600 : 400 } }, '[' + sz + ']'); })), React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(function(v) { return !v; }); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px' } }, 'Move to project / room'), movePanelOpen ? React.createElement('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.2)' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a project'), React.createElement('select', { value: selectedProjectId || '', onChange: function(e) { setSelectedProjectId(Number(e.target.value) || 0); setSelectedRoomId(0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No project'), (boardProjects || []).map(function(p) { return React.createElement('option', { key: p.id, value: p.id }, p.name || (p.project_name || '')); })), React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a room (optional)'), React.createElement('select', { value: selectedRoomId || '', onChange: function(e) { setSelectedRoomId(Number(e.target.value) || 0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No room'), (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: r.id }, r.name || ''); })), React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', disabled: moveUpdateLoading, onClick: function(ev) { ev.preventDefault(); ev.stopPropagation(); if (!moveUpdateLoading) handleMoveUpdate(); }, style: { flex: 1, padding: '6px 10px', backgroundColor: moveUpdateLoading ? '#999' : 'rgb(255, 0, 101)', color: '#fff', border: 'none', borderRadius: '4px', cursor: moveUpdateLoading ? 'wait' : 'pointer', fontSize: '12px' } }, moveUpdateLoading ? 'Updating...' : 'Update'), React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(false); }, style: { padding: '6px 10px', backgroundColor: '#555', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' } }, 'Close'))) : null, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); handleDeleteItem(); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: 'rgb(255, 0, 101)', cursor: 'pointer', fontSize: '13px', marginTop: '4px' } }, 'Delete'))) : null
                     )
@@ -12504,19 +12647,6 @@ class N88_RFQ_Admin {
                         }
                     },
                         React.createElement('div', { style: { fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '1.2' } }, item.title || item.description || ('Item ' + item.id)),
-                        itemEntryMode === 'production_only' ? React.createElement('span', {
-                            style: {
-                                display: 'inline-flex',
-                                alignSelf: 'flex-start',
-                                fontSize: '9px',
-                                fontWeight: 600,
-                                color: '#1e88e5',
-                                border: '1px solid rgba(30,136,229,0.35)',
-                                backgroundColor: 'rgba(30,136,229,0.08)',
-                                borderRadius: '999px',
-                                padding: '2px 8px'
-                            }
-                        }, 'Production Tracking') : null,
                         // Status + Support row
                         React.createElement('div', {
                             style: {
@@ -15712,6 +15842,9 @@ class N88_RFQ_Admin {
                     var _isSubmittingRfqState = React.useState(false);
                     var isSubmittingRfq = _isSubmittingRfqState[0];
                     var setIsSubmittingRfq = _isSubmittingRfqState[1];
+                    var _isUnlockingItemWorkflowState = React.useState(false);
+                    var isUnlockingItemWorkflow = _isUnlockingItemWorkflowState[0];
+                    var setIsUnlockingItemWorkflow = _isUnlockingItemWorkflowState[1];
                     
                     var _rfqErrorState = React.useState('');
                     var rfqError = _rfqErrorState[0];
@@ -15988,13 +16121,26 @@ class N88_RFQ_Admin {
                     };
                     
                     // Active tab state
-                    var _activeTabState = React.useState(initialTabProp);
+                    var initialEntryModeTabSeed = String(
+                        (item && item.entry_mode) ||
+                        (item && item.meta && item.meta.entry_mode) ||
+                        (item && item.rfq_state && item.rfq_state.entry_mode) ||
+                        ''
+                    ).toLowerCase();
+                    var _activeTabState = React.useState(initialEntryModeTabSeed === 'production_only' ? 'timeline' : (initialTabProp || 'details'));
                     var activeTab = _activeTabState[0];
                     var setActiveTab = _activeTabState[1];
                     var itemEntryMode = String(
                         (itemState && itemState.entry_mode) ||
                         (item && item.entry_mode) ||
                         (item && item.meta && item.meta.entry_mode) ||
+                        (item && item.rfq_state && item.rfq_state.entry_mode) ||
+                        ((function() {
+                            try {
+                                var qp = new URLSearchParams(window.location.search || '');
+                                return qp.get('n88_entry_mode') || '';
+                            } catch (e) { return ''; }
+                        })()) ||
                         ''
                     ).toLowerCase();
                     var isProductionOnlyItem = itemEntryMode === 'production_only';
@@ -16090,10 +16236,11 @@ class N88_RFQ_Admin {
                         if (!isOpen) {
                             manualTabOverrideRef.current = false;
                             workflowTimelineUserNavRef.current = false;
-                            return;
                         }
+                    }, [isOpen]);
+                    React.useEffect(function() {
                         manualTabOverrideRef.current = false;
-                    }, [isOpen, itemId, initialTabProp, openToDetailsAndSupport]);
+                    }, [itemId]);
                     React.useEffect(function() {
                         workflowTimelineUserNavRef.current = false;
                     }, [itemId]);
@@ -16101,11 +16248,12 @@ class N88_RFQ_Admin {
                     // Keep active tab in sync with initialTab prop when it changes (e.g., auto-open RFQ)
                     React.useEffect(function() {
                         if (manualTabOverrideRef.current) return;
+                        if (isProductionOnlyItem) return;
                         if (!initialTabProp || openToDetailsAndSupport) return;
                         if (activeTab !== initialTabProp) {
                             setActiveTab(initialTabProp);
                         }
-                    }, [initialTabProp, openToDetailsAndSupport, activeTab]);
+                    }, [initialTabProp, openToDetailsAndSupport, activeTab, isProductionOnlyItem]);
                     React.useEffect(function() {
                         if (!isOpen || openToDetailsAndSupport || initialTabProp !== 'timeline' || initialTimelineStepProp === null) return;
                         setActiveTab('timeline');
@@ -16133,8 +16281,6 @@ class N88_RFQ_Admin {
                         if (!isOpen) return;
                         if (manualTabOverrideRef.current) return;
                         if (isProductionOnlyItem) {
-                            if (activeTab !== 'timeline') setActiveTab('timeline');
-                            setSelectedStepIndex(2);
                             return;
                         }
                         if (openToDetailsAndSupport) {
@@ -16208,8 +16354,10 @@ class N88_RFQ_Admin {
                         if (openToDetailsAndSupport) return;
                         if (manualTabOverrideRef.current) return;
                         if (isProductionOnlyItem) {
-                            setActiveTab('timeline');
-                            setSelectedStepIndex(2);
+                            if (isOpen && !itemState.loading && !workflowTimelineUserNavRef.current) {
+                                setActiveTab('timeline');
+                                setSelectedStepIndex(3);
+                            }
                             return;
                         }
                         if (isOpen && initialTabProp === 'timeline') {
@@ -17198,6 +17346,18 @@ class N88_RFQ_Admin {
                         };
                     }, []);
                     var shouldSkipRemoteTimelineFetch = React.useCallback(function() {
+                        if (isProductionOnlyItem) {
+                            return false;
+                        }
+                        var seedEntryModeTimeline = String(
+                            ((itemState && itemState.entry_mode) ? itemState.entry_mode : '') ||
+                            (item && item.entry_mode ? item.entry_mode : '') ||
+                            (item && item.meta && item.meta.entry_mode ? item.meta.entry_mode : '') ||
+                            ''
+                        ).toLowerCase();
+                        if (seedEntryModeTimeline === 'production_only') {
+                            return false;
+                        }
                         var isCadPrototypeEnabled = !!(window.n88BoardData && window.n88BoardData.isCadPrototypeEnabled);
                         if (!isCadPrototypeEnabled) {
                             return true;
@@ -17227,7 +17387,7 @@ class N88_RFQ_Admin {
                             return true;
                         }
                         return !hasValidationFlow && !hasBids && !hasRfq && !hasPrototypeFlow && !hasAwarded;
-                    }, [itemState]);
+                    }, [itemState, isProductionOnlyItem, item]);
                     var fetchTimeline = React.useCallback(function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) return;
                         if (shouldSkipRemoteTimelineFetch()) {
@@ -17244,6 +17404,20 @@ class N88_RFQ_Admin {
                         }
                         if (!window.n88BoardTimelineCache) {
                             window.n88BoardTimelineCache = {};
+                        }
+                        var cachedTimelineCandidate = window.n88BoardTimelineCache[itemId];
+                        var timelineSeedEmFetch = String(
+                            ((itemState && itemState.entry_mode) ? itemState.entry_mode : '') ||
+                            (item && item.entry_mode ? item.entry_mode : '') ||
+                            (item && item.meta && item.meta.entry_mode ? item.meta.entry_mode : '') ||
+                            ''
+                        ).toLowerCase();
+                        if (
+                            cachedTimelineCandidate &&
+                            (Number(cachedTimelineCandidate.timeline_id) === 0 || !cachedTimelineCandidate.timeline_id) &&
+                            (isProductionOnlyItem || timelineSeedEmFetch === 'production_only')
+                        ) {
+                            delete window.n88BoardTimelineCache[itemId];
                         }
                         if (window.n88BoardTimelineCache[itemId]) {
                             setTimelineData(window.n88BoardTimelineCache[itemId]);
@@ -17327,13 +17501,17 @@ class N88_RFQ_Admin {
                             setTimelineData(null);
                             setTimelineError(null);
                         }
-                        setSelectedStepIndex(0);
+                        if (isProductionOnlyItem) {
+                            setSelectedStepIndex(3);
+                        } else {
+                            setSelectedStepIndex(0);
+                        }
                         setSupplierStepEvidenceView(null);
                         setOperatorStep456VideoFormStep(null);
                         setDetailsEditMode(false);
                         setMilestoneSetupPromptOpen(true);
                         setMilestoneSetupChoice('none');
-                    }, [itemId, preloadedTimelineDataProp]);
+                    }, [itemId, preloadedTimelineDataProp, isProductionOnlyItem]);
                     React.useEffect(function() {
                         if (activeTab !== 'details') {
                             setDetailsEditMode(false);
@@ -17547,6 +17725,9 @@ class N88_RFQ_Admin {
                         return !!loadingSections[sectionKey];
                     };
 
+                    /** One busy flag for Timeline tab: avoids stacked "Loading timeline" + "Loading workflow details" notices. */
+                    var workflowTimelineTabBusy = timelineLoading || isItemStateSectionLoading('workflow') || (isProductionOnlyItem && itemState && itemState.has_awarded_bid && milestoneSummaryLoading);
+
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function(sectionKey, forceRefresh) {
                         if (sectionKey === undefined || !sectionKey) {
@@ -17700,6 +17881,11 @@ class N88_RFQ_Admin {
                                         deposit_receipt_url: data.data.deposit_receipt_url || '',
                                         deposit_sent_note: data.data.deposit_sent_note || '',
                                         deposit_sent_at: data.data.deposit_sent_at || null,
+                                        workflow_eligible: typeof data.data.workflow_eligible !== 'undefined' ? !!data.data.workflow_eligible : previousState.workflow_eligible,
+                                        unlock_price_usd: typeof data.data.unlock_price_usd !== 'undefined' ? data.data.unlock_price_usd : previousState.unlock_price_usd,
+                                        is_locked: typeof data.data.is_locked !== 'undefined' ? !!data.data.is_locked : previousState.is_locked,
+                                        is_free: typeof data.data.is_free !== 'undefined' ? !!data.data.is_free : previousState.is_free,
+                                        is_paid: typeof data.data.is_paid !== 'undefined' ? !!data.data.is_paid : previousState.is_paid,
                                         loading: (sectionKey === 'summary' || sectionKey === 'full') ? false : previousState.loading,
                                         loaded_sections: nextLoadedSections,
                                         loading_sections: nextLoadingSections
@@ -17733,6 +17919,11 @@ class N88_RFQ_Admin {
                                     }
                                     if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_text !== undefined) cardUpdates.validation_card_status_text = cardUpdates.validation_state.card_status_text || '';
                                     if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_color !== undefined) cardUpdates.validation_card_status_color = cardUpdates.validation_state.card_status_color || '#f4b400';
+                                    if (typeof data.data.workflow_eligible !== 'undefined') cardUpdates.workflow_eligible = !!data.data.workflow_eligible;
+                                    if (typeof data.data.unlock_price_usd !== 'undefined') cardUpdates.unlock_price_usd = data.data.unlock_price_usd;
+                                    if (typeof data.data.is_locked !== 'undefined') cardUpdates.is_locked = !!data.data.is_locked;
+                                    if (typeof data.data.is_free !== 'undefined') cardUpdates.is_free = !!data.data.is_free;
+                                    if (typeof data.data.is_paid !== 'undefined') cardUpdates.is_paid = !!data.data.is_paid;
                                     cardUpdates.rfq_state = Object.assign({}, (item && item.rfq_state && typeof item.rfq_state === 'object') ? item.rfq_state : {}, data.data);
                                     cardUpdates.rfq_state_fetched_at = Date.now();
                                     if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
@@ -18925,6 +19116,11 @@ class N88_RFQ_Admin {
                     // Check if fields should be editable
                     // Lock after CAD/Prototype request submitted (permanent): lock Brief/RFQ and hide Update/Save
                     var isLockedAwaitingPayment = !!itemState.has_prototype_payment;
+                    var itemUnlockModalSnapshot = Object.assign({}, item || {}, itemState || {});
+                    var itemWorkflowEligibleModal = boardItemWorkflowEligible(itemUnlockModalSnapshot);
+                    var itemNeedsWorkflowUnlock = !isProductionOnlyItem && !itemWorkflowEligibleModal;
+                    var unlockDisplayUsdModal = boardItemUnlockDisplayUsd(itemUnlockModalSnapshot);
+                    var rfqWorkflowGate = isLockedAwaitingPayment || itemNeedsWorkflowUnlock;
                     var isEditable = currentState === 'A' && !isLockedAwaitingPayment;
                     var hasReferenceForRfq = Array.isArray(inspiration) && inspiration.some(function(ins) {
                         if (!ins || typeof ins !== 'object') return false;
@@ -19152,6 +19348,45 @@ class N88_RFQ_Admin {
                             }
                         }
                     };
+
+                    var handleUnlockWorkflowItem = function(evUW) {
+                        if (evUW) {
+                            if (evUW.preventDefault) evUW.preventDefault();
+                            if (evUW.stopPropagation) evUW.stopPropagation();
+                        }
+                        if (isUnlockingItemWorkflow || !itemId || itemId <= 0) return;
+                        var nonceUW = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!nonceUW) {
+                            alert('Security token missing. Please refresh.');
+                            return;
+                        }
+                        var ajaxUrlUW = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                        setIsUnlockingItemWorkflow(true);
+                        setRfqError('');
+                        var fdUW = new FormData();
+                        fdUW.append('action', 'n88_unlock_item');
+                        fdUW.append('item_id', String(itemId));
+                        fdUW.append('nonce', nonceUW);
+                        fetch(ajaxUrlUW, { method: 'POST', body: fdUW, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(dUW) {
+                            if (dUW && dUW.success && dUW.data) {
+                                var patchUW = {
+                                    workflow_eligible: true,
+                                    is_locked: false,
+                                    is_paid: !!dUW.data.is_paid,
+                                    is_free: !!dUW.data.is_free,
+                                    unlock_price_usd: dUW.data.unlock_price_usd
+                                };
+                                setItemState(function(prev) {
+                                    var p = prev && typeof prev === 'object' ? prev : {};
+                                    return Object.assign({}, p, patchUW);
+                                });
+                                if (typeof updateLayout === 'function' && item && item.id) updateLayout(item.id, patchUW);
+                                if (typeof fetchItemState === 'function') fetchItemState('full', true);
+                            } else {
+                                alert((dUW && dUW.data && dUW.data.message) || (dUW && dUW.message) || 'Unlock failed.');
+                            }
+                        }).catch(function(errUW) { console.error(errUW); alert('Unlock failed.'); }).finally(function() { setIsUnlockingItemWorkflow(false); });
+                    };
                     
                     // Handle RFQ submission
                     var handleSubmitRfq = function(e) {
@@ -19173,6 +19408,11 @@ class N88_RFQ_Admin {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             setRfqError('Invalid item ID. Please refresh the page and try again.');
                             setIsSubmittingRfq(false);
+                            return;
+                        }
+                        var unlockSnapSubmit = Object.assign({}, item || {}, itemState || {});
+                        if (!isProductionOnlyItem && !boardItemWorkflowEligible(unlockSnapSubmit)) {
+                            setRfqError('Unlock this item first to send an RFQ (display unlock: $' + String(boardItemUnlockDisplayUsd(unlockSnapSubmit)) + ').');
                             return;
                         }
                         
@@ -20684,7 +20924,7 @@ class N88_RFQ_Admin {
                                             flexShrink: 0,
                                         }
                                     },
-                                        !isProductionOnlyItem ? React.createElement('button', {
+                                        React.createElement('button', {
                                             onClick: function() { switchDesignerModalTabManually('details'); },
                                             style: {
                                                 flex: 1,
@@ -20698,7 +20938,7 @@ class N88_RFQ_Admin {
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, 'Item Specification') : null,
+                                        }, 'Item Specification'),
                                         React.createElement('button', {
                                             onClick: function() { switchDesignerModalTabManually('timeline'); },
                                             style: {
@@ -20732,7 +20972,7 @@ class N88_RFQ_Admin {
                                         className: 'n88-modal-scroll-content'
                                     },
                                         // Tab 1: Item Specification - 60% left / 40% right
-                                        (!isProductionOnlyItem && activeTab === 'details') ? React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start', flex: 1, minHeight: 0 } },
+                                        (activeTab === 'details') ? React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start', flex: 1, minHeight: 0 } },
                                             // Left 60%: main content scrolls with the modal scroll container
                                             React.createElement('div', { style: { flex: '0 0 60%', maxWidth: '60%', paddingRight: '8px' } },
                                             itemState.loading ? renderLoadingNotice('Loading item details, please wait...') : null,
@@ -20946,7 +21186,7 @@ class N88_RFQ_Admin {
                                                 style: { marginBottom: '24px', marginTop: '0px' }
                                             },
                                                 // Request Quote Button / RFQ Form (State A only)
-                                                currentState === 'A' ? React.createElement('div', {
+                                                (!isProductionOnlyItem && currentState === 'A') ? React.createElement('div', {
                                                     style: { marginBottom: '24px' }
                                                 },
                                                     React.createElement('div', {
@@ -20960,6 +21200,11 @@ class N88_RFQ_Admin {
                                                         React.createElement('div', {
                                                             style: { fontSize: '14px', fontWeight: '600', marginBottom: '16px' }
                                                         }, 'Request Quote'),
+                                                        itemNeedsWorkflowUnlock ? React.createElement('div', { style: { marginBottom: '14px', padding: '10px 12px', borderRadius: '4px', border: '1px solid rgba(255, 152, 0, 0.55)', backgroundColor: 'rgba(255,152,0,0.12)', color: darkText, fontSize: '12px', lineHeight: 1.5 } },
+                                                            React.createElement('div', { style: { fontWeight: 600, marginBottom: '6px' } }, 'Unlock required for RFQ'),
+                                                            React.createElement('div', { style: { marginBottom: '10px', opacity: 0.92 } }, 'This full-process slot needs a one-time unlock before quotes and maker workflow apply (display price $' + String(unlockDisplayUsdModal) + ').'),
+                                                            React.createElement('button', { type: 'button', disabled: isUnlockingItemWorkflow || isLockedAwaitingPayment, onClick: handleUnlockWorkflowItem, style: { padding: '8px 14px', borderRadius: '4px', border: 'none', backgroundColor: '#ff0065', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: (isUnlockingItemWorkflow || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer', opacity: (isUnlockingItemWorkflow || isLockedAwaitingPayment) ? 0.65 : 1 } }, isUnlockingItemWorkflow ? 'Unlocking…' : ('Unlock ($' + String(unlockDisplayUsdModal) + ')'))
+                                                        ) : null,
                                                         React.createElement('div', { style: { marginBottom: '12px' } },
                                                             React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px' } }, 'Category'),
                                                             React.createElement('select', {
@@ -21343,14 +21588,14 @@ class N88_RFQ_Admin {
                                                             React.createElement('button', {
                                                                 type: 'button',
                                                                 onClick: function() { handleSave(false); },
-                                                                disabled: isSaving || isUploadingInspiration || isSubmittingRfq || isLockedAwaitingPayment,
-                                                                style: { flex: '0 0 140px', padding: '12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: (isSaving || isUploadingInspiration || isSubmittingRfq || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSaving || isUploadingInspiration || isSubmittingRfq || isLockedAwaitingPayment) ? 0.6 : 1 }
+                                                                disabled: isSaving || isUploadingInspiration || isSubmittingRfq || rfqWorkflowGate,
+                                                                style: { flex: '0 0 140px', padding: '12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: (isSaving || isUploadingInspiration || isSubmittingRfq || rfqWorkflowGate) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSaving || isUploadingInspiration || isSubmittingRfq || rfqWorkflowGate) ? 0.6 : 1 }
                                                             }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update')),
                                                             React.createElement('button', {
                                                                 type: 'button',
                                                                 onClick: handleSubmitRfq,
-                                                                disabled: isSubmittingRfq || isSaving || isUploadingInspiration || isLockedAwaitingPayment,
-                                                                style: { flex: 1, padding: '12px', backgroundColor: greenAccent, border: 'none', borderRadius: '4px', color: darkBg, fontSize: '14px', fontFamily: 'monospace', cursor: (isSubmittingRfq || isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSubmittingRfq || isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 0.6 : 1 }
+                                                                disabled: isSubmittingRfq || isSaving || isUploadingInspiration || rfqWorkflowGate,
+                                                                style: { flex: 1, padding: '12px', backgroundColor: greenAccent, border: 'none', borderRadius: '4px', color: darkBg, fontSize: '14px', fontFamily: 'monospace', cursor: (isSubmittingRfq || isSaving || isUploadingInspiration || rfqWorkflowGate) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSubmittingRfq || isSaving || isUploadingInspiration || rfqWorkflowGate) ? 0.6 : 1 }
                                                             }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
                                                         )
                                                     )
@@ -21590,7 +21835,7 @@ class N88_RFQ_Admin {
                                                     }
                                                 })
                                             ),
-                                            itemState.has_rfq ? React.createElement('div', {
+                                            (!isProductionOnlyItem && itemState.has_rfq) ? React.createElement('div', {
                                                 style: { marginTop: '12px', fontSize: '11px', color: '#999', textAlign: 'center', fontFamily: 'monospace' }
                                             },
                                                 'Edit RFQ details and click Update.',
@@ -22909,8 +23154,7 @@ class N88_RFQ_Admin {
                                         ) : null,
                                         // Tab 4: Production Timeline (Commit 3.A.1 - dynamic 6-step timeline; operator controls)
                                         activeTab === 'timeline' ? React.createElement('div', { style: { fontFamily: 'monospace' } },
-                                            timelineLoading ? renderLoadingNotice('Loading timeline...') : null,
-                                            isItemStateSectionLoading('workflow') ? renderLoadingNotice('Loading workflow details...') : null,
+                                            workflowTimelineTabBusy ? renderLoadingNotice('Loading workflow...') : null,
                                             timelineError ? React.createElement('div', { style: { padding: '16px', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' } }, timelineError) : null,
                                             // Operator: standalone Step 4 Deposit block - visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps
                                             false && !timelineLoading && itemState && itemState.has_awarded_bid && isOperatorTimeline ? React.createElement('div', { style: { marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
@@ -22939,7 +23183,7 @@ class N88_RFQ_Admin {
                                                     ) : null
                                                 )
                                             ) : null,
-                                            !timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 ? React.createElement(React.Fragment, null,
+                                            !workflowTimelineTabBusy && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 ? React.createElement(React.Fragment, null,
                                                 React.createElement('div', {
                                                     style: {
                                                         position: 'sticky',
@@ -23891,6 +24135,28 @@ class N88_RFQ_Admin {
                                                             var awardedSupplierNameStep3 = awardedBidStep3 && awardedBidStep3.supplier_name
                                                                 ? awardedBidStep3.supplier_name
                                                                 : (awardedSnapshotStep3.supplier_name || (awardedSnapshotStep3.supplier_id ? ('Supplier #' + awardedSnapshotStep3.supplier_id) : 'Supplier pending'));
+                                                            var productionSupplierLabelStep3 = '';
+                                                            if (isProductionOnlyItem) {
+                                                                var directOptsS3po = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                                                                if (directOptsS3po.length > 0) {
+                                                                    var opt0s3po = directOptsS3po[0];
+                                                                    if (opt0s3po && (opt0s3po.supplier_email || opt0s3po.display_name)) {
+                                                                        if (opt0s3po.display_name && opt0s3po.supplier_email) {
+                                                                            productionSupplierLabelStep3 = String(opt0s3po.display_name).trim() + ' (' + String(opt0s3po.supplier_email).trim() + ')';
+                                                                        } else {
+                                                                            productionSupplierLabelStep3 = String(opt0s3po.supplier_email || opt0s3po.display_name || '').trim();
+                                                                        }
+                                                                    }
+                                                                }
+                                                                if (!productionSupplierLabelStep3) {
+                                                                    var invTokS3po = [];
+                                                                    if (Array.isArray(itemState.rfq_draft_invited_suppliers)) invTokS3po = itemState.rfq_draft_invited_suppliers;
+                                                                    else if (item && item.meta && Array.isArray(item.meta.rfq_draft_invited_suppliers)) invTokS3po = item.meta.rfq_draft_invited_suppliers;
+                                                                    if (invTokS3po.length > 0) {
+                                                                        productionSupplierLabelStep3 = String(invTokS3po[0] || '').trim();
+                                                                    }
+                                                                }
+                                                            }
                                                             var awardedAtStep3 = awardedSnapshotStep3.awarded_at || item.award_timestamp || null;
                                                             var totalProductionCostStep3 = awardedBidStep3 && awardedBidStep3.total_price != null && awardedBidStep3.total_price !== '' ? parseFloat(awardedBidStep3.total_price) : null;
                                                             var deliveryCostStep3 = awardedBidStep3 && awardedBidStep3.delivery_cost_usd != null && awardedBidStep3.delivery_cost_usd !== '' ? parseFloat(awardedBidStep3.delivery_cost_usd) : null;
@@ -23948,10 +24214,18 @@ class N88_RFQ_Admin {
                                                             var executionReferenceId = executionActivationState.reference_id || '';
                                                             var executionLocked = executionAwardedItemCount > 0 && executionPaymentStatus !== 'confirmed';
                                                             var step3IsReadyForProduction = !!(
+                                                                isProductionOnlyItem ||
                                                                 step3ValidationState.can_commit ||
                                                                 (step3HasPoSuccess && step3HasComSuccess && step3HasDepositSuccess) ||
                                                                 step3CardStatusText === 'ready for production'
                                                             );
+                                                            if (!hasStep3Approved) {
+                                                                if (isProductionOnlyItem) {
+                                                                    hasStep3Approved = true;
+                                                                } else if (!step3Readiness.awaiting_po && executionLocked && step3IsReadyForProduction && step3HasPoSuccess && step3HasDepositSuccess && (step3HasComSuccess || !step3ComApplicable)) {
+                                                                    hasStep3Approved = true;
+                                                                }
+                                                            }
                                                             var step3ForcedOpen = pinnedTimelineStep === 2 || selectedStepIndex === 2;
                                                             var step3HasAnyContext = !!(
                                                                 step3Request.requested_at ||
@@ -23968,8 +24242,8 @@ class N88_RFQ_Admin {
                                                             );
                                                             var step3PostAwardFlow = !!itemState.has_awarded_bid;
                                                             var canShowStep3Review = !!(
-                                                                step3PostAwardFlow &&
-                                                                hasStep3Approved
+                                                                isProductionOnlyItem ||
+                                                                (step3PostAwardFlow && hasStep3Approved)
                                                             );
                                                             if (!canShowStep3Review) {
                                                                 return null;
@@ -24008,7 +24282,7 @@ class N88_RFQ_Admin {
                                                                         style: { padding: '12px 18px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationPoSubmitting || !validationPoFile) ? 'not-allowed' : 'pointer', opacity: (validationPoSubmitting || !validationPoFile) ? 0.55 : 1, fontSize: '14px', fontFamily: 'monospace', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
                                                                     }, validationPoSubmitting ? 'Uploading...' : 'UPLOAD PO')
                                                                 ) : null,
-                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, hasStep3Approved ? 'Bid Awarded' : 'Validation Approved'),
+                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, isProductionOnlyItem ? 'Production' : (hasStep3Approved ? 'Bid Awarded' : 'Validation Approved')),
                                                                 (!hasStep3Approved && step3Review.samples_received_at) ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(step3Review.samples_received_at)) : null,
                                                                 (!hasStep3Approved && step3Supplier.files && step3Supplier.files.length) ? React.createElement('div', { style: { marginBottom: '12px' } },
                                                                     React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Supplier uploaded samples'),
@@ -24119,16 +24393,17 @@ class N88_RFQ_Admin {
                                                                         style: { padding: '10px 14px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '600' }
                                                                     }, sampleReviewSubmitting ? 'Approving...' : 'Approve Samples')
                                                                 ) : React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)' } },
-                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Bid Awarded Details'),
-                                                                    awardedAtStep3 ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Awarded at: ' + formatWorkflowDateTime(awardedAtStep3)) : null,
-                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Supplier: ' + awardedSupplierNameStep3),
-                                                                    displayAwardAmountStep3 != null && !isNaN(displayAwardAmountStep3) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, (finalOrderTotalStep3 != null ? 'Final Order Total: $' : 'Total Production Cost: $') + Number(displayAwardAmountStep3).toFixed(2)) : null,
-                                                                    step3HasPoSuccess ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                    !isProductionOnlyItem ? React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Bid Awarded Details') : null,
+                                                                    !isProductionOnlyItem && awardedAtStep3 ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Awarded at: ' + formatWorkflowDateTime(awardedAtStep3)) : null,
+                                                                    !isProductionOnlyItem ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Supplier: ' + awardedSupplierNameStep3) : null,
+                                                                    !isProductionOnlyItem && displayAwardAmountStep3 != null && !isNaN(displayAwardAmountStep3) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, (finalOrderTotalStep3 != null ? 'Final Order Total: $' : 'Total Production Cost: $') + Number(displayAwardAmountStep3).toFixed(2)) : null,
+                                                                    (isProductionOnlyItem && productionSupplierLabelStep3) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Supplier: ' + productionSupplierLabelStep3) : null,
+                                                                    !isProductionOnlyItem && step3HasPoSuccess ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'PO Uploaded'),
                                                                         (step3Commitment.po_file && step3Commitment.po_file.url) ? React.createElement('a', { href: step3Commitment.po_file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, 'Open PO') : React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'PO is already saved in this workflow.'),
                                                                         step3Commitment.po_uploaded_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Uploaded: ' + formatWorkflowDateTime(step3Commitment.po_uploaded_at)) : null
                                                                     ) : null,
-                                                                    (step3HasPoSuccess && (step3HasDepositSuccess || step3AwaitingDeposit)) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                    !isProductionOnlyItem && (step3HasPoSuccess && (step3HasDepositSuccess || step3AwaitingDeposit)) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasDepositSuccess ? greenAccent : '#ffb347' } }, step3HasDepositSuccess ? 'Deposit Confirmed' : 'Awaiting Deposit'),
                                                                         step3Commitment.deposit_amount ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Amount: ' + step3Commitment.deposit_amount) : null,
                                                                         step3Commitment.deposit_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.deposit_status).replace(/_/g, ' ')) : null,
@@ -24136,13 +24411,13 @@ class N88_RFQ_Admin {
                                                                         (step3HasDepositSuccess && !step3Commitment.deposit_status && !step3Commitment.deposit_confirmed_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Deposit stage is already completed.') : null,
                                                                         step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length ? boardCanvasRenderDepositReceiptPreviewBlock(step3Commitment.deposit_receipt_files, null, greenAccent) : null
                                                                     ) : null,
-                                                                    (step3HasPoSuccess && step3HasDepositSuccess && step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                    !isProductionOnlyItem && (step3HasPoSuccess && step3HasDepositSuccess && step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasComSuccess ? greenAccent : '#ffb347' } }, step3HasComSuccess ? 'COM Completed' : 'COM Pending'),
                                                                         step3Commitment.com_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.com_status).replace(/_/g, ' ')) : null,
                                                                         step3Commitment.com_tracking_number ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Tracking: ' + step3Commitment.com_tracking_number) : null,
                                                                         step3Commitment.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Delivered: ' + formatWorkflowDateTime(step3Commitment.com_delivered_at)) : null,
                                                                         (step3HasComSuccess && !step3Commitment.com_status && !step3Commitment.com_delivered_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'COM stage is already completed.') : null
-                                                                    ) : (step3HasPoSuccess && step3HasDepositSuccess && !step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                    ) : !isProductionOnlyItem && (step3HasPoSuccess && step3HasDepositSuccess && !step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'COM Not Required')
                                                                     ) : null,
                                                                     step3IsReadyForProduction ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
@@ -24150,7 +24425,7 @@ class N88_RFQ_Admin {
                                                                         React.createElement('div', { style: { fontSize: '10px', color: darkText } }, executionLocked ? 'Awaiting payment confirmation. Step 4 remains locked for buyer and supplier.' : 'All validation commitments are complete.'),
                                                                         React.createElement('div', { style: { display: 'grid', gap: '6px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#070707' } },
                                                                             React.createElement('div', { style: { fontSize: '10px', color: '#fff', fontWeight: '700' } }, 'Execution Activation Fee'),
-                                                                            React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Awarded items: ' + executionAwardedItemCount + ' | Total: $' + executionFeeTotal.toFixed(2)),
+                                                                            React.createElement('div', { style: { fontSize: '10px', color: darkText } }, (isProductionOnlyItem ? 'Production items: ' : 'Awarded items: ') + executionAwardedItemCount + ' | Total: $' + executionFeeTotal.toFixed(2)),
                                                                             executionReferenceId ? React.createElement('div', { style: { fontSize: '10px', color: '#ffcc80' } }, 'Reference ID: ' + executionReferenceId) : null,
                                                                             executionLocked ? React.createElement(React.Fragment, null,
                                                                                 React.createElement('select', {
@@ -24767,7 +25042,7 @@ class N88_RFQ_Admin {
                                                             return React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
                                                                 React.createElement('div', { style: { fontSize: '12px', fontWeight: '700', color: greenAccent, marginBottom: '8px' } }, 'Payment Milestones (Step 4)'),
                                                                 milestoneUiNotice ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '8px' } }, milestoneUiNotice) : null,
-                                                                milestoneSummaryLoading ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, 'Loading milestones...') : null,
+                                                                (milestoneSummaryLoading && !(isProductionOnlyItem && itemState.has_awarded_bid)) ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, 'Loading milestones...') : null,
                                                                 (!summary || !summary.enabled) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } },
                                                                     milestoneSetupPromptOpen ? React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#0b0b0b' } },
                                                                         React.createElement('div', { style: { padding: '10px 12px', borderBottom: '1px solid ' + darkBorder, display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -24906,9 +25181,9 @@ class N88_RFQ_Admin {
                                                                 ) : null
                                                             )
                                                         ) : null,
-                                                        // Commit 3.B.5.A1: Step 4–6 video submissions
+                                                        // Commit 3.B.5.A1: Steps 5–6 video submissions (Step 4: milestones only)
                                                         (function() {
-                                                            if (s.step_number < 4 || s.step_number > 6) return null;
+                                                            if (s.step_number < 5 || s.step_number > 6) return null;
                                                             var videos = (timelineData.step_456_videos || {})[s.step_number] || [];
                                                             var comments = (timelineData.step_456_comments || {})[s.step_number] || [];
                                                             var showVideoForm = operatorStep456VideoFormStep === s.step_number;
@@ -25009,7 +25284,7 @@ class N88_RFQ_Admin {
                                                                 style: { padding: '6px 12px', background: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
                                                             }, 'Start Step') : null,
                                                             s.status === 'in_progress' ? (function() {
-                                                                var step46NoEvidence = (s.step_number >= 4 && s.step_number <= 6) && s.has_required_evidence === false;
+                                                                var step46NoEvidence = (s.step_number >= 5 && s.step_number <= 6) && s.has_required_evidence === false;
                                                                 return React.createElement('button', {
                                                                     disabled: step46NoEvidence,
                                                                     title: step46NoEvidence ? 'Evidence required to complete this step.' : '',
@@ -25107,7 +25382,7 @@ class N88_RFQ_Admin {
                             },
                                 // Show Update button only if RFQ has already been submitted (State B or C)
                                 // Update button: Only updates dimensions and quantity
-                                ((currentState === 'B' || currentState === 'C') || (item && item.has_rfq) || (itemState && itemState.has_rfq)) ? React.createElement('button', {
+                                (!isProductionOnlyItem && ((currentState === 'B' || currentState === 'C') || (item && item.has_rfq) || (itemState && itemState.has_rfq))) ? React.createElement('button', {
                                     onClick: handleUpdateDimensions,
                                     disabled: isSaving || isUploadingInspiration,
                                     style: {
@@ -25925,6 +26200,15 @@ class N88_RFQ_Admin {
                     var modalPreloadedTimelineData = _modalPreloadedTimelineDataState[0];
                     var setModalPreloadedTimelineData = _modalPreloadedTimelineDataState[1];
                     var shouldOpenGroupedProposalForItem = function(targetItem) {
+                        var targetEntryMode = String(
+                            (targetItem && targetItem.entry_mode) ||
+                            (targetItem && targetItem.meta && targetItem.meta.entry_mode) ||
+                            (targetItem && targetItem.rfq_state && targetItem.rfq_state.entry_mode) ||
+                            ''
+                        ).toLowerCase();
+                        if (targetEntryMode === 'production_only') {
+                            return false;
+                        }
                         var boardData = window.n88BoardData || {};
                         var isSupplierBoardViewer = !!boardData.isSupplier;
                         var isDesignerBoardViewer = !!boardData.isDesigner || !isSupplierBoardViewer;
@@ -26003,6 +26287,15 @@ class N88_RFQ_Admin {
                         );
                     };
                     var shouldSuppressSingleItemModalForItem = function(targetItem) {
+                        var targetEntryMode = String(
+                            (targetItem && targetItem.entry_mode) ||
+                            (targetItem && targetItem.meta && targetItem.meta.entry_mode) ||
+                            (targetItem && targetItem.rfq_state && targetItem.rfq_state.entry_mode) ||
+                            ''
+                        ).toLowerCase();
+                        if (targetEntryMode === 'production_only') {
+                            return false;
+                        }
                         var boardData = window.n88BoardData || {};
                         var isSupplierBoardViewer = !!boardData.isSupplier;
                         var isDesignerBoardViewer = !!boardData.isDesigner || !isSupplierBoardViewer;
@@ -26224,6 +26517,7 @@ class N88_RFQ_Admin {
                                 validationCardTextOpen === 'material samples shipped';
                             var shouldOpenTimelineByDefault = !!(
                                 item && (
+                                    String((item.entry_mode || (item.meta && item.meta.entry_mode) || (item.rfq_state && item.rfq_state.entry_mode) || '')).toLowerCase() === 'production_only' ||
                                     item.action_required === true ||
                                     item.action_required === 'true' ||
                                     item.action_required === 1 ||
@@ -26245,7 +26539,13 @@ class N88_RFQ_Admin {
                                     item.prototype_status === 'submitted'
                                 )
                             );
-                            if (unreadSupplierContext && unreadSupplierContext.indexOf('step_') === 0 && unreadSupplierStepIndex !== null) {
+                            var isProductionOnlyCardOpen = String((item && (item.entry_mode || (item.meta && item.meta.entry_mode) || (item.rfq_state && item.rfq_state.entry_mode))) || '').toLowerCase() === 'production_only';
+                            if (isProductionOnlyCardOpen) {
+                                setInitialTab('timeline');
+                                setInitialTimelineStep(2);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(false);
+                            } else if (unreadSupplierContext && unreadSupplierContext.indexOf('step_') === 0 && unreadSupplierStepIndex !== null) {
                                 setInitialTab('timeline');
                                 setInitialTimelineStep(unreadSupplierStepIndex);
                                 setRequestSampleContext(null);
@@ -26278,7 +26578,8 @@ class N88_RFQ_Admin {
                             }
                             console.log('[N88][Wrapper] opening ItemDetailModal', {
                                 itemId: item && item.id ? item.id : null,
-                                initialTab: shouldOpenTimelineByDefault ? 'timeline' : 'details'
+                                initialTab: isProductionOnlyCardOpen ? 'timeline' : (shouldOpenTimelineByDefault ? 'timeline' : 'details'),
+                                productionOnly: isProductionOnlyCardOpen
                             });
                             setIsModalOpen(true);
                         },
@@ -27746,6 +28047,7 @@ class N88_RFQ_Admin {
                     };
                     var getBatchActionQuotedGroups = function(mode) {
                         return (proposalItemGroups || []).filter(function(group) {
+                            if (!group || !group.item || !boardItemWorkflowEligible(group.item)) return false;
                             if (!group || !Array.isArray(group.suppliers) || !group.suppliers.length) return false;
                             if (mode === 'sample') {
                                 return !proposalGroupIsAwarded(group);
@@ -29076,6 +29378,12 @@ class N88_RFQ_Admin {
                                     validation_card_status_color: row.validation_card_status_color || '#f4b400',
                                     rfq_state: row.rfq_state || null,
                                     rfq_state_fetched_at: Date.now(),
+                                    entry_mode: row.entry_mode,
+                                    is_free: row.is_free,
+                                    is_paid: row.is_paid,
+                                    is_locked: row.is_locked,
+                                    workflow_eligible: row.workflow_eligible,
+                                    unlock_price_usd: row.unlock_price_usd,
                                 });
                             }
                         });
@@ -29336,6 +29644,7 @@ class N88_RFQ_Admin {
                         (items || []).forEach(function(it) {
                             var id = toNumericItemId(it.id);
                             if (!(id > 0) || !batchSelected[id]) return;
+                            if (!boardItemWorkflowEligible(it)) return;
                             if (isRfqSelectionMode && isRfqAlreadySentItem(it)) return;
                             valid[id] = true;
                         });
@@ -29468,6 +29777,7 @@ class N88_RFQ_Admin {
 
                     var toggleBatchSelection = function(item) {
                         if (isRfqSelectionMode && isRfqAlreadySentItem(item)) return;
+                        if (!boardItemWorkflowEligible(item)) return;
                         var id = toNumericItemId(item);
                         if (!id) return;
                         setBatchSelected(function(prev) {
@@ -29483,12 +29793,26 @@ class N88_RFQ_Admin {
                     var openBatchModal = function() {
                         if (!selectedCount) return;
                         var selectedSet = batchSelected || {};
+                        var lockedDropped = false;
                         var rows = (items || []).filter(function(it) {
                             return !!selectedSet[toNumericItemId(it.id)];
+                        }).filter(function(it) {
+                            if (!boardItemWorkflowEligible(it)) {
+                                lockedDropped = true;
+                                return false;
+                            }
+                            return true;
                         }).map(function(it) { return buildBatchRow(it); });
-                        if (!rows.length) return;
+                        if (!rows.length) {
+                            setBatchError('No eligible items in selection. Unlock full-process items first.');
+                            return;
+                        }
                         setBatchRows(rows);
-                        setBatchError('');
+                        if (lockedDropped) {
+                            setBatchError('Some locked items were skipped. Only unlocked items are included.');
+                        } else {
+                            setBatchError('');
+                        }
                         setBatchModalOpen(true);
                     };
                     var fetchItemProposalState = function(itemId, options) {
@@ -30408,8 +30732,12 @@ class N88_RFQ_Admin {
                         var selectedSet = batchSelected || {};
                         var selectedItems = (items || []).filter(function(it) {
                             return !!selectedSet[toNumericItemId(it.id)];
-                        });
-                        if (!selectedItems.length) return;
+                        }).filter(boardItemWorkflowEligible);
+                        if (!selectedItems.length) {
+                            setProposalLoading(false);
+                            setProposalError('No eligible items in selection. Unlock locked items first.');
+                            return;
+                        }
                         setProposalLoading(true);
                         setProposalError('');
                         setExpandedProposalSuppliers({});
@@ -33731,6 +34059,9 @@ class N88_RFQ_Admin {
         $items_cols_board_status = $wpdb->get_col( "DESCRIBE {$items_table_safe_for_desc}" );
         $board_status_has_project_room = in_array( 'project_id', (array) $items_cols_board_status, true ) && in_array( 'room_id', (array) $items_cols_board_status, true );
         $item_row_select = 'id, owner_user_id, meta_json';
+        if ( class_exists( 'N88_Item_Unlock' ) && N88_Item_Unlock::items_unlock_columns_exist() ) {
+            $item_row_select .= ', is_free, is_paid, is_locked';
+        }
         if ( $board_status_has_project_room ) {
             $item_row_select .= ', project_id, room_id';
         }
@@ -34224,6 +34555,10 @@ class N88_RFQ_Admin {
                 $row_project_id = isset( $item_rows_by_id[ $item_id ]['project_id'] ) ? absint( $item_rows_by_id[ $item_id ]['project_id'] ) : 0;
                 $row_room_id    = isset( $item_rows_by_id[ $item_id ]['room_id'] ) ? absint( $item_rows_by_id[ $item_id ]['room_id'] ) : 0;
             }
+            $unlock_board_st = array();
+            if ( class_exists( 'N88_Item_Unlock' ) && isset( $item_rows_by_id[ $item_id ] ) ) {
+                $unlock_board_st = N88_Item_Unlock::frontend_payload_from_row( $item_rows_by_id[ $item_id ], $item_meta_for_deposit );
+            }
             $items_status[] = array(
                 'id' => $item_id_string,
                 'project_id' => $row_project_id,
@@ -34249,6 +34584,12 @@ class N88_RFQ_Admin {
                 'deposit_received_at' => isset( $item_meta_for_deposit['deposit_received_at'] ) ? $item_meta_for_deposit['deposit_received_at'] : null,
                 'deposit_sent_note' => isset( $item_meta_for_deposit['deposit_sent_note'] ) ? $item_meta_for_deposit['deposit_sent_note'] : '',
                 'deposit_sent_at' => isset( $item_meta_for_deposit['deposit_sent_at'] ) ? $item_meta_for_deposit['deposit_sent_at'] : null,
+                'entry_mode' => ! empty( $unlock_board_st['entry_mode'] ) ? $unlock_board_st['entry_mode'] : '',
+                'is_free' => ! empty( $unlock_board_st ) ? $unlock_board_st['is_free'] : true,
+                'is_paid' => ! empty( $unlock_board_st ) ? $unlock_board_st['is_paid'] : false,
+                'is_locked' => ! empty( $unlock_board_st ) ? $unlock_board_st['is_locked'] : false,
+                'workflow_eligible' => ! empty( $unlock_board_st ) ? $unlock_board_st['workflow_eligible'] : true,
+                'unlock_price_usd' => ! empty( $unlock_board_st ) ? $unlock_board_st['unlock_price_usd'] : ( class_exists( 'N88_Item_Unlock' ) ? N88_Item_Unlock::UNLOCK_PRICE_USD : 149 ),
                 'rfq_state' => array(
                     'requested_section' => 'summary',
                     'loaded_sections' => array(
@@ -34268,6 +34609,9 @@ class N88_RFQ_Admin {
                     'unread_supplier_messages' => $unread_supplier_messages,
                     'latest_unread_supplier_message_context' => $latest_unread_supplier_message_context,
                     'latest_unread_supplier_message_step_index' => $latest_unread_supplier_message_step_index,
+                    'entry_mode' => ! empty( $unlock_board_st['entry_mode'] ) ? $unlock_board_st['entry_mode'] : '',
+                    'workflow_eligible' => ! empty( $unlock_board_st ) ? $unlock_board_st['workflow_eligible'] : true,
+                    'unlock_price_usd' => ! empty( $unlock_board_st ) ? $unlock_board_st['unlock_price_usd'] : ( class_exists( 'N88_Item_Unlock' ) ? N88_Item_Unlock::UNLOCK_PRICE_USD : 149 ),
                 ),
             );
         }

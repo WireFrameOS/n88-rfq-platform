@@ -77,6 +77,7 @@ $includes = array(
     'includes/class-n88-timeline-step-videos.php', // Commit 3.B.5.A1: Step 4–6 video evidence + designer step comments
     'includes/class-n88-authorization.php',
     'includes/class-n88-intelligence.php',
+    'includes/class-n88-item-unlock.php', // Commit 3.D.8B: full-process unlock flags (2 free / $149 additional)
     'includes/class-n88-items.php',
     'includes/class-n88-boards.php',
     'includes/class-n88-board-layout.php',

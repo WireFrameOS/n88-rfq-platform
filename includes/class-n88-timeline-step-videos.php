@@ -5,12 +5,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Commit 3.B.5.A1 — Step 4–6 video submissions (supplier + operator).
+ * Commit 3.B.5.A1 — Steps 5–6 video submissions (supplier + operator). Step 4 uses milestones, not step video.
  * Append-only, versioned per (item_id, step_number). Max 3 links per submission.
  */
 class N88_Timeline_Step_Videos {
 
-    const ALLOWED_STEPS = array( 4, 5, 6 );
+    const ALLOWED_STEPS = array( 5, 6 );
     const PROVIDER_YOUTUBE = 'youtube';
     const PROVIDER_VIMEO   = 'vimeo';
     const PROVIDER_LOOM    = 'loom';
@@ -61,7 +61,7 @@ class N88_Timeline_Step_Videos {
         $step_number = absint( $step_number );
         $supplier_id = absint( $supplier_id );
         if ( ! in_array( $step_number, self::ALLOWED_STEPS, true ) ) {
-            return array( 'success' => false, 'message' => 'Video submission only allowed for Steps 4, 5, and 6.' );
+            return array( 'success' => false, 'message' => 'Video submission only allowed for Steps 5 and 6.' );
         }
         if ( ! $item_id || ! $supplier_id ) {
             return array( 'success' => false, 'message' => 'Invalid item or supplier.' );
@@ -160,7 +160,7 @@ class N88_Timeline_Step_Videos {
         $step_number = absint( $step_number );
         $operator_id = absint( $operator_id );
         if ( ! in_array( $step_number, self::ALLOWED_STEPS, true ) ) {
-            return array( 'success' => false, 'message' => 'Video evidence only for Steps 4, 5, and 6.' );
+            return array( 'success' => false, 'message' => 'Video evidence only for Steps 5 and 6.' );
         }
         if ( ! $item_id || ! $operator_id ) {
             return array( 'success' => false, 'message' => 'Invalid item or operator.' );
@@ -294,11 +294,11 @@ class N88_Timeline_Step_Videos {
 }
 
 /**
- * Commit 3.B.5.A1 — Designer step comments (Steps 4–6). Append-only, immutable.
+ * Commit 3.B.5.A1 — Designer step comments (Steps 5–6). Append-only, immutable.
  */
 class N88_Timeline_Step_Comments {
 
-    const ALLOWED_STEPS = array( 4, 5, 6 );
+    const ALLOWED_STEPS = array( 5, 6 );
 
     /**
      * Add designer comment for a step. Immutable once submitted.
@@ -316,7 +316,7 @@ class N88_Timeline_Step_Comments {
         $step_number = absint( $step_number );
         $designer_id = absint( $designer_id );
         if ( ! in_array( $step_number, self::ALLOWED_STEPS, true ) ) {
-            return array( 'success' => false, 'message' => 'Comments only for Steps 4, 5, and 6.' );
+            return array( 'success' => false, 'message' => 'Comments only for Steps 5 and 6.' );
         }
         if ( ! $item_id || ! $designer_id ) {
             return array( 'success' => false, 'message' => 'Invalid item or designer.' );
