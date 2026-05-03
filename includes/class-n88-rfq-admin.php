@@ -26914,34 +26914,6 @@ class N88_RFQ_Admin {
                             rfq_state_fetched_at: modalPreloadedRfqState.rfq_state_fetched_at || Date.now()
                         })
                         : item;
-                    
-                    return React.createElement(React.Fragment, null,
-                        React.createElement(BoardItem, boardItemProps),
-                        React.createElement(ItemDetailModalInline, {
-                            key: 'item-detail-modal-' + String(item && (item.id || item.item_id || 'new')) + '-' + String(requestSampleContext && requestSampleContext.requestToken ? requestSampleContext.requestToken : 'default') + '-' + String(supportMediaContext && supportMediaContext.requestToken ? supportMediaContext.requestToken : 'support-default'),
-                            item: modalItem,
-                            isOpen: isModalOpen,
-                            openToDetailsAndSupport: openModalToSupport,
-                            onClose: function() {
-                                try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
-                                setOpenModalToSupport(false);
-                                setInitialTimelineStep(null);
-                                setRequestSampleContext(null);
-                                setSupportMediaContext(null);
-                                setModalPreloadedRfqState(null);
-                                setModalPreloadedTimelineData(null);
-                                setIsModalOpen(false);
-                            },
-                            onSave: handleSave,
-                            boardId: boardId,
-                            initialTab: initialTab,
-                            initialTimelineStep: initialTimelineStep,
-                            requestSampleContext: requestSampleContext,
-                            supportMediaContext: supportMediaContext,
-                            preloadedTimelineData: modalPreloadedTimelineData,
-                            hidePerItemMarkSamplesReceived: !!batchActionDetailModalOpen
-                        })
-                    );
                 };
 
                 // UnsyncedToast Component
@@ -26988,53 +26960,6 @@ class N88_RFQ_Admin {
                     }, 'x')));
                 };
 
-                // ConciergeOverlay Component (inline)
-                const ConciergeOverlay = function({ concierge }) {
-                    var conciergeData = concierge || { name: 'Message System Operator', avatarUrl: '' };
-                    return React.createElement('div', {
-                        style: {
-                            position: 'absolute',
-                            top: '20px',
-                            left: '20px',
-                            zIndex: 10000,
-                            pointerEvents: 'none',
-                        },
-                    }, React.createElement('div', {
-                        style: {
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '12px',
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            padding: '12px 16px',
-                            borderRadius: '8px',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                            border: '1px solid rgba(0, 0, 0, 0.1)',
-                        },
-                    }, React.createElement('div', {
-                        style: {
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '50%',
-                            backgroundColor: conciergeData.avatarUrl ? 'transparent' : '#0073aa',
-                            backgroundImage: conciergeData.avatarUrl ? 'url(' + conciergeData.avatarUrl + ')' : 'none',
-                            backgroundSize: 'cover',
-                            backgroundPosition: 'center',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                            fontSize: '18px',
-                            fontWeight: 'bold',
-                            flexShrink: 0,
-                        },
-                    }, !conciergeData.avatarUrl && React.createElement('span', { 'aria-hidden': 'true' }, '\uD83C\uDFA7')), React.createElement('div', {
-                        style: {
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: '#333',
-                        },
-                    }, conciergeData.name)));
-                };
 
                 // WelcomeModal Component (inline)
                 const WelcomeModal = function({ userId, onClose }) {
